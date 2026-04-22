@@ -1,0 +1,20 @@
+{
+  "_comment": "Sample EntraConfig payload. Wrap inside POST /api/provision-users body as {tenant_id, client_id, client_secret, config: {...}}",
+  "prefix": "nyc-esri-gcc-",
+  "domain": "WWPS319.onmicrosoft.com",
+  "mode": "team",
+  "teams": 5,
+  "usersPerTeam": 10,
+  "adminUsers": 2,
+  "licenses": [
+    "M365_E3",
+    "COPILOT"
+  ],
+  "tapLifetime": 240,
+  "concurrency": 6,
+  "skipExisting": true,
+  "createTeamGroups": true,
+  "createAdminGroup": true,
+  "assignAdminRole": true,
+  "dryRun": false
+}

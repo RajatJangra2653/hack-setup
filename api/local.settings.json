@@ -1,0 +1,13 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "FUNCTIONS_WORKER_RUNTIME": "python",
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "AZURE_TENANT_ID": "",
+    "AZURE_CLIENT_ID": "",
+    "AZURE_CLIENT_SECRET": "",
+    "ONEDRIVE_CONCURRENCY": "8",
+    "ONEDRIVE_UPLOAD_SOURCE": "",
+    "ONEDRIVE_LOG_LEVEL": "INFO"
+  }
+}

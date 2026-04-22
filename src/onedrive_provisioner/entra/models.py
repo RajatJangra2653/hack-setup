@@ -1,0 +1,135 @@
+"""Models for Entra provisioning: input config, per-user plan, results."""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any, Dict, List, Optional
+
+
+class Status(str, Enum):
+    CREATED = "created"
+    EXISTING = "existing"  # already existed; idempotent skip
+    FAILED = "failed"
+    DRY_RUN = "dry_run"
+
+
+# Friendly license names → SKU partNumber substring(s) to match in /subscribedSkus.
+# We match any SKU whose skuPartNumber CONTAINS one of the listed tokens.
+# This handles tenant-specific suffixes (e.g. SPE_E3 vs SPE_E3_GOV).
+LICENSE_CATALOG: Dict[str, List[str]] = {
+    "M365_BUSINESS":   ["O365_BUSINESS_PREMIUM", "SPB"],
+    "M365_E3":         ["SPE_E3", "ENTERPRISEPACK"],
+    "M365_E5":         ["SPE_E5", "ENTERPRISEPREMIUM"],
+    "COPILOT":         ["Microsoft_365_Copilot", "COPILOT_FOR_MICROSOFT_365"],
+    "TEAMS_ESSENTIALS":["Teams_Ess", "TEAMS_ESSENTIALS"],
+    "TEAMS_PREMIUM":   ["Teams_Premium", "TEAMS_PREMIUM"],
+    "POWER_BI_PRO":    ["POWER_BI_PRO"],
+    "POWER_APPS":      ["POWERAPPS_PER_USER", "POWER_APPS"],
+    "COPILOT_STUDIO":  ["CCIBOTS_PRIVPREV_VIRAL", "Microsoft_Copilot_Studio_User", "COPILOT_STUDIO"],
+}
+
+
+@dataclass
+class EntraConfig:
+    prefix: str = "nyc-esri-gcc-"
+    domain: str = ""  # e.g. "WWPS319.onmicrosoft.com" — required
+    teams: int = 0
+    users_per_team: int = 10
+    mode: str = "team"  # "team" | "flat"
+    licenses: List[str] = field(default_factory=list)
+    admin_users: int = 0
+    tap_lifetime: int = 120  # minutes
+    dry_run: bool = False
+    skip_existing: bool = True
+    initial_password: Optional[str] = None  # auto-generated if None
+    create_team_groups: bool = True
+    create_admin_group: bool = True
+    assign_admin_role: bool = True  # Global Reader
+    # Phase A — metadata stamping (visible in Entra & search)
+    hack_name: str = ""           # e.g. "NYC Esri GCC Hack — Apr 2026"
+    created_by: str = ""          # free-form identifier of who ran provisioning
+    concurrency: int = 6          # surfaced from API into orchestrator
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "EntraConfig":
+        return cls(
+            prefix=d.get("prefix", cls.prefix),
+            domain=d.get("domain", ""),
+            teams=int(d.get("teams", 0)),
+            users_per_team=int(d.get("usersPerTeam", 10)),
+            mode=d.get("mode", "team"),
+            licenses=list(d.get("licenses", [])),
+            admin_users=int(d.get("adminUsers", 0)),
+            tap_lifetime=int(d.get("tapLifetime", 120)),
+            dry_run=bool(d.get("dryRun", False)),
+            skip_existing=bool(d.get("skipExisting", True)),
+            initial_password=d.get("initialPassword"),
+            create_team_groups=bool(d.get("createTeamGroups", True)),
+            create_admin_group=bool(d.get("createAdminGroup", True)),
+            assign_admin_role=bool(d.get("assignAdminRole", True)),
+            hack_name=d.get("hackName", "") or "",
+            created_by=d.get("createdBy", "") or "",
+            concurrency=int(d.get("concurrency", 6)),
+        )
+
+
+@dataclass
+class UserPlan:
+    """A single user to provision."""
+    upn: str
+    display_name: str
+    mail_nickname: str
+    is_admin: bool = False
+    team: Optional[str] = None  # e.g. "t04"
+
+
+@dataclass
+class UserProvisionResult:
+    user_principal_name: str
+    status: Status
+    user_id: Optional[str] = None
+    password: Optional[str] = None  # only set for newly-created users
+    tap: Optional[str] = None
+    tap_expires: Optional[str] = None
+    licenses: List[str] = field(default_factory=list)
+    groups: List[str] = field(default_factory=list)
+    is_admin: bool = False
+    message: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "userPrincipalName": self.user_principal_name,
+            "status": self.status.value,
+            "userId": self.user_id,
+            "password": self.password,
+            "tap": self.tap,
+            "tapExpires": self.tap_expires,
+            "licenses": self.licenses,
+            "groups": self.groups,
+            "isAdmin": self.is_admin,
+            "message": self.message,
+        }
+
+
+@dataclass
+class ProvisioningReport:
+    total_users: int
+    created: int
+    existing: int
+    failed: int
+    admins: int
+    groups_created: int
+    groups: List[str]
+    users: List[UserProvisionResult]
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "totalUsers": self.total_users,
+            "created": self.created,
+            "existing": self.existing,
+            "failed": self.failed,
+            "admins": self.admins,
+            "groupsCreated": self.groups_created,
+            "groups": self.groups,
+            "users": [u.to_dict() for u in self.users],
+        }

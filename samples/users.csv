@@ -1,0 +1,4 @@
+alice@contoso.onmicrosoft.com
+bob@contoso.onmicrosoft.com
+# Lines starting with '#' are ignored
+# carol@contoso.onmicrosoft.com

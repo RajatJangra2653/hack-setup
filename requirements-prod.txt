@@ -1,0 +1,14 @@
+# Production requirements for Azure App Service
+httpx>=0.27
+msal>=1.28
+click>=8.1
+pydantic>=2.6
+pydantic-settings>=2.2
+PyYAML>=6.0
+tenacity>=8.2
+anyio>=4.3
+structlog>=24.1
+azure-identity>=1.15
+azure-storage-blob>=12.19
+flask>=3.0
+gunicorn>=22.0
