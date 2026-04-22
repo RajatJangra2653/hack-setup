@@ -379,7 +379,8 @@
             <input type="password" id="ep-password" placeholder="Leave blank for auto-generated passwords" style="flex:1;" />
             <button class="btn btn-secondary btn-sm" type="button" onclick="const i=document.getElementById('ep-password');i.type=i.type==='password'?'text':'password';this.textContent=i.type==='password'?'👁':'🙈'">👁</button>
           </div>
-          <div class="hint" style="margin-top:4px;">If set, all users will get this password. Must force change on first login. If blank, each user gets a unique random password.</div>
+          <div class="hint" style="margin-top:4px;">If set, all users will get this password. If blank, each user gets a unique random password.</div>
+          <label style="display:flex;align-items:center;gap:6px;margin-top:6px;font-weight:400;font-size:13px;"><input type="checkbox" id="ep-forceChangePwd"> Force password change on first login</label>
         </div>
 
         <div class="row">
@@ -1681,6 +1682,7 @@ function _epCfg() {
     hackName: (document.getElementById('ep-hackName')||{}).value || '',
     createdBy: (document.getElementById('ep-createdBy')||{}).value || '',
     initialPassword: (document.getElementById('ep-password')||{}).value || '',
+    forceChangePassword: document.getElementById('ep-forceChangePwd').checked,
   };
 }
 

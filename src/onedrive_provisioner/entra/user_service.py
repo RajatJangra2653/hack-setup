@@ -27,11 +27,13 @@ def generate_password(length: int = 20) -> str:
 
 class UserService:
     def __init__(self, graph: GraphClient, *, default_password: Optional[str] = None,
-                 hack_name: str = "", created_by: str = "") -> None:
+                 hack_name: str = "", created_by: str = "",
+                 force_change_password: bool = False) -> None:
         self._g = graph
         self._default_password = default_password
         self._hack_name = hack_name
         self._created_by = created_by
+        self._force_change = force_change_password
 
     async def get_by_upn(self, upn: str) -> Optional[dict]:
         """Return user object or None if not found."""
@@ -54,7 +56,7 @@ class UserService:
             "mailNickname": plan.mail_nickname,
             "userPrincipalName": plan.upn,
             "passwordProfile": {
-                "forceChangePasswordNextSignIn": True,
+                "forceChangePasswordNextSignIn": self._force_change,
                 "password": password,
             },
             "usageLocation": "US",  # required for license assignment

@@ -79,7 +79,8 @@ class EntraOrchestrator:
             group_svc = GroupService(g, hack_name=cfg.hack_name, created_by=cfg.created_by)
             license_svc = LicenseService(g)
             user_svc = UserService(g, default_password=cfg.initial_password,
-                                   hack_name=cfg.hack_name, created_by=cfg.created_by)
+                                   hack_name=cfg.hack_name, created_by=cfg.created_by,
+                                   force_change_password=cfg.force_change_password)
             tap_svc = TapService(g, lifetime_minutes=cfg.tap_lifetime)
             role_svc = RoleService(g)
 

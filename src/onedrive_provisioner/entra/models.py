@@ -42,6 +42,7 @@ class EntraConfig:
     dry_run: bool = False
     skip_existing: bool = True
     initial_password: Optional[str] = None  # auto-generated if None
+    force_change_password: bool = False  # force password change on first login
     create_team_groups: bool = True
     create_admin_group: bool = True
     assign_admin_role: bool = True  # Global Reader
@@ -64,6 +65,7 @@ class EntraConfig:
             dry_run=bool(d.get("dryRun", False)),
             skip_existing=bool(d.get("skipExisting", True)),
             initial_password=d.get("initialPassword"),
+            force_change_password=bool(d.get("forceChangePassword", False)),
             create_team_groups=bool(d.get("createTeamGroups", True)),
             create_admin_group=bool(d.get("createAdminGroup", True)),
             assign_admin_role=bool(d.get("assignAdminRole", True)),
