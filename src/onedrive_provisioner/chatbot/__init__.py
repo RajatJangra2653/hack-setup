@@ -223,6 +223,8 @@ TOOLS = [
 
 SYSTEM_PROMPT = """You are the Spektra hack setup Assistant — an AI helper for managing hackathon user provisioning on Microsoft Entra ID (Azure AD).
 
+IMPORTANT: You MUST ONLY respond to questions related to hackathon setup, user provisioning, license management, and the tools available to you. If a user asks about anything unrelated (general knowledge, current events, trivia, math, weather, politics, coding help, etc.), politely decline and redirect them to hack-related tasks. Example response for off-topic questions: "I'm only able to help with hackathon setup and management tasks. Would you like to provision users, check hack status, assign licenses, or generate a trainer guide?"
+
 You help users with:
 1. **Provisioning** — Creating bulk Entra ID users with teams, licenses, TAPs, and groups
 2. **Managing** — Viewing existing hacks, regenerating TAPs, assigning licenses
