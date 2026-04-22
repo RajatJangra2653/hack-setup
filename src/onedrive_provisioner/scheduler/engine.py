@@ -128,6 +128,50 @@ class HackScheduler:
                 return j
         return None
 
+    def run_job_now(self, job_id: str) -> ScheduledJob:
+        """Immediately execute a pending job. Returns the updated job."""
+        with self._lock:
+            jobs = self._load_jobs()
+            job = None
+            for j in jobs:
+                if j.id == job_id:
+                    job = j
+                    break
+            if not job:
+                raise ValueError(f"Job {job_id} not found")
+            if job.status != "pending":
+                raise ValueError(f"Job {job_id} is {job.status}, not pending")
+
+            job.status = "running"
+            self._save_jobs(jobs)
+
+        try:
+            if job.job_type == "cleanup":
+                self._execute_cleanup(job)
+            elif job.job_type == "provision":
+                self._execute_provision(job)
+            elif job.job_type == "readonly":
+                self._execute_readonly(job)
+            job.status = "completed"
+            job.completed_at = datetime.now(timezone.utc).isoformat()
+            logger.info("Manual run: job %s (%s) completed for '%s'",
+                        job.id, job.job_type, job.hack_prefix)
+        except Exception as exc:
+            job.status = "failed"
+            job.error = str(exc)
+            job.completed_at = datetime.now(timezone.utc).isoformat()
+            logger.error("Manual run: job %s failed: %s", job.id, exc)
+
+        with self._lock:
+            jobs = self._load_jobs()
+            for i, j in enumerate(jobs):
+                if j.id == job_id:
+                    jobs[i] = job
+                    break
+            self._save_jobs(jobs)
+
+        return job
+
     def set_hack_end_date(self, prefix: str, end_date: str, creds: Dict[str, str],
                           subscription_ids: Optional[List[str]] = None,
                           readonly_date: Optional[str] = None,

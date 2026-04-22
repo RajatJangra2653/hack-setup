@@ -337,6 +337,9 @@ class DevHandler(SimpleHTTPRequestHandler):
             self._handle_check_permissions()
         elif self.path == "/api/grant-permissions":
             self._handle_grant_permissions()
+        elif self.path.startswith("/api/scheduled-hacks/") and self.path.endswith("/run"):
+            job_id = self.path.replace("/api/scheduled-hacks/", "").replace("/run", "")
+            self._handle_run_job_now(job_id)
         else:
             self._send_json({"error": "Not found"}, 404)
 
@@ -927,6 +930,18 @@ class DevHandler(SimpleHTTPRequestHandler):
             self._send_json({"message": "Job cancelled", "id": job_id})
         else:
             self._send_json({"error": "Job not found or not pending"}, 404)
+
+    def _handle_run_job_now(self, job_id):
+        scheduler = _get_scheduler()
+        if not scheduler:
+            self._send_json({"error": "Storage not configured"}, 503); return
+        try:
+            job = scheduler.run_job_now(job_id)
+            self._send_json({"message": f"Job {job.status}", "job": job.to_dict()})
+        except ValueError as exc:
+            self._send_json({"error": str(exc)}, 400)
+        except Exception as exc:
+            self._send_json({"error": str(exc)}, 500)
 
     def _handle_create_job(self):
         data = self._read_json()

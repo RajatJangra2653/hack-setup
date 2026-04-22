@@ -3376,7 +3376,7 @@ function _renderScheduledJobsTable(jobs) {
       <td>${esc((j.scheduled_at||'').substring(0,19))}</td>
       <td style="color:${statusColor};font-weight:600;">${esc(j.status)}</td>
       <td>${esc((j.created_at||'').substring(0,19))}</td>
-      <td>${j.status === 'pending' ? `<button class=\"btn btn-secondary btn-sm\" onclick=\"cancelScheduledJob('${esc(j.id)}')\">Cancel</button>` : (j.error ? `<span title=\"${esc(j.error)}\" style=\"cursor:help;\">⚠️</span>` : '')}</td>
+      <td>${j.status === 'pending' ? `<button class=\"btn btn-primary btn-sm\" onclick=\"runJobNow('${esc(j.id)}')\" style=\"margin-right:4px;\">▶ Run Now</button><button class=\"btn btn-secondary btn-sm\" onclick=\"cancelScheduledJob('${esc(j.id)}')\">Cancel</button>` : (j.error ? `<span title=\"${esc(j.error)}\" style=\"cursor:help;\">⚠️</span>` : '')}</td>
     </tr>`;
   }
   html += '</tbody></table>';
@@ -3390,6 +3390,26 @@ async function cancelScheduledJob(jobId) {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Failed');
     toast('Job cancelled', 'success');
+    loadAllScheduledJobs();
+    if (_managedHackState) loadScheduledJobsForHack();
+  } catch (e) {
+    toast('Error: ' + e.message, 'danger');
+  }
+}
+
+async function runJobNow(jobId) {
+  if (!confirm('Run this job immediately?')) return;
+  try {
+    const res = await fetch(`${API}/scheduled-hacks/${encodeURIComponent(jobId)}/run`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed');
+    if (data.job && data.job.status === 'completed') {
+      toast('Job completed successfully', 'success');
+    } else if (data.job && data.job.status === 'failed') {
+      toast('Job failed: ' + (data.job.error || 'Unknown error'), 'danger');
+    } else {
+      toast(data.message || 'Job executed', 'info');
+    }
     loadAllScheduledJobs();
     if (_managedHackState) loadScheduledJobsForHack();
   } catch (e) {

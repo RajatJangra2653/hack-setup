@@ -1223,6 +1223,21 @@ def cancel_scheduled_hack(job_id):
     return jsonify({"error": "Job not found or not pending"}), 404
 
 
+@app.route("/api/scheduled-hacks/<job_id>/run", methods=["POST"])
+def run_scheduled_hack_now(job_id):
+    """Immediately execute a pending scheduled job."""
+    scheduler = _get_scheduler()
+    if not scheduler:
+        return jsonify({"error": "Storage not configured"}), 503
+    try:
+        job = scheduler.run_job_now(job_id)
+        return jsonify({"message": f"Job {job.status}", "job": job.to_dict()})
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 # ────────────────────── Document Generation ──────────────────────
 
 @app.route("/api/generate-doc", methods=["POST"])
