@@ -72,7 +72,8 @@ az webapp config set `
 
 # 6) Create deployment zip
 Write-Host ">> Creating deployment package..." -ForegroundColor Yellow
-$zipPath = Join-Path $env:TEMP "onedrive-deploy.zip"
+$tempLong = (Get-Item $env:TEMP).FullName
+$zipPath = Join-Path $tempLong "onedrive-deploy.zip"
 if (Test-Path $zipPath) { Remove-Item $zipPath }
 
 # Copy requirements-prod.txt as requirements.txt for Azure Oryx build
@@ -94,7 +95,9 @@ $foldersToZip = @(
 )
 
 # Use a staging directory for clean zip
-$staging = Join-Path $env:TEMP "onedrive-staging"
+# Expand $env:TEMP to long path (it uses 8.3 short names, but Get-ChildItem returns long paths)
+$tempLong = (Get-Item $env:TEMP).FullName
+$staging = Join-Path $tempLong "onedrive-staging"
 if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }
 New-Item -ItemType Directory -Path $staging | Out-Null
 
@@ -111,6 +114,7 @@ foreach ($d in $foldersToZip) {
 # to ensure POSIX forward slashes (Linux compat).
 # (Both Compress-Archive AND ZipFile.CreateFromDirectory on Windows
 #  emit backslashes, which Linux extracts as literal filenames.)
+Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
 
