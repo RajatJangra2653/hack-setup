@@ -395,12 +395,8 @@
 
         <div id="ep-preview" class="hint" style="margin-top:8px;font-family:var(--font-mono);font-size:12px;"></div>
 
-        <!-- Optional scheduling (PST) -->
+        <!-- Optional lifecycle scheduling (PST) -->
         <div class="row" style="margin-top:12px;">
-          <div class="form-group">
-            <label for="ep-provisionDate">Provision Date/Time <span class="hint" style="font-weight:400;">(PST, optional — leave blank to run now)</span></label>
-            <input type="datetime-local" id="ep-provisionDate" />
-          </div>
           <div class="form-group">
             <label for="ep-readonlyDate">Read-Only Date/Time <span class="hint" style="font-weight:400;">(PST, optional)</span></label>
             <input type="datetime-local" id="ep-readonlyDate" />
@@ -429,8 +425,21 @@
         <div class="actions" style="margin-top:16px;">
           <button class="btn btn-secondary" onclick="withBusy(this, runPreflight)">🛡 Pre-flight check</button>
           <button id="ep-btnStart" class="btn btn-primary" onclick="withBusy(this, startProvision)">▶ Setup Hack</button>
+          <button class="btn btn-secondary" onclick="showScheduleHackDialog()" style="border-color:var(--primary);color:var(--primary);">📅 Schedule Hack</button>
           <span id="ep-spinner" class="hidden"><span class="spinner"></span></span>
           <span id="ep-progress" class="hint"></span>
+        </div>
+
+        <!-- Schedule Hack dialog -->
+        <div id="ep-scheduleDialog" class="hidden" style="margin-top:14px;padding:16px;border-radius:6px;border:2px solid var(--primary);background:#f0f4ff;">
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+            <div class="form-group" style="margin:0;">
+              <label for="ep-scheduleDate" style="font-weight:600;">Provision Date/Time <span class="hint" style="font-weight:400;">(PST)</span></label>
+              <input type="datetime-local" id="ep-scheduleDate" />
+            </div>
+            <button class="btn btn-primary" onclick="withBusy(this, scheduleHack)" style="margin-top:20px;">📅 Schedule</button>
+            <button class="btn btn-secondary btn-sm" onclick="document.getElementById('ep-scheduleDialog').classList.add('hidden')" style="margin-top:20px;">Cancel</button>
+          </div>
         </div>
 
         <div id="ep-preflightBox" class="hidden" style="margin-top:14px;padding:12px;border-radius:6px;border:1px solid var(--border);background:#fafbfc;">
@@ -1765,12 +1774,6 @@ async function startProvision() {
   if (!(await _ensureTenantDetected())) { toast('Could not detect tenant domain', 'danger'); return; }
   const cfg = _epCfg();
 
-  // Check if this is a scheduled provision
-  const provDateVal = (document.getElementById('ep-provisionDate') || {}).value || '';
-  if (provDateVal) {
-    return _scheduleProvision(creds, cfg, provDateVal);
-  }
-
   document.getElementById('ep-btnStart').disabled = true;
   document.getElementById('ep-spinner').classList.remove('hidden');
   document.getElementById('ep-progress').textContent = 'Starting…';
@@ -1835,6 +1838,28 @@ async function pollProvision() {
       }
     }
   } catch (e) { /* keep polling */ }
+}
+
+/* Show the Schedule Hack date picker */
+function showScheduleHackDialog() {
+  document.getElementById('ep-scheduleDialog').classList.remove('hidden');
+  const el = document.getElementById('ep-scheduleDate');
+  if (!el.value) {
+    // Default to tomorrow 9 AM
+    const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0);
+    el.value = d.toISOString().slice(0, 16);
+  }
+}
+
+/* Schedule hack for a future date */
+async function scheduleHack() {
+  const creds = getCreds();
+  if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
+  if (!(await _ensureTenantDetected())) { toast('Could not detect tenant domain', 'danger'); return; }
+  const cfg = _epCfg();
+  const provDateVal = (document.getElementById('ep-scheduleDate') || {}).value || '';
+  if (!provDateVal) { toast('Pick a date/time for provisioning', 'danger'); return; }
+  _scheduleProvision(creds, cfg, provDateVal);
 }
 
 /* Schedule provision for a future date */
