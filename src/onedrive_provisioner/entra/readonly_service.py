@@ -2,10 +2,17 @@
 Owner/Contributor → strip those and grant Reader instead."""
 from __future__ import annotations
 
+from collections import defaultdict
 from typing import Dict, List, Optional
 
 from ..logging_setup import get_logger
-from .rbac_service import ELEVATED_ROLE_IDS, ROLE_IDS, RbacService, role_definition_id
+from .rbac_service import (
+    ELEVATED_ROLE_IDS,
+    ROLE_IDS,
+    RbacService,
+    role_definition_id,
+    subscription_from_assignment,
+)
 
 logger = get_logger(__name__)
 
@@ -15,27 +22,60 @@ async def downgrade_principals_to_reader(
     subscription_ids: Optional[List[str]],
     principals: List[dict],   # [{id, type: "Group"|"User", displayName?}]
 ) -> List[dict]:
-    """For each (sub, principal): list assignments → remove Owner/Contributor →
-    ensure Reader. Returns per-principal report.
+    """For each principal: fetch ALL role assignments across subscriptions in
+    ONE API call, then only process the subscriptions where that principal has
+    assignments.  This is O(principals) instead of O(subs × principals).
 
-    If ``subscription_ids`` is empty / None, the SPN's accessible subscriptions are
-    auto-discovered and used as the candidate set. Only (sub, principal) pairs where
-    the principal actually has any role assignment are processed — this avoids
-    spamming Reader assignments on subs the principal never touched.
+    If ``subscription_ids`` is provided, results are filtered to only those subs.
     """
     reader_role_id_short = ROLE_IDS["Reader"].lower()
-    auto_discovered = False
-    if not subscription_ids:
-        subs_meta = await rbac.list_subscriptions()
-        subscription_ids = [s["subscriptionId"] for s in subs_meta if s.get("subscriptionId")]
-        auto_discovered = True
-        logger.info("readonly.subs.auto_discovered", count=len(subscription_ids))
+    allowed_subs: Optional[set] = None
+    if subscription_ids:
+        allowed_subs = {s.lower() for s in subscription_ids}
 
     out: List[dict] = []
-    for sub in subscription_ids:
-        for p in principals:
-            pid = p["id"]
-            ptype = p.get("type", "Group")
+    for p in principals:
+        pid = p["id"]
+        ptype = p.get("type", "Group")
+
+        # ── 1. Single API call: get ALL assignments for this principal ──
+        try:
+            all_assigns = await rbac.list_all_assignments_for_principal(pid)
+        except Exception as exc:
+            out.append({
+                "subscription": "*",
+                "principalId": pid,
+                "principalType": ptype,
+                "displayName": p.get("displayName"),
+                "removed": [],
+                "readerEnsured": False,
+                "errors": [f"bulk list failed: {exc}"],
+            })
+            continue
+
+        # ── 2. Group assignments by subscription ──
+        by_sub: Dict[str, list] = defaultdict(list)
+        for a in all_assigns:
+            sub = subscription_from_assignment(a)
+            if sub is None:
+                continue
+            # If caller specified subs, skip assignments outside that set
+            if allowed_subs and sub.lower() not in allowed_subs:
+                continue
+            by_sub[sub].append(a)
+
+        if not by_sub:
+            logger.info("readonly.principal.no_assignments",
+                        principal=pid, display=p.get("displayName"))
+            continue
+
+        logger.info("readonly.principal.subs_found",
+                    principal=pid,
+                    display=p.get("displayName"),
+                    subs=len(by_sub))
+
+        # ── 3. Process only the subs with assignments ──
+        for sub, assigns in by_sub.items():
             entry = {
                 "subscription": sub,
                 "principalId": pid,
@@ -45,18 +85,6 @@ async def downgrade_principals_to_reader(
                 "readerEnsured": False,
                 "errors": [],
             }
-            try:
-                assigns = await rbac.list_assignments_for_principal(sub, pid)
-            except Exception as exc:
-                entry["errors"].append(f"list failed: {exc}")
-                out.append(entry)
-                continue
-
-            # When subs were auto-discovered, skip subs where this principal has
-            # no assignment at all — avoids granting Reader on irrelevant subs.
-            if auto_discovered and not assigns:
-                continue
-
             has_reader = False
             for a in assigns:
                 role_def_id = (a.get("properties", {}).get("roleDefinitionId") or "").lower()

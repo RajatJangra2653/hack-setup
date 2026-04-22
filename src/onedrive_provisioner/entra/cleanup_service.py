@@ -1,11 +1,12 @@
 """Cleanup hack resources: delete users, delete groups, remove RBAC assignments."""
 from __future__ import annotations
 
+from collections import defaultdict
 from typing import Any, Dict, List, Optional
 
 from ..graph import GraphClient, GraphError
 from ..logging_setup import get_logger
-from .rbac_service import RbacService
+from .rbac_service import RbacService, subscription_from_assignment
 
 logger = get_logger(__name__)
 
@@ -40,17 +41,34 @@ async def remove_rbac_for_principals(
     subscription_ids: List[str],
     principal_ids: List[str],
 ) -> List[dict]:
-    """Remove all role assignments at the given subscription scopes for the
-    given principals. Returns list of {subscription, principal, removed:[arm_ids]}."""
+    """Remove all role assignments for the given principals.
+
+    Uses a single API call per principal to fetch ALL assignments across
+    subscriptions, then filters to the provided subscription_ids. Much faster
+    than iterating subs × principals when there are many subscriptions.
+    """
+    allowed_subs = {s.lower() for s in subscription_ids}
     out: List[dict] = []
-    for sub in subscription_ids:
-        for pid in principal_ids:
-            try:
-                assigns = await rbac.list_assignments_for_principal(sub, pid)
-            except Exception as exc:
-                out.append({"subscription": sub, "principal": pid,
-                            "error": f"list failed: {exc}"})
-                continue
+    for pid in principal_ids:
+        try:
+            all_assigns = await rbac.list_all_assignments_for_principal(pid)
+        except Exception as exc:
+            out.append({"subscription": "*", "principal": pid,
+                        "error": f"bulk list failed: {exc}"})
+            continue
+
+        # Group assignments by subscription, filtering to allowed subs
+        by_sub: Dict[str, list] = defaultdict(list)
+        for a in all_assigns:
+            sub = subscription_from_assignment(a)
+            if sub and sub.lower() in allowed_subs:
+                by_sub[sub].append(a)
+
+        if not by_sub:
+            logger.info("cleanup.rbac.no_assignments", principal=pid)
+            continue
+
+        for sub, assigns in by_sub.items():
             removed = []
             for a in assigns:
                 arm_id = a.get("id")

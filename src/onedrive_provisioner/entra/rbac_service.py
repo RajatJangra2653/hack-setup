@@ -29,6 +29,15 @@ ROLE_IDS = {
 ELEVATED_ROLE_IDS = {ROLE_IDS["Owner"], ROLE_IDS["Contributor"]}
 
 
+def subscription_from_assignment(assignment: dict) -> Optional[str]:
+    """Extract the subscription ID from a role assignment's ARM resource id."""
+    arm_id = assignment.get("id", "")
+    parts = arm_id.split("/subscriptions/")
+    if len(parts) > 1:
+        return parts[1].split("/")[0]
+    return None
+
+
 def role_definition_id(subscription_id: str, role_name: str) -> str:
     role_guid = ROLE_IDS.get(role_name)
     if not role_guid:
@@ -110,6 +119,26 @@ class RbacService:
                f"?api-version={ARM_API_VERSION}&$filter=principalId eq '{principal_id}'")
         resp = await self._client.get(url, headers=self._headers())
         if resp.status_code != 200:
+            return []
+        return resp.json().get("value", [])
+
+    async def list_all_assignments_for_principal(
+        self, principal_id: str
+    ) -> List[dict]:
+        """List ALL role assignments for a principal across every accessible
+        subscription in a single API call (root scope query).
+
+        Returns list of assignment objects. Each has an ``id`` field like
+        ``/subscriptions/{subId}/providers/Microsoft.Authorization/...``
+        from which the subscription can be extracted.
+        """
+        url = (f"{ARM_BASE}/providers/Microsoft.Authorization/roleAssignments"
+               f"?api-version={ARM_API_VERSION}&$filter=principalId eq '{principal_id}'")
+        resp = await self._client.get(url, headers=self._headers())
+        if resp.status_code != 200:
+            logger.warning("rbac.all_assignments.list_failed",
+                           principal=principal_id,
+                           status=resp.status_code, body=resp.text[:200])
             return []
         return resp.json().get("value", [])
 
