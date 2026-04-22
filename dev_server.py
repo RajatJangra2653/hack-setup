@@ -94,6 +94,7 @@ def _get_scheduler() -> HackScheduler | None:
         get_state_manager=_get_state_manager,
         run_provision=_scheduler_provision,
         run_cleanup=_scheduler_cleanup,
+        run_readonly=_scheduler_readonly,
     )
     _hack_scheduler.start()
     return _hack_scheduler
@@ -109,6 +110,22 @@ def _scheduler_provision(cfg_dict, tenant_id, client_id, client_secret):
     if mgr:
         state = HackStateManager.build_state_from_report(cfg_dict, report.to_dict())
         mgr.save_state(cfg_dict.get("prefix", "unknown"), state)
+
+
+def _scheduler_readonly(prefix, tenant_id, client_id, client_secret, subscription_ids=None, mode="team"):
+    sub_ids = subscription_ids or []
+    async def _do():
+        tp = MsalTokenProvider(AzureConfig(tenant_id=tenant_id, client_id=client_id, client_secret=client_secret))
+        async with GraphClient(tp) as g:
+            discovered = await DiscoveryService(g).discover(prefix)
+        users = discovered.get("users", [])
+        groups = discovered.get("groups", [])
+        principals = [{"id": u["id"], "type": "user", "displayName": u.get("displayName", "")} for u in users]
+        principals += [{"id": gr["id"], "type": "group", "displayName": gr.get("displayName", "")} for gr in groups]
+        if sub_ids and principals:
+            async with RbacService(tp) as rbac:
+                await downgrade_principals_to_reader(rbac, sub_ids, principals)
+    asyncio.run(_do())
 
 
 def _scheduler_cleanup(prefix, tenant_id, client_id, client_secret, subscription_ids=None):
@@ -841,19 +858,22 @@ class DevHandler(SimpleHTTPRequestHandler):
         end_date = (data.get("endDate") or "").strip()
         if not end_date:
             self._send_json({"error": "endDate is required (ISO datetime)"}, 400); return
+        readonly_date = (data.get("readonlyDate") or "").strip() or None
+        mode = data.get("mode") or "team"
         sub_ids = data.get("subscriptionIds") or []
         scheduler = _get_scheduler()
         if not scheduler:
             self._send_json({"error": "Storage not configured"}, 503); return
         try:
             t, c, s = creds
-            job = scheduler.set_hack_end_date(prefix, end_date, {
+            jobs = scheduler.set_hack_end_date(prefix, end_date, {
                 "tenant_id": t, "client_id": c, "client_secret": s,
-            }, subscription_ids=sub_ids)
+            }, subscription_ids=sub_ids, readonly_date=readonly_date, mode=mode)
             self._send_json({"message": f"End date set for '{prefix}'",
                              "endDate": end_date,
+                             "readonlyDate": readonly_date,
                              "subscriptionIds": sub_ids,
-                             "job": job.to_dict()})
+                             "jobs": [j.to_dict() for j in jobs]})
         except Exception as exc:
             self._send_json({"error": str(exc)}, 500)
 

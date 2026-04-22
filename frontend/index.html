@@ -134,7 +134,7 @@
   <div class="container">
     <!-- ────────── Mode Switcher ────────── -->
     <div class="tabs" style="margin-bottom:20px;flex-wrap:wrap;">
-      <div class="tab active" data-view="provision" onclick="switchView('provision')">👥 Provision Users</div>
+      <div class="tab active" data-view="provision" onclick="switchView('provision')">� Setup Hack</div>
       <div class="tab" data-view="permissions" onclick="switchView('permissions')">🔐 Assign Permissions</div>
       <div class="tab" data-view="upload" onclick="switchView('upload')">📤 Upload Files</div>
       <div class="tab" data-view="readonly" onclick="switchView('readonly')">👀 Read-Only Mode</div>
@@ -300,7 +300,7 @@
     <div id="view-provision">
 
       <div class="card">
-        <h2>Entra ID Bulk User Provisioning</h2>
+        <h2>Setup Hack</h2>
         <div class="hint" style="margin-bottom:12px">Create users in your tenant with Temporary Access Passes (TAP), licenses, and group membership. Naming pattern: <code>{prefix}{teamId}-{userId}@{domain}</code> for team mode, or <code>{prefix}{userId}@{domain}</code> for flat mode.</div>
 
         <div class="row">
@@ -395,9 +395,25 @@
 
         <div id="ep-preview" class="hint" style="margin-top:8px;font-family:var(--font-mono);font-size:12px;"></div>
 
+        <!-- Optional lifecycle scheduling (PST) -->
+        <div class="row" style="margin-top:12px;">
+          <div class="form-group">
+            <label for="ep-readonlyDate">Read-Only Date/Time <span class="hint" style="font-weight:400;">(PST, optional)</span></label>
+            <input type="datetime-local" id="ep-readonlyDate" />
+          </div>
+          <div class="form-group">
+            <label for="ep-endDate">End Date/Time <span class="hint" style="font-weight:400;">(PST, optional)</span></label>
+            <input type="datetime-local" id="ep-endDate" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="ep-scheduleSubs">Subscription IDs <span class="hint" style="font-weight:400;">(for RBAC, one per line, optional)</span></label>
+          <textarea id="ep-scheduleSubs" rows="2" placeholder="Paste Azure subscription IDs for RBAC readonly / cleanup"></textarea>
+        </div>
+
         <div class="actions" style="margin-top:16px;">
           <button class="btn btn-secondary" onclick="withBusy(this, runPreflight)">🛡 Pre-flight check</button>
-          <button id="ep-btnStart" class="btn btn-primary" onclick="withBusy(this, startProvision)">▶ Provision Users</button>
+          <button id="ep-btnStart" class="btn btn-primary" onclick="withBusy(this, startProvision)">▶ Setup Hack</button>
           <span id="ep-spinner" class="hidden"><span class="spinner"></span></span>
           <span id="ep-progress" class="hint"></span>
         </div>
@@ -425,7 +441,7 @@
 
       <div id="ep-resultCard" class="card hidden">
         <div style="display:flex;justify-content:space-between;align-items:center;">
-          <h2 style="margin:0">Provisioning Results</h2>
+          <h2 style="margin:0">Setup Results</h2>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
             <button id="ep-retryFailed" class="btn btn-secondary btn-sm hidden" onclick="retryFailedProvision()" style="border-color:var(--danger);color:var(--danger);">⟳ Retry Failed</button>
             <button class="btn btn-secondary btn-sm" onclick="downloadProvisionXlsx()">⬇ Excel (.xls)</button>
@@ -1793,9 +1809,52 @@ async function pollProvision() {
         toast('Provisioning failed: ' + (s.error || 'Unknown'), 'danger');
       } else {
         toast(`Done: ${(_entraReport && _entraReport.created) || 0} created`, 'success');
+        _autoScheduleLifecycle();
       }
     }
   } catch (e) { /* keep polling */ }
+}
+
+/* Auto-schedule readonly + cleanup jobs if dates were provided */
+async function _autoScheduleLifecycle() {
+  const endDateVal = (document.getElementById('ep-endDate') || {}).value || '';
+  const roDateVal = (document.getElementById('ep-readonlyDate') || {}).value || '';
+  if (!endDateVal) return; // no end date → nothing to schedule
+  const creds = getCreds();
+  if (!creds) return;
+  const prefix = (document.getElementById('ep-prefix') || {}).value.trim();
+  if (!prefix) return;
+  const mode = (document.getElementById('ep-mode') || {}).value || 'team';
+  const subsRaw = (document.getElementById('ep-scheduleSubs') || {}).value || '';
+  const subIds = subsRaw.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+  // Convert PST inputs to UTC ISO strings (PST = UTC-8)
+  function pstToUtc(localVal) {
+    // datetime-local gives "YYYY-MM-DDTHH:MM", treat as PST (UTC-8)
+    const d = new Date(localVal + ':00-08:00');
+    return d.toISOString();
+  }
+  const body = {
+    ...creds,
+    endDate: pstToUtc(endDateVal),
+    mode,
+    subscriptionIds: subIds,
+  };
+  if (roDateVal) body.readonlyDate = pstToUtc(roDateVal);
+  try {
+    const res = await fetch(`${API}/hack-state/${encodeURIComponent(prefix)}/set-end-date`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      const n = (data.jobs || []).length;
+      toast(`Scheduled ${n} lifecycle job(s) for "${prefix}"`, 'success');
+    } else {
+      toast('Failed to schedule lifecycle: ' + (data.error || ''), 'warn');
+    }
+  } catch (e) {
+    toast('Failed to schedule lifecycle: ' + e.message, 'warn');
+  }
 }
 
 function renderProvisionStats(s, report) {

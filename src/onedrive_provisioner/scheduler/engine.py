@@ -20,7 +20,7 @@ from typing import Any, Callable, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 JOBS_BLOB = "_scheduler/jobs.json"
-CHECK_INTERVAL = 60  # seconds
+CHECK_INTERVAL = 3600  # seconds (1 hour)
 
 
 @dataclass
@@ -54,17 +54,19 @@ class ScheduledJob:
 
 
 class HackScheduler:
-    """Background scheduler that processes due provision/cleanup jobs."""
+    """Background scheduler that processes due provision/cleanup/readonly jobs."""
 
     def __init__(
         self,
         get_state_manager: Callable,
         run_provision: Callable,  # (cfg_dict, tenant_id, client_id, client_secret) -> None
-        run_cleanup: Callable,    # (prefix, tenant_id, client_id, client_secret) -> dict
+        run_cleanup: Callable,    # (prefix, tenant_id, client_id, client_secret, subscription_ids) -> None
+        run_readonly: Callable = None,  # (prefix, tenant_id, client_id, client_secret, subscription_ids, mode) -> None
     ) -> None:
         self._get_mgr = get_state_manager
         self._run_provision = run_provision
         self._run_cleanup = run_cleanup
+        self._run_readonly = run_readonly
         self._lock = threading.Lock()
         self._thread: Optional[threading.Thread] = None
         self._running = False
@@ -127,44 +129,72 @@ class HackScheduler:
         return None
 
     def set_hack_end_date(self, prefix: str, end_date: str, creds: Dict[str, str],
-                          subscription_ids: Optional[List[str]] = None) -> ScheduledJob:
-        """Set an end date for a hack — creates a scheduled cleanup job.
+                          subscription_ids: Optional[List[str]] = None,
+                          readonly_date: Optional[str] = None,
+                          mode: str = "team") -> List[ScheduledJob]:
+        """Set end date (and optional read-only date) for a hack.
 
-        Also stores endDate on the hack state itself.
-        subscription_ids: Azure subscription IDs to clean up RBAC from.
+        Creates up to two scheduler jobs:
+        - readonly job at readonly_date (if provided)
+        - cleanup job at end_date
+
+        Also stores endDate / readonlyDate on the hack state itself.
+        subscription_ids: Azure subscription IDs for RBAC changes.
+        Returns list of created jobs.
         """
-        # Update hack state with endDate
+        # Update hack state
         mgr = self._get_mgr()
         if mgr:
             state = mgr.get_state(prefix)
             if state:
                 state["endDate"] = end_date
+                if readonly_date:
+                    state["readonlyDate"] = readonly_date
                 if subscription_ids:
                     state["subscriptionIds"] = subscription_ids
                 mgr.save_state(prefix, state, version=False)
 
-        # Cancel any existing pending cleanup for this prefix
+        # Cancel any existing pending cleanup/readonly for this prefix
         with self._lock:
             jobs = self._load_jobs()
             for j in jobs:
-                if (j.hack_prefix == prefix and j.job_type == "cleanup"
+                if (j.hack_prefix == prefix
+                        and j.job_type in ("cleanup", "readonly")
                         and j.status == "pending"):
                     j.status = "cancelled"
                     j.completed_at = datetime.now(timezone.utc).isoformat()
             self._save_jobs(jobs)
 
-        # Create new cleanup job
-        job = ScheduledJob(
+        created_jobs = []
+        base_cfg = {
+            "tenant_id": creds["tenant_id"],
+            "client_id": creds["client_id"],
+            "client_secret": creds["client_secret"],
+            "subscription_ids": subscription_ids or [],
+        }
+
+        # Read-only job (if date provided)
+        if readonly_date:
+            ro_job = ScheduledJob(
+                id=str(uuid.uuid4()),
+                job_type="readonly",
+                hack_prefix=prefix,
+                scheduled_at=readonly_date,
+                config={**base_cfg, "mode": mode},
+            )
+            created_jobs.append(self.add_job(ro_job))
+
+        # Cleanup job
+        cleanup_job = ScheduledJob(
             id=str(uuid.uuid4()),
             job_type="cleanup",
             hack_prefix=prefix,
             scheduled_at=end_date,
-            config={"tenant_id": creds["tenant_id"],
-                    "client_id": creds["client_id"],
-                    "client_secret": creds["client_secret"],
-                    "subscription_ids": subscription_ids or []},
+            config=base_cfg,
         )
-        return self.add_job(job)
+        created_jobs.append(self.add_job(cleanup_job))
+
+        return created_jobs
 
     def schedule_provision(self, scheduled_at: str, config: Dict[str, Any],
                            creds: Dict[str, str]) -> ScheduledJob:
@@ -229,6 +259,8 @@ class HackScheduler:
                         self._execute_cleanup(job)
                     elif job.job_type == "provision":
                         self._execute_provision(job)
+                    elif job.job_type == "readonly":
+                        self._execute_readonly(job)
                     job.status = "completed"
                     job.completed_at = datetime.now(timezone.utc).isoformat()
                     logger.info("Scheduler job %s (%s) completed for '%s'",
@@ -252,6 +284,21 @@ class HackScheduler:
             raise ValueError("Missing SPN credentials in scheduled cleanup job")
         sub_ids = cfg.get("subscription_ids", [])
         self._run_cleanup(job.hack_prefix, t, c, s, subscription_ids=sub_ids)
+
+    def _execute_readonly(self, job: ScheduledJob) -> None:
+        """Switch a hack to read-only mode."""
+        cfg = job.config
+        t = cfg.get("tenant_id", "")
+        c = cfg.get("client_id", "")
+        s = cfg.get("client_secret", "")
+        if not all([t, c, s]):
+            raise ValueError("Missing SPN credentials in scheduled readonly job")
+        if not self._run_readonly:
+            raise ValueError("No readonly handler configured")
+        sub_ids = cfg.get("subscription_ids", [])
+        mode = cfg.get("mode", "team")
+        self._run_readonly(job.hack_prefix, t, c, s,
+                           subscription_ids=sub_ids, mode=mode)
 
     def _execute_provision(self, job: ScheduledJob) -> None:
         """Run provisioning for a scheduled hack."""

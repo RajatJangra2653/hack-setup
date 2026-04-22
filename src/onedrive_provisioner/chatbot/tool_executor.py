@@ -316,8 +316,10 @@ class ToolExecutor:
         return results
 
     def _tool_set_hack_end_date(self, prefix: str, end_date: str,
-                                 subscription_ids: list = None) -> Any:
-        """Set an auto-cleanup end date for a hack."""
+                                 subscription_ids: list = None,
+                                 readonly_date: str = None,
+                                 mode: str = "team") -> Any:
+        """Set an auto-cleanup (and optional read-only) end date for a hack."""
         from onedrive_provisioner.scheduler import HackScheduler
         mgr = self._get_mgr()
         if not mgr:
@@ -330,15 +332,18 @@ class ToolExecutor:
             get_state_manager=self._get_mgr,
             run_provision=lambda *a: None,
             run_cleanup=lambda *a: None,
+            run_readonly=lambda *a, **kw: None,
         )
         t, c, s = self._creds
-        job = scheduler.set_hack_end_date(prefix, end_date, {
+        jobs = scheduler.set_hack_end_date(prefix, end_date, {
             "tenant_id": t, "client_id": c, "client_secret": s,
-        }, subscription_ids=subscription_ids or [])
+        }, subscription_ids=subscription_ids or [],
+           readonly_date=readonly_date, mode=mode)
         return {"message": f"End date set to {end_date} for '{prefix}'",
                 "endDate": end_date,
+                "readonlyDate": readonly_date,
                 "subscriptionIds": subscription_ids or [],
-                "job": job.to_dict()}
+                "jobs": [j.to_dict() for j in jobs]}
 
     def _tool_schedule_hack_provision(self, scheduled_at: str, config: dict) -> Any:
         """Schedule a hack to be provisioned at a future date."""

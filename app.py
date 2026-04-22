@@ -94,6 +94,7 @@ def _get_scheduler() -> HackScheduler | None:
         get_state_manager=_get_state_manager,
         run_provision=_scheduler_provision,
         run_cleanup=_scheduler_cleanup,
+        run_readonly=_scheduler_readonly,
     )
     _hack_scheduler.start()
     return _hack_scheduler
@@ -111,6 +112,27 @@ def _scheduler_provision(cfg_dict: dict, tenant_id: str, client_id: str, client_
     if mgr:
         state = HackStateManager.build_state_from_report(cfg_dict, report.to_dict())
         mgr.save_state(cfg_dict.get("prefix", "unknown"), state)
+
+
+def _scheduler_readonly(prefix: str, tenant_id: str, client_id: str, client_secret: str,
+                        subscription_ids: list = None, mode: str = "team"):
+    """Called by scheduler to switch a hack to read-only mode (runs in scheduler thread).
+
+    Discovers principals by prefix and downgrades them to Reader role.
+    """
+    sub_ids = subscription_ids or []
+    async def _do():
+        tp = _make_token_provider(tenant_id, client_id, client_secret)
+        async with GraphClient(tp) as g:
+            discovered = await DiscoveryService(g).discover(prefix)
+        users = discovered.get("users", [])
+        groups = discovered.get("groups", [])
+        principals = [{"id": u["id"], "type": "user", "displayName": u.get("displayName", "")} for u in users]
+        principals += [{"id": gr["id"], "type": "group", "displayName": gr.get("displayName", "")} for gr in groups]
+        if sub_ids and principals:
+            async with RbacService(tp) as rbac:
+                await downgrade_principals_to_reader(rbac, sub_ids, principals)
+    asyncio.run(_do())
 
 
 def _scheduler_cleanup(prefix: str, tenant_id: str, client_id: str, client_secret: str,
@@ -1050,9 +1072,10 @@ async def _async_assign_licenses(t, c, s, *, state, licenses, target_upns):
 
 @app.route("/api/hack-state/<prefix>/set-end-date", methods=["POST"])
 def set_hack_end_date(prefix):
-    """Set an end date for auto-cleanup of a hack.
+    """Set end date (and optional read-only date) for auto-lifecycle of a hack.
 
     Body: { tenant_id, client_id, client_secret, endDate: "2025-02-01T00:00:00Z",
+            readonlyDate?: "2025-01-31T00:00:00Z", mode?: "team",
             subscriptionIds?: ["sub-id-1", ...] }
     """
     data = request.get_json(silent=True) or {}
@@ -1062,6 +1085,8 @@ def set_hack_end_date(prefix):
     end_date = (data.get("endDate") or "").strip()
     if not end_date:
         return jsonify({"error": "endDate is required (ISO datetime)"}), 400
+    readonly_date = (data.get("readonlyDate") or "").strip() or None
+    mode = data.get("mode") or "team"
     sub_ids = data.get("subscriptionIds") or []
 
     scheduler = _get_scheduler()
@@ -1070,13 +1095,14 @@ def set_hack_end_date(prefix):
 
     try:
         t, c, s = creds
-        job = scheduler.set_hack_end_date(prefix, end_date, {
+        jobs = scheduler.set_hack_end_date(prefix, end_date, {
             "tenant_id": t, "client_id": c, "client_secret": s,
-        }, subscription_ids=sub_ids)
+        }, subscription_ids=sub_ids, readonly_date=readonly_date, mode=mode)
         return jsonify({"message": f"End date set for '{prefix}'",
                         "endDate": end_date,
+                        "readonlyDate": readonly_date,
                         "subscriptionIds": sub_ids,
-                        "job": job.to_dict()})
+                        "jobs": [j.to_dict() for j in jobs]})
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
