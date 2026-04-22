@@ -327,6 +327,8 @@ class DevHandler(SimpleHTTPRequestHandler):
             self._handle_set_end_date(prefix)
         elif self.path == "/api/schedule-hack":
             self._handle_schedule_hack()
+        elif self.path == "/api/create-job":
+            self._handle_create_job()
         elif self.path == "/api/chat":
             self._handle_chat()
         elif self.path == "/api/generate-doc":
@@ -925,6 +927,51 @@ class DevHandler(SimpleHTTPRequestHandler):
             self._send_json({"message": "Job cancelled", "id": job_id})
         else:
             self._send_json({"error": "Job not found or not pending"}, 404)
+
+    def _handle_create_job(self):
+        data = self._read_json()
+        creds = self._creds(data)
+        if not creds:
+            self._send_json({"error": "Missing SPN credentials"}, 400); return
+        job_type = (data.get("jobType") or "").strip()
+        if job_type not in ("provision", "readonly", "cleanup"):
+            self._send_json({"error": "jobType must be provision, readonly, or cleanup"}, 400); return
+        scheduled_at = (data.get("scheduledAt") or "").strip()
+        if not scheduled_at:
+            self._send_json({"error": "scheduledAt is required (ISO datetime)"}, 400); return
+        hack_prefix = (data.get("hackPrefix") or "").strip()
+        if not hack_prefix:
+            self._send_json({"error": "hackPrefix is required"}, 400); return
+        scheduler = _get_scheduler()
+        if not scheduler:
+            self._send_json({"error": "Storage not configured"}, 503); return
+        t, c, s = creds
+        sub_ids = data.get("subscriptionIds") or []
+        try:
+            if job_type == "provision":
+                config = data.get("config") or {}
+                config["prefix"] = hack_prefix
+                job = scheduler.schedule_provision(scheduled_at, config, {
+                    "tenant_id": t, "client_id": c, "client_secret": s,
+                })
+            else:
+                cfg = {
+                    "tenant_id": t, "client_id": c, "client_secret": s,
+                    "subscription_ids": sub_ids,
+                }
+                if job_type == "readonly":
+                    cfg["mode"] = data.get("mode") or "team"
+                job = ScheduledJob(
+                    id="",
+                    job_type=job_type,
+                    hack_prefix=hack_prefix,
+                    scheduled_at=scheduled_at,
+                    config=cfg,
+                )
+                job = scheduler.add_job(job)
+            self._send_json({"message": f"{job_type} job scheduled", "job": job.to_dict()}, 201)
+        except Exception as exc:
+            self._send_json({"error": str(exc)}, 500)
 
     def _handle_tenant_info(self):
         data = self._read_json()

@@ -1107,6 +1107,67 @@ def set_hack_end_date(prefix):
         return jsonify({"error": str(exc)}), 500
 
 
+@app.route("/api/create-job", methods=["POST"])
+def create_job():
+    """Create a scheduled job (provision, readonly, or cleanup).
+
+    Body: { tenant_id, client_id, client_secret,
+            jobType: "provision"|"readonly"|"cleanup",
+            scheduledAt: "2025-02-01T09:00:00Z",
+            hackPrefix: "nyc-esri-gcc",
+            subscriptionIds?: ["sub-id-1", ...],
+            mode?: "team",
+            config?: { ... }  // for provision jobs
+          }
+    """
+    data = request.get_json(silent=True) or {}
+    creds = _extract_creds(data)
+    if not creds:
+        return jsonify({"error": "Missing SPN credentials"}), 400
+    job_type = (data.get("jobType") or "").strip()
+    if job_type not in ("provision", "readonly", "cleanup"):
+        return jsonify({"error": "jobType must be provision, readonly, or cleanup"}), 400
+    scheduled_at = (data.get("scheduledAt") or "").strip()
+    if not scheduled_at:
+        return jsonify({"error": "scheduledAt is required (ISO datetime)"}), 400
+    hack_prefix = (data.get("hackPrefix") or "").strip()
+    if not hack_prefix:
+        return jsonify({"error": "hackPrefix is required"}), 400
+
+    scheduler = _get_scheduler()
+    if not scheduler:
+        return jsonify({"error": "Storage not configured"}), 503
+
+    t, c, s = creds
+    sub_ids = data.get("subscriptionIds") or []
+
+    try:
+        if job_type == "provision":
+            config = data.get("config") or {}
+            config["prefix"] = hack_prefix
+            job = scheduler.schedule_provision(scheduled_at, config, {
+                "tenant_id": t, "client_id": c, "client_secret": s,
+            })
+        else:
+            cfg = {
+                "tenant_id": t, "client_id": c, "client_secret": s,
+                "subscription_ids": sub_ids,
+            }
+            if job_type == "readonly":
+                cfg["mode"] = data.get("mode") or "team"
+            job = ScheduledJob(
+                id="",
+                job_type=job_type,
+                hack_prefix=hack_prefix,
+                scheduled_at=scheduled_at,
+                config=cfg,
+            )
+            job = scheduler.add_job(job)
+        return jsonify({"message": f"{job_type} job scheduled", "job": job.to_dict()}), 201
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 @app.route("/api/scheduled-hacks", methods=["GET"])
 def list_scheduled_hacks():
     """List all scheduled jobs (provision + cleanup)."""

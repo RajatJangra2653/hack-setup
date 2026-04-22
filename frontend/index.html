@@ -864,8 +864,62 @@
 
       <div class="card" style="margin-top:16px;">
         <h3>📅 All Scheduled Jobs</h3>
-        <p class="hint">View and manage all scheduled provisioning and auto-cleanup jobs.</p>
-        <button class="btn btn-secondary btn-sm" onclick="withBusy(this, loadAllScheduledJobs)">🔄 Load Scheduled Jobs</button>
+        <p class="hint">View and manage all scheduled provisioning, read-only, and cleanup jobs.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-secondary btn-sm" onclick="withBusy(this, loadAllScheduledJobs)">🔄 Load Scheduled Jobs</button>
+          <button class="btn btn-primary btn-sm" onclick="toggleCreateJobForm()">➕ Create Scheduled Job</button>
+        </div>
+
+        <!-- Create Job Form -->
+        <div id="sj-createForm" class="hidden" style="margin-top:14px;padding:16px;border-radius:8px;border:2px solid var(--primary);background:#f0f4ff;">
+          <h4 style="margin-top:0;">Create Scheduled Job</h4>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div class="form-group" style="margin:0;">
+              <label for="sj-jobType" style="font-weight:600;">Job Type</label>
+              <select id="sj-jobType" onchange="onJobTypeChange()">
+                <option value="provision">🚀 Provision</option>
+                <option value="readonly">🔒 Read-Only</option>
+                <option value="cleanup">🧹 Cleanup</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin:0;">
+              <label for="sj-scheduleDate" style="font-weight:600;">Scheduled Date/Time <span class="hint" style="font-weight:400;">(PST)</span></label>
+              <input type="datetime-local" id="sj-scheduleDate" />
+            </div>
+          </div>
+
+          <!-- Hack prefix — for readonly & cleanup -->
+          <div id="sj-prefixGroup" class="hidden" style="margin-top:10px;">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+              <div class="form-group" style="margin:0;">
+                <label for="sj-hackPrefix" style="font-weight:600;">Hack Prefix</label>
+                <input type="text" id="sj-hackPrefix" placeholder="e.g. nyc-esri-gcc" />
+              </div>
+              <div class="form-group" style="margin:0;">
+                <label for="sj-subs" style="font-weight:600;">Subscription IDs <span class="hint" style="font-weight:400;">(optional)</span></label>
+                <textarea id="sj-subs" rows="2" placeholder="One per line (for RBAC operations)" style="font-size:12px;font-family:monospace;"></textarea>
+              </div>
+            </div>
+            <div id="sj-modeGroup" class="form-group" style="margin:8px 0 0;">
+              <label for="sj-mode" style="font-weight:600;">Read-Only Mode</label>
+              <select id="sj-mode" style="width:150px;">
+                <option value="team">Team</option>
+                <option value="flat">Flat</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Provision config — for provision jobs -->
+          <div id="sj-provisionGroup" style="margin-top:10px;">
+            <p class="hint" style="margin:0 0 4px;">Provision config is inherited from the <strong>Setup Hack</strong> tab. Fill out that form first, then schedule here.</p>
+          </div>
+
+          <div style="display:flex;gap:8px;margin-top:14px;">
+            <button class="btn btn-primary" onclick="withBusy(this, createScheduledJob)">📅 Create Job</button>
+            <button class="btn btn-secondary btn-sm" onclick="toggleCreateJobForm()">Cancel</button>
+          </div>
+        </div>
+
         <div id="mh-allScheduledJobs" style="margin-top:10px;font-size:13px;max-height:300px;overflow:auto;"></div>
       </div>
     </div><!-- /view-manage -->
@@ -1508,10 +1562,19 @@ function renderDetail(job) {
 function closeDetail() { document.getElementById('jobDetail').classList.add('hidden'); }
 
 function switchTab(el) {
-  el.parentElement.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  const tabBar = el.parentElement;
+  tabBar.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   el.classList.add('active');
+  const target = el.dataset.tab;
+  // Find the container holding the tab-content divs (sibling level of the tab bar)
+  const container = tabBar.parentElement;
+  container.querySelectorAll('[data-tab-content]').forEach(div => {
+    div.classList.toggle('hidden', div.dataset.tabContent !== target);
+  });
+  // Legacy fallback for old tab-* id approach
   ['users','files','raw'].forEach(t => {
-    document.getElementById('tab-'+t).classList.toggle('hidden', t !== el.dataset.tab);
+    const old = document.getElementById('tab-' + t);
+    if (old) old.classList.toggle('hidden', t !== target);
   });
 }
 
@@ -3296,6 +3359,86 @@ async function cancelScheduledJob(jobId) {
     toast('Job cancelled', 'success');
     loadAllScheduledJobs();
     if (_managedHackState) loadScheduledJobsForHack();
+  } catch (e) {
+    toast('Error: ' + e.message, 'danger');
+  }
+}
+
+function toggleCreateJobForm() {
+  const form = document.getElementById('sj-createForm');
+  form.classList.toggle('hidden');
+  if (!form.classList.contains('hidden')) {
+    // Default schedule to tomorrow 9 AM
+    const el = document.getElementById('sj-scheduleDate');
+    if (!el.value) {
+      const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0);
+      el.value = d.toISOString().slice(0, 16);
+    }
+    onJobTypeChange();
+  }
+}
+
+function onJobTypeChange() {
+  const jobType = document.getElementById('sj-jobType').value;
+  const prefixGroup = document.getElementById('sj-prefixGroup');
+  const provGroup = document.getElementById('sj-provisionGroup');
+  const modeGroup = document.getElementById('sj-modeGroup');
+  if (jobType === 'provision') {
+    prefixGroup.classList.add('hidden');
+    provGroup.classList.remove('hidden');
+  } else {
+    prefixGroup.classList.remove('hidden');
+    provGroup.classList.add('hidden');
+  }
+  // Show mode selector only for readonly
+  modeGroup.classList.toggle('hidden', jobType !== 'readonly');
+}
+
+async function createScheduledJob() {
+  const creds = getCreds();
+  if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
+
+  const jobType = document.getElementById('sj-jobType').value;
+  const dateVal = document.getElementById('sj-scheduleDate').value;
+  if (!dateVal) { toast('Pick a date/time', 'danger'); return; }
+
+  // Convert PST to UTC
+  const scheduledAt = new Date(dateVal + ':00-08:00').toISOString();
+  if (new Date(scheduledAt) <= new Date()) {
+    toast('Scheduled date must be in the future', 'danger');
+    return;
+  }
+
+  let hackPrefix, body;
+  if (jobType === 'provision') {
+    // Use config from Setup Hack tab
+    if (!(await _ensureTenantDetected())) { toast('Could not detect tenant domain', 'danger'); return; }
+    const cfg = _epCfg();
+    if (!cfg.prefix) { toast('Fill in hack prefix on the Setup Hack tab first', 'danger'); return; }
+    hackPrefix = cfg.prefix;
+    body = { ...creds, jobType, scheduledAt, hackPrefix, config: cfg };
+  } else {
+    hackPrefix = document.getElementById('sj-hackPrefix').value.trim();
+    if (!hackPrefix) { toast('Enter a hack prefix', 'danger'); return; }
+    const subsRaw = document.getElementById('sj-subs').value;
+    const subIds = subsRaw.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+    body = { ...creds, jobType, scheduledAt, hackPrefix, subscriptionIds: subIds };
+    if (jobType === 'readonly') {
+      body.mode = document.getElementById('sj-mode').value;
+    }
+  }
+
+  try {
+    const res = await fetch(`${API}/create-job`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed');
+    toast(`${jobType} job created for ${hackPrefix}`, 'success');
+    document.getElementById('sj-createForm').classList.add('hidden');
+    loadAllScheduledJobs();
   } catch (e) {
     toast('Error: ' + e.message, 'danger');
   }
