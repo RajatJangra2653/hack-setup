@@ -888,7 +888,10 @@
             </div>
             <div class="form-group" style="margin:0;">
               <label for="sj-hackPrefix" style="font-weight:600;">Hack Prefix</label>
-              <input type="text" id="sj-hackPrefix" placeholder="e.g. nyc-esri-gcc" />
+              <select id="sj-hackPrefix">
+                <option value="">— Loading hacks… —</option>
+              </select>
+              <input type="text" id="sj-hackPrefixCustom" placeholder="Or type custom prefix" style="margin-top:4px;font-size:12px;" />
             </div>
             <div class="form-group" style="margin:0;">
               <label for="sj-scheduleDate" style="font-weight:600;">Scheduled Date/Time <span class="hint" style="font-weight:400;">(PST)</span></label>
@@ -3429,8 +3432,27 @@ function toggleCreateJobForm() {
       el.value = d.toISOString().slice(0, 16);
     }
     onJobTypeChange();
+    _loadHackPrefixes();
   } else {
     btn.textContent = 'Show Form';
+  }
+}
+
+async function _loadHackPrefixes() {
+  const sel = document.getElementById('sj-hackPrefix');
+  sel.innerHTML = '<option value="">— Loading… —</option>';
+  try {
+    const res = await fetch(`${API}/hack-state`);
+    const hacks = await res.json();
+    if (!res.ok) throw new Error(hacks.error || 'Failed');
+    let html = '<option value="">— Select a hack —</option>';
+    for (const h of hacks) {
+      const label = h.hackName ? `${h.prefix} (${h.hackName})` : h.prefix;
+      html += `<option value="${esc(h.prefix)}">${esc(label)}</option>`;
+    }
+    sel.innerHTML = html;
+  } catch (e) {
+    sel.innerHTML = '<option value="">— Failed to load —</option>';
   }
 }
 
@@ -3450,7 +3472,7 @@ async function createScheduledJob() {
   const dateVal = document.getElementById('sj-scheduleDate').value;
   if (!dateVal) { toast('Pick a date/time', 'danger'); return; }
 
-  const hackPrefix = document.getElementById('sj-hackPrefix').value.trim();
+  const hackPrefix = document.getElementById('sj-hackPrefix').value.trim() || document.getElementById('sj-hackPrefixCustom').value.trim();
   if (!hackPrefix) { toast('Enter a hack prefix', 'danger'); return; }
 
   // Convert PST to UTC
