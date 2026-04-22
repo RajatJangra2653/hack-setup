@@ -378,9 +378,10 @@
         <div class="form-group">
           <label for="ep-password">Initial Password <span class="hint" style="font-weight:400;">(optional — leave blank for random)</span></label>
           <div style="display:flex;gap:6px;">
-            <input type="password" id="ep-password" placeholder="Leave blank for auto-generated passwords" style="flex:1;" />
+            <input type="password" id="ep-password" placeholder="Leave blank for auto-generated passwords" style="flex:1;" oninput="validatePassword(this.value)" />
             <button class="btn btn-secondary btn-sm" type="button" onclick="const i=document.getElementById('ep-password');i.type=i.type==='password'?'text':'password';this.textContent=i.type==='password'?'👁':'🙈'">👁</button>
           </div>
+          <div id="ep-pwdStrength" class="hidden" style="margin-top:6px;font-size:12px;line-height:1.6;"></div>
           <div class="hint" style="margin-top:4px;">If set, all users will get this password. If blank, each user gets a unique random password.</div>
           <label style="display:flex;align-items:center;gap:6px;margin-top:6px;font-weight:400;font-size:13px;"><input type="checkbox" id="ep-forceChangePwd"> Force password change on first login</label>
         </div>
@@ -1972,6 +1973,49 @@ function _updateProgressCard(processed, total, partial) {
 }
 
 function updateProvisionPreview() {
+
+// ──────────── Password validation ────────────
+function _isPasswordValid(pwd) {
+  if (pwd.length < 8) return false;
+  let categories = 0;
+  if (/[a-z]/.test(pwd)) categories++;
+  if (/[A-Z]/.test(pwd)) categories++;
+  if (/[0-9]/.test(pwd)) categories++;
+  if (/[^a-zA-Z0-9]/.test(pwd)) categories++;
+  return categories >= 3;
+}
+
+function validatePassword(pwd) {
+  const box = document.getElementById('ep-pwdStrength');
+  if (!pwd) { box.classList.add('hidden'); return; }
+  box.classList.remove('hidden');
+
+  const hasLower = /[a-z]/.test(pwd);
+  const hasUpper = /[A-Z]/.test(pwd);
+  const hasDigit = /[0-9]/.test(pwd);
+  const hasSpecial = /[^a-zA-Z0-9]/.test(pwd);
+  const hasLength = pwd.length >= 8;
+  const categories = [hasLower, hasUpper, hasDigit, hasSpecial].filter(Boolean).length;
+  const valid = hasLength && categories >= 3;
+
+  const icon = (ok) => ok ? '<span style="color:var(--success);">✅</span>' : '<span style="color:var(--danger);">❌</span>';
+  box.innerHTML = `
+    <div style="padding:8px 12px;border-radius:6px;border:1px solid ${valid ? 'var(--success)' : 'var(--danger)'};background:${valid ? '#f0fff0' : '#fff5f5'};">
+      <div style="font-weight:600;margin-bottom:4px;color:${valid ? 'var(--success)' : 'var(--danger)'};">
+        ${valid ? '✅ Password meets requirements' : '⚠ Password does not meet Azure AD requirements'}
+      </div>
+      <div>${icon(hasLength)} At least 8 characters (${pwd.length})</div>
+      <div style="margin-top:2px;">Must contain at least 3 of 4 categories (${categories}/4):</div>
+      <div style="padding-left:12px;">
+        ${icon(hasLower)} Lowercase letter &nbsp;
+        ${icon(hasUpper)} Uppercase letter &nbsp;
+        ${icon(hasDigit)} Digit &nbsp;
+        ${icon(hasSpecial)} Special character
+      </div>
+    </div>`;
+}
+
+function updateProvisionPreview() {
   const c = _epCfg();
   const teamsInput = document.getElementById('ep-teams');
   const teamsLabel = document.getElementById('ep-teams-label');
@@ -1998,6 +2042,11 @@ function updateProvisionPreview() {
 async function startProvision() {
   const creds = getCreds();
   if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
+  const pwdVal = (document.getElementById('ep-password') || {}).value || '';
+  if (pwdVal && !_isPasswordValid(pwdVal)) {
+    toast('Password does not meet Azure AD complexity requirements. Fix it or leave blank for auto-generated.', 'danger');
+    return;
+  }
   if (!(await _ensureTenantDetected())) { toast('Could not detect tenant domain', 'danger'); return; }
   const cfg = _epCfg();
 
