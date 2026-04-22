@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>OneDrive Provisioner</title>
+  <title>Spektra hack setup</title>
   <style>
     :root {
       --primary: #0078d4;
@@ -127,7 +127,7 @@
   <header>
     <div class="container">
       <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
-      <h1>OneDrive Provisioner</h1>
+      <h1>Spektra hack setup</h1>
     </div>
   </header>
 
@@ -140,6 +140,7 @@
       <div class="tab" data-view="readonly" onclick="switchView('readonly')">👀 Read-Only Mode</div>
       <div class="tab" data-view="cleanup" onclick="switchView('cleanup')">🗑️ Cleanup Hack</div>
       <div class="tab" data-view="manage" onclick="switchView('manage')">📋 Manage Hack</div>
+      <div class="tab" data-view="chat" onclick="switchView('chat')">🤖 Chat</div>
     </div>
 
     <!-- ────────── SPN Credentials Card ────────── -->
@@ -710,6 +711,7 @@
             <div style="margin-top:8px;">
               <button class="btn btn-secondary btn-sm" onclick="downloadManagedHackExcel()">📊 Export Excel</button>
               <button class="btn btn-secondary btn-sm" onclick="downloadManagedHackCsv()">📄 Export CSV</button>
+              <button class="btn btn-primary btn-sm" onclick="generateAdminGuide()">📝 Generate Admin Guide</button>
             </div>
           </div>
 
@@ -775,9 +777,39 @@
       </div>
     </div><!-- /view-manage -->
 
+    <!-- ────────── Chat View ────────── -->
+    <div id="view-chat" class="hidden">
+      <h2>🤖 AI Assistant</h2>
+      <p class="hint">Chat with the AI assistant to manage hacks, check status, regenerate TAPs, and more. Uses your SPN credentials automatically.</p>
+
+      <div class="card" style="display:flex;flex-direction:column;height:60vh;min-height:400px;">
+        <div id="chat-messages" style="flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px;background:#f7f9fc;border-radius:6px;margin-bottom:12px;">
+          <div class="chat-msg chat-assistant" style="align-self:flex-start;max-width:85%;background:#e3f2fd;padding:10px 14px;border-radius:12px 12px 12px 2px;font-size:14px;line-height:1.5;">
+            👋 Hi! I'm the Spektra hack setup Assistant. I can help you manage hacks, check user status, regenerate TAPs, assign licenses, and more. What would you like to do?
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <input type="text" id="chat-input" placeholder="Ask me anything about your hacks..." style="flex:1;" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat();}" />
+          <button class="btn btn-primary" id="chat-send-btn" onclick="sendChat()">Send</button>
+        </div>
+        <div id="chat-thinking" class="hidden" style="margin-top:6px;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;">
+          <span class="spinner" style="width:12px;height:12px;border:2px solid #999;border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;"></span>
+          Thinking…
+        </div>
+        <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
+          <button class="btn btn-secondary btn-sm" onclick="chatQuickAction('List all saved hacks')">📋 List Hacks</button>
+          <button class="btn btn-secondary btn-sm" onclick="chatQuickAction('Show tenant info and available licenses')">🔍 Tenant Info</button>
+          <button class="btn btn-secondary btn-sm" onclick="chatQuickAction('Show recent provisioning sessions')">⏱️ Sessions</button>
+          <button class="btn btn-secondary btn-sm" onclick="chatQuickAction('Show upload jobs')">📤 Uploads</button>
+          <button class="btn btn-secondary btn-sm" onclick="chatQuickAction('Generate an admin guide document for the hack')">📝 Gen Guide</button>
+          <button class="btn btn-secondary btn-sm" onclick="clearChat()">🗑️ Clear</button>
+        </div>
+      </div>
+    </div><!-- /view-chat -->
+
   </div>
 
-  <footer>OneDrive Provisioner &mdash; powered by Microsoft Graph API</footer>
+  <footer>Spektra hack setup &mdash; powered by Microsoft Graph API</footer>
 
   <!-- ────────── Active Jobs Floating Panel ────────── -->
   <div id="jobsPanel" class="hidden" style="position:fixed;bottom:20px;left:20px;width:320px;max-height:260px;background:#fff;border-radius:8px;box-shadow:0 4px 20px rgba(0,0,0,.2);z-index:900;overflow:hidden;border:1px solid var(--border);">
@@ -1422,7 +1454,7 @@ function switchView(name) {
   document.querySelectorAll('.tab[data-view]').forEach(t => {
     t.classList.toggle('active', t.dataset.view === name);
   });
-  ['upload','provision','permissions','readonly','cleanup','manage'].forEach(v => {
+  ['upload','provision','permissions','readonly','cleanup','manage','chat'].forEach(v => {
     const el = document.getElementById('view-' + v);
     if (el) el.classList.toggle('hidden', v !== name);
   });
@@ -2585,10 +2617,266 @@ function downloadManagedHackCsv() {
   a.click();
 }
 
+async function generateAdminGuide() {
+  if (!_managedHackState) { toast('Load a hack first', 'danger'); return; }
+  const prefix = _managedHackState.prefix.replace(/-$/, '');
+  toast('Generating Admin Guide...', 'info');
+  try {
+    const resp = await fetch('/api/generate-doc', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hackPrefix: prefix }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json();
+      toast(err.error || 'Failed to generate doc', 'danger');
+      return;
+    }
+    const blob = await resp.blob();
+    const cd = resp.headers.get('Content-Disposition') || '';
+    const match = cd.match(/filename="([^"]+)"/);
+    const filename = match ? match[1] : `${prefix}-Admin-Guide.docx`;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    toast(`Admin Guide downloaded: ${filename}`, 'success');
+  } catch (e) {
+    toast('Error generating doc: ' + e.message, 'danger');
+  }
+}
+
 // Init
 loadSavedCreds();
 refreshJobs();
 updateProvisionPreview();
+
+// ──────────── Chatbot ────────────
+let _chatHistory = []; // [{role, content}, ...]
+
+function appendChatMessage(role, content) {
+  const container = document.getElementById('chat-messages');
+  const div = document.createElement('div');
+  div.className = `chat-msg chat-${role}`;
+  const isUser = role === 'user';
+  div.style.cssText = `
+    align-self: ${isUser ? 'flex-end' : 'flex-start'};
+    max-width: 85%;
+    background: ${isUser ? 'var(--primary)' : '#e3f2fd'};
+    color: ${isUser ? '#fff' : 'inherit'};
+    padding: 10px 14px;
+    border-radius: ${isUser ? '12px 12px 2px 12px' : '12px 12px 12px 2px'};
+    font-size: 14px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+  `;
+  // Simple markdown rendering for assistant messages
+  if (!isUser) {
+    div.innerHTML = simpleMarkdown(content);
+  } else {
+    div.textContent = content;
+  }
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+function simpleMarkdown(text) {
+  // Escape HTML first
+  let html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  // Code blocks
+  html = html.replace(/```([\s\S]*?)```/g, '<pre style="background:#1e1e1e;color:#d4d4d4;padding:8px;border-radius:4px;overflow-x:auto;font-size:12px;">$1</pre>');
+  // Inline code
+  html = html.replace(/`([^`]+)`/g, '<code style="background:#eef;padding:1px 4px;border-radius:3px;font-size:13px;">$1</code>');
+  // Bold
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  // Italic
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  // Line breaks
+  html = html.replace(/\n/g, '<br>');
+  return html;
+}
+
+async function sendChat() {
+  const input = document.getElementById('chat-input');
+  const msg = input.value.trim();
+  if (!msg) return;
+
+  const creds = getCreds();
+  if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
+
+  // Add user message
+  _chatHistory.push({ role: 'user', content: msg });
+  appendChatMessage('user', msg);
+  input.value = '';
+
+  // Show thinking
+  document.getElementById('chat-thinking').classList.remove('hidden');
+  document.getElementById('chat-send-btn').disabled = true;
+
+  try {
+    const res = await fetch(`${API}/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...creds, messages: _chatHistory }),
+    });
+    const data = await res.json();
+    if (data.error) {
+      appendChatMessage('assistant', '❌ Error: ' + data.error);
+    } else {
+      _chatHistory.push({ role: 'assistant', content: data.reply });
+      appendChatMessage('assistant', data.reply);
+      // Render provisioning results inline if present
+      if (data.provision_data && data.provision_data.users) {
+        appendProvisionResults(data.provision_data);
+      }
+      // Check if a doc was generated and offer download
+      if (data.tools_called) {
+        for (const tc of data.tools_called) {
+          if (tc.name === 'generate_admin_guide') {
+            // Extract download URL from the reply text or parse it
+            const urlMatch = data.reply.match(/\/api\/generated-docs\/[a-f0-9-]+/);
+            if (urlMatch) {
+              appendDocDownloadButton(urlMatch[0]);
+            }
+          }
+        }
+      }
+      // Show tool calls if any
+      if (data.tools_called && data.tools_called.length > 0) {
+        const toolNames = data.tools_called.map(t => t.name).join(', ');
+        const toolDiv = document.createElement('div');
+        toolDiv.style.cssText = 'align-self:flex-start;font-size:11px;color:var(--muted);padding:2px 8px;';
+        toolDiv.textContent = `🔧 Used: ${toolNames}`;
+        document.getElementById('chat-messages').appendChild(toolDiv);
+      }
+    }
+  } catch (err) {
+    appendChatMessage('assistant', '❌ Network error: ' + err.message);
+  } finally {
+    document.getElementById('chat-thinking').classList.add('hidden');
+    document.getElementById('chat-send-btn').disabled = false;
+    input.focus();
+  }
+}
+
+function chatQuickAction(msg) {
+  document.getElementById('chat-input').value = msg;
+  sendChat();
+}
+
+let _lastProvisionData = null;
+
+function appendDocDownloadButton(downloadUrl) {
+  const container = document.getElementById('chat-messages');
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'align-self:flex-start;max-width:95%;margin-top:4px;';
+  wrap.innerHTML = `<div style="background:#f0f7ff;border:1px solid #c2d8f0;border-radius:8px;padding:12px;display:inline-flex;align-items:center;gap:10px;">
+    <span style="font-size:24px;">📄</span>
+    <div>
+      <strong>Admin Guide Ready</strong><br>
+      <a href="${downloadUrl}" download style="color:#0070C0;font-weight:600;text-decoration:none;">⬇️ Download .docx</a>
+    </div>
+  </div>`;
+  container.appendChild(wrap);
+  container.scrollTop = container.scrollHeight;
+}
+
+function appendProvisionResults(pdata) {
+  _lastProvisionData = pdata;
+  const container = document.getElementById('chat-messages');
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'align-self:flex-start;max-width:95%;width:100%;';
+
+  const users = pdata.users || [];
+  const created = pdata.created || 0;
+  const failed = pdata.failed || 0;
+  const existing = pdata.existing || 0;
+
+  let html = `<div style="background:#f0f7ff;border:1px solid #c2d8f0;border-radius:8px;padding:12px;margin-top:4px;">`;
+  html += `<div style="font-weight:600;margin-bottom:8px;">📋 Provisioning Results — ${users.length} users (${created} created, ${existing} existing, ${failed} failed)</div>`;
+  html += `<div style="max-height:300px;overflow:auto;">`;
+  html += `<table style="width:100%;border-collapse:collapse;font-size:12px;">`;
+  html += `<thead><tr style="background:#e3edf7;"><th style="padding:4px 6px;text-align:left;">UPN</th><th style="padding:4px 6px;">Status</th><th style="padding:4px 6px;">Password</th><th style="padding:4px 6px;">TAP</th><th style="padding:4px 6px;">Licenses</th></tr></thead><tbody>`;
+
+  for (const u of users) {
+    const statusColor = u.status === 'created' ? '#22c55e' : u.status === 'failed' ? '#ef4444' : '#f59e0b';
+    html += `<tr style="border-top:1px solid #dde5ee;">`;
+    html += `<td style="padding:4px 6px;font-family:monospace;font-size:11px;">${esc(u.userPrincipalName)}</td>`;
+    html += `<td style="padding:4px 6px;text-align:center;"><span style="background:${statusColor};color:#fff;padding:1px 6px;border-radius:4px;font-size:10px;">${u.status}</span></td>`;
+    html += `<td style="padding:4px 6px;font-family:monospace;font-size:11px;">${esc(u.password || '-')}</td>`;
+    html += `<td style="padding:4px 6px;font-family:monospace;font-size:11px;">${esc(u.tap || '-')}</td>`;
+    html += `<td style="padding:4px 6px;font-size:11px;">${(u.licenses||[]).join(', ') || '-'}</td>`;
+    html += `</tr>`;
+  }
+  html += `</tbody></table></div>`;
+  html += `<div style="margin-top:8px;display:flex;gap:6px;">`;
+  html += `<button class="btn btn-secondary btn-sm" onclick="downloadChatProvisionCsv()">📄 Download CSV</button>`;
+  html += `<button class="btn btn-secondary btn-sm" onclick="downloadChatProvisionExcel()">📊 Download Excel</button>`;
+  html += `<button class="btn btn-secondary btn-sm" onclick="copyChatProvisionTable()">📋 Copy to Clipboard</button>`;
+  html += `</div></div>`;
+
+  wrap.innerHTML = html;
+  container.appendChild(wrap);
+  container.scrollTop = container.scrollHeight;
+}
+
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function downloadChatProvisionCsv() {
+  if (!_lastProvisionData) return;
+  const users = _lastProvisionData.users || [];
+  const rows = [['UPN','Status','Password','TAP','TAP Expires','Licenses','Groups','Admin','User ID']];
+  for (const u of users) {
+    rows.push([u.userPrincipalName, u.status, u.password||'', u.tap||'', u.tapExpires||'',
+      (u.licenses||[]).join('|'), (u.groups||[]).join('|'), u.isAdmin?'yes':'no', u.userId||'']);
+  }
+  const csv = '\ufeff' + rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `provision_results.csv`;
+  a.click();
+}
+
+function downloadChatProvisionExcel() {
+  if (!_lastProvisionData) return;
+  const users = _lastProvisionData.users || [];
+  let xml = '<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?>';
+  xml += '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="Users"><Table>';
+  const headers = ['UPN','Status','Password','TAP','TAP Expires','Licenses','Groups','Admin'];
+  xml += '<Row>' + headers.map(h => `<Cell><Data ss:Type="String">${h}</Data></Cell>`).join('') + '</Row>';
+  for (const u of users) {
+    const vals = [u.userPrincipalName, u.status, u.password||'', u.tap||'', u.tapExpires||'',
+      (u.licenses||[]).join(', '), (u.groups||[]).join(', '), u.isAdmin?'yes':'no'];
+    xml += '<Row>' + vals.map(v => `<Cell><Data ss:Type="String">${esc(String(v))}</Data></Cell>`).join('') + '</Row>';
+  }
+  xml += '</Table></Worksheet></Workbook>';
+  const blob = new Blob([xml], { type: 'application/vnd.ms-excel' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `provision_results.xls`;
+  a.click();
+}
+
+function copyChatProvisionTable() {
+  if (!_lastProvisionData) return;
+  const users = _lastProvisionData.users || [];
+  const lines = ['UPN\tStatus\tPassword\tTAP\tLicenses'];
+  for (const u of users) {
+    lines.push(`${u.userPrincipalName}\t${u.status}\t${u.password||''}\t${u.tap||''}\t${(u.licenses||[]).join(', ')}`);
+  }
+  navigator.clipboard.writeText(lines.join('\n')).then(() => toast('Copied to clipboard!', 'success'));
+}
+
+function clearChat() {
+  _chatHistory = [];
+  const container = document.getElementById('chat-messages');
+  container.innerHTML = `
+    <div class="chat-msg chat-assistant" style="align-self:flex-start;max-width:85%;background:#e3f2fd;padding:10px 14px;border-radius:12px 12px 12px 2px;font-size:14px;line-height:1.5;">
+      👋 Hi! I'm the Spektra hack setup Assistant. I can help you manage hacks, check user status, regenerate TAPs, assign licenses, and more. What would you like to do?
+    </div>`;
+}
 </script>
 </body>
 </html>

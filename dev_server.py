@@ -38,6 +38,9 @@ from onedrive_provisioner.entra import (
 )
 from onedrive_provisioner.storage import HackStateManager
 from onedrive_provisioner.storage.blob_client import BlobStateClient
+from onedrive_provisioner.chatbot import ChatbotAgent
+from onedrive_provisioner.chatbot.tool_executor import ToolExecutor
+from onedrive_provisioner.docgen import DocGenerator
 
 # ── Blob Storage state persistence ──
 _state_mgr: HackStateManager | None = None
@@ -70,6 +73,11 @@ _prov_lock = threading.Lock()
 _entra_sessions: Dict[str, Dict[str, Any]] = {}
 _entra_lock = threading.Lock()
 _MAX_ENTRA_SESSIONS = 100
+
+# ── In-memory generated docs store ──
+_generated_docs: Dict[str, Dict[str, Any]] = {}
+_docs_lock = threading.Lock()
+_MAX_DOCS = 50
 
 
 def _run_entra_provision(session_id, cfg_dict, tenant_id, client_id, client_secret):
@@ -202,6 +210,9 @@ class DevHandler(SimpleHTTPRequestHandler):
         elif self.path.startswith("/api/hack-state/"):
             prefix = self.path.replace("/api/hack-state/", "")
             self._handle_hack_get(prefix)
+        elif self.path.startswith("/api/generated-docs/"):
+            doc_id = self.path.split("/api/generated-docs/")[1]
+            self._handle_download_doc(doc_id)
         else:
             super().do_GET()
 
@@ -234,6 +245,10 @@ class DevHandler(SimpleHTTPRequestHandler):
         elif self.path.startswith("/api/hack-state/") and self.path.endswith("/assign-licenses"):
             prefix = self.path.replace("/api/hack-state/", "").replace("/assign-licenses", "")
             self._handle_hack_assign_licenses(prefix)
+        elif self.path == "/api/chat":
+            self._handle_chat()
+        elif self.path == "/api/generate-doc":
+            self._handle_generate_doc()
         else:
             self._send_json({"error": "Not found"}, 404)
 
@@ -906,6 +921,84 @@ class DevHandler(SimpleHTTPRequestHandler):
             self._send_json(asyncio.run(_run()))
         except Exception as exc:
             self._send_json({"error": str(exc)}, 500)
+
+    def _handle_chat(self):
+        data = self._read_json()
+        creds = self._creds(data)
+        if not creds:
+            self._send_json({"error": "Missing SPN credentials"}, 400); return
+        messages = (data or {}).get("messages") or []
+        if not messages:
+            self._send_json({"error": "messages[] required"}, 400); return
+
+        endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
+        key = os.environ.get("AZURE_OPENAI_KEY", "")
+        deployment = os.environ.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
+        if not endpoint or not key:
+            self._send_json({"error": "Azure OpenAI not configured (set AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_KEY)"}, 503); return
+
+        agent = ChatbotAgent(endpoint=endpoint, api_key=key, deployment=deployment)
+        executor = ToolExecutor(
+            creds=creds,
+            get_state_manager=_get_state_manager,
+            entra_sessions=_entra_sessions,
+            entra_lock=_entra_lock,
+            upload_jobs=_jobs,
+            jobs_lock=_jobs_lock,
+            docs_store=_generated_docs,
+        )
+
+        try:
+            result = agent.chat(messages, tool_executor=executor)
+            resp = {
+                "reply": result["reply"],
+                "tools_called": result["tools_called"],
+            }
+            if result.get("provision_data"):
+                resp["provision_data"] = result["provision_data"]
+            self._send_json(resp)
+        except Exception as exc:
+            self._send_json({"error": str(exc)}, 500)
+
+    def _handle_generate_doc(self):
+        data = self._read_json()
+        prefix = ((data or {}).get("hackPrefix") or (data or {}).get("prefix") or "").strip()
+        if not prefix:
+            self._send_json({"error": "hackPrefix is required"}, 400); return
+        mgr = _get_state_manager()
+        if not mgr:
+            self._send_json({"error": "Storage not configured"}, 503); return
+        state = mgr.get_state(prefix)
+        if not state:
+            self._send_json({"error": f"No state found for prefix '{prefix}'"}, 404); return
+        try:
+            gen = DocGenerator()
+            doc_bytes = gen.generate(state)
+            filename = gen.get_filename(state)
+            self.send_response(200)
+            self.send_header("Content-Type",
+                             "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+            self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+            self.send_header("Content-Length", str(len(doc_bytes)))
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(doc_bytes)
+        except Exception as exc:
+            self._send_json({"error": str(exc)}, 500)
+
+    def _handle_download_doc(self, doc_id):
+        with _docs_lock:
+            entry = _generated_docs.get(doc_id)
+        if not entry:
+            self._send_json({"error": "Document not found or expired"}, 404); return
+        self.send_response(200)
+        self.send_header("Content-Type",
+                         "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+        self.send_header("Content-Disposition", f'attachment; filename="{entry["filename"]}"')
+        self.send_header("Content-Length", str(len(entry["data"])))
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(entry["data"])
 
     def log_message(self, format, *args):
         msg = format % args

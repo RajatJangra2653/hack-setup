@@ -43,6 +43,9 @@ from onedrive_provisioner.entra import (
 )
 from onedrive_provisioner.storage import HackStateManager
 from onedrive_provisioner.storage.blob_client import BlobStateClient
+from onedrive_provisioner.chatbot import ChatbotAgent
+from onedrive_provisioner.chatbot.tool_executor import ToolExecutor
+from onedrive_provisioner.docgen import DocGenerator
 
 FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "frontend")
 
@@ -80,6 +83,11 @@ _prov_lock = threading.Lock()
 _entra_sessions: Dict[str, Dict[str, Any]] = {}
 _entra_lock = threading.Lock()
 _MAX_ENTRA_SESSIONS = 100
+
+# ── In-memory generated docs store ──
+_generated_docs: Dict[str, Dict[str, Any]] = {}
+_docs_lock = threading.Lock()
+_MAX_DOCS = 50
 
 
 # ────────────────────── Helpers ──────────────────────
@@ -954,6 +962,112 @@ async def _async_assign_licenses(t, c, s, *, state, licenses, target_upns):
                 "status": "ok" if assigned else "failed",
             })
     return results
+
+
+# ────────────────────── Document Generation ──────────────────────
+
+@app.route("/api/generate-doc", methods=["POST"])
+def generate_doc():
+    """Generate Admin/Trainer Guide for a hack.
+
+    Body: { hackPrefix: "nyc-esri-gcc-" }
+    Returns: binary .docx file download
+    """
+    data = request.get_json(silent=True) or {}
+    prefix = (data.get("hackPrefix") or data.get("prefix") or "").strip()
+    if not prefix:
+        return jsonify({"error": "hackPrefix is required"}), 400
+
+    mgr = _get_state_manager()
+    if not mgr:
+        return jsonify({"error": "Storage not configured"}), 503
+
+    state = mgr.get_state(prefix)
+    if not state:
+        return jsonify({"error": f"No state found for prefix '{prefix}'"}), 404
+
+    try:
+        gen = DocGenerator()
+        doc_bytes = gen.generate(state)
+        filename = gen.get_filename(state)
+
+        from flask import Response
+        return Response(
+            doc_bytes,
+            mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/generated-docs/<doc_id>", methods=["GET"])
+def download_generated_doc(doc_id):
+    """Download a previously generated document by ID."""
+    with _docs_lock:
+        entry = _generated_docs.get(doc_id)
+    if not entry:
+        return jsonify({"error": "Document not found or expired"}), 404
+
+    from flask import Response
+    return Response(
+        entry["data"],
+        mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{entry["filename"]}"'},
+    )
+
+
+# ────────────────────── Chatbot ──────────────────────
+
+def _get_chatbot_agent() -> ChatbotAgent | None:
+    endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
+    key = os.environ.get("AZURE_OPENAI_KEY", "")
+    deployment = os.environ.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
+    if not endpoint or not key:
+        return None
+    return ChatbotAgent(endpoint=endpoint, api_key=key, deployment=deployment)
+
+
+@app.route("/api/chat", methods=["POST"])
+def chat():
+    """Chat with the AI assistant.
+
+    Body: { tenant_id, client_id, client_secret, messages: [{role, content}, ...] }
+    Returns: { reply, tools_called }
+    """
+    data = request.get_json(silent=True) or {}
+    creds = _extract_creds(data)
+    if not creds:
+        return jsonify({"error": "Missing SPN credentials"}), 400
+    messages = data.get("messages") or []
+    if not messages:
+        return jsonify({"error": "messages[] required"}), 400
+
+    agent = _get_chatbot_agent()
+    if not agent:
+        return jsonify({"error": "Azure OpenAI not configured (set AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_KEY)"}), 503
+
+    executor = ToolExecutor(
+        creds=creds,
+        get_state_manager=_get_state_manager,
+        entra_sessions=_entra_sessions,
+        entra_lock=_entra_lock,
+        upload_jobs=_jobs,
+        jobs_lock=_jobs_lock,
+        docs_store=_generated_docs,
+    )
+
+    try:
+        result = agent.chat(messages, tool_executor=executor)
+        resp = {
+            "reply": result["reply"],
+            "tools_called": result["tools_called"],
+        }
+        if result.get("provision_data"):
+            resp["provision_data"] = result["provision_data"]
+        return jsonify(resp)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
 
 
 # ────────────────────── Local dev ──────────────────────

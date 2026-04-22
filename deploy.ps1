@@ -91,7 +91,8 @@ $filesToZip = @(
 )
 $foldersToZip = @(
     "frontend",
-    "src"
+    "src",
+    "assets"
 )
 
 # Use a staging directory for clean zip
