@@ -1252,7 +1252,7 @@ async def _async_check_permissions(t, c, s):
     """Check which Graph app permissions the SPN currently has."""
     import httpx
     tp = _make_token_provider(t, c, s)
-    tok = tp.get_token()
+    tok = await tp.get_token()
     H = {"Authorization": f"Bearer {tok}"}
 
     async with httpx.AsyncClient(timeout=30.0) as client:
@@ -1321,7 +1321,7 @@ async def _async_grant_permissions(t, c, s, permissions_to_grant):
     """Grant specified Graph app permissions to the SPN."""
     import httpx
     tp = _make_token_provider(t, c, s)
-    tok = tp.get_token()
+    tok = await tp.get_token()
     H = {"Authorization": f"Bearer {tok}", "Content-Type": "application/json"}
 
     async with httpx.AsyncClient(timeout=30.0) as client:

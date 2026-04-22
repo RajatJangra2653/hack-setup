@@ -1207,11 +1207,10 @@ class DevHandler(SimpleHTTPRequestHandler):
             self._send_json({"error": "Missing SPN credentials"}, 400); return
         t, c, s = creds
         try:
-            tp = MsalTokenProvider(AzureConfig(tenant_id=t, client_id=c, client_secret=s))
-            tok = tp.get_token()
-            H = {"Authorization": f"Bearer {tok}"}
-
             async def _run():
+                tp = MsalTokenProvider(AzureConfig(tenant_id=t, client_id=c, client_secret=s))
+                tok = await tp.get_token()
+                H = {"Authorization": f"Bearer {tok}"}
                 async with httpx.AsyncClient(timeout=30.0) as client:
                     sp_resp = await client.get(
                         f"https://graph.microsoft.com/v1.0/servicePrincipals?$filter=appId eq '{c}'",
@@ -1278,11 +1277,10 @@ class DevHandler(SimpleHTTPRequestHandler):
             self._send_json({"error": "permissions[] required"}, 400); return
         t, c, s = creds
         try:
-            tp = MsalTokenProvider(AzureConfig(tenant_id=t, client_id=c, client_secret=s))
-            tok = tp.get_token()
-            H = {"Authorization": f"Bearer {tok}", "Content-Type": "application/json"}
-
             async def _run():
+                tp = MsalTokenProvider(AzureConfig(tenant_id=t, client_id=c, client_secret=s))
+                tok = await tp.get_token()
+                H = {"Authorization": f"Bearer {tok}", "Content-Type": "application/json"}
                 async with httpx.AsyncClient(timeout=30.0) as client:
                     sp_resp = await client.get(
                         f"https://graph.microsoft.com/v1.0/servicePrincipals?$filter=appId eq '{c}'",
