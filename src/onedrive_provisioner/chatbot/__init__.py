@@ -219,6 +219,72 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_hack_end_date",
+            "description": "Set an auto-cleanup end date for a hack. After this date, the scheduler will automatically delete all users, groups, RBAC role assignments from Azure subscriptions, and blob state for this hack.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prefix": {"type": "string", "description": "The hack prefix"},
+                    "end_date": {"type": "string", "description": "ISO datetime for auto-cleanup (e.g. '2025-02-15T18:00:00Z')"},
+                    "subscription_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Azure subscription IDs to remove RBAC role assignments from during cleanup (optional)",
+                    },
+                },
+                "required": ["prefix", "end_date"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "schedule_hack_provision",
+            "description": "Schedule a hack to be provisioned at a future date/time. The scheduler will automatically create users, groups, and licenses at the specified time.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "scheduled_at": {"type": "string", "description": "ISO datetime to start provisioning (e.g. '2025-02-01T09:00:00Z')"},
+                    "config": {
+                        "type": "object",
+                        "description": "Provisioning config (same as provision-users): prefix, hackName, domain, totalUsers, teamsCount, mode, licenses, tapLifetimeMinutes, etc.",
+                    },
+                },
+                "required": ["scheduled_at", "config"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_scheduled_jobs",
+            "description": "List all scheduled jobs (both provisioning and cleanup). Shows job type, prefix, scheduled time, and status.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "status": {"type": "string", "description": "Filter by status: pending, running, completed, failed, cancelled. Omit for all.", "enum": ["pending", "running", "completed", "failed", "cancelled"]},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "cancel_scheduled_job",
+            "description": "Cancel a pending scheduled job by its ID.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "job_id": {"type": "string", "description": "The job ID to cancel"},
+                },
+                "required": ["job_id"],
+            },
+        },
+    },
 ]
 
 SYSTEM_PROMPT = """You are the Spektra hack setup Assistant — an AI helper for managing hackathon user provisioning on Microsoft Entra ID (Azure AD).
@@ -232,6 +298,7 @@ You help users with:
 4. **Permissions** — Azure RBAC permission management
 5. **Cleanup** — Removing hack resources
 6. **Documentation** — Generating Admin/Trainer Guide documents for hacks
+7. **Scheduling** — Setting auto-cleanup end dates for hacks, scheduling future hack provisioning, managing scheduled jobs
 
 Key concepts:
 - A "hack" is a hackathon event identified by a prefix (e.g. "nyc-esri-gcc-")

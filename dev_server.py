@@ -41,6 +41,7 @@ from onedrive_provisioner.storage.blob_client import BlobStateClient
 from onedrive_provisioner.chatbot import ChatbotAgent
 from onedrive_provisioner.chatbot.tool_executor import ToolExecutor
 from onedrive_provisioner.docgen import DocGenerator
+from onedrive_provisioner.scheduler import HackScheduler, ScheduledJob
 
 # ── Blob Storage state persistence ──
 _state_mgr: HackStateManager | None = None
@@ -78,6 +79,63 @@ _MAX_ENTRA_SESSIONS = 100
 _generated_docs: Dict[str, Dict[str, Any]] = {}
 _docs_lock = threading.Lock()
 _MAX_DOCS = 50
+
+# ── Scheduler singleton ──
+_hack_scheduler: HackScheduler | None = None
+
+def _get_scheduler() -> HackScheduler | None:
+    global _hack_scheduler
+    if _hack_scheduler is not None:
+        return _hack_scheduler
+    mgr = _get_state_manager()
+    if not mgr:
+        return None
+    _hack_scheduler = HackScheduler(
+        get_state_manager=_get_state_manager,
+        run_provision=_scheduler_provision,
+        run_cleanup=_scheduler_cleanup,
+    )
+    _hack_scheduler.start()
+    return _hack_scheduler
+
+
+def _scheduler_provision(cfg_dict, tenant_id, client_id, client_secret):
+    configure_logging("INFO")
+    cfg = EntraConfig.from_dict(cfg_dict)
+    azure = AzureConfig(tenant_id=tenant_id, client_id=client_id, client_secret=client_secret)
+    orch = EntraOrchestrator(azure, concurrency=int(cfg_dict.get("concurrency", 6)))
+    report = asyncio.run(orch.provision(cfg))
+    mgr = _get_state_manager()
+    if mgr:
+        state = HackStateManager.build_state_from_report(cfg_dict, report.to_dict())
+        mgr.save_state(cfg_dict.get("prefix", "unknown"), state)
+
+
+def _scheduler_cleanup(prefix, tenant_id, client_id, client_secret, subscription_ids=None):
+    sub_ids = subscription_ids or []
+    async def _do():
+        tp = MsalTokenProvider(AzureConfig(tenant_id=tenant_id, client_id=client_id, client_secret=client_secret))
+        async with GraphClient(tp) as g:
+            discovered = await DiscoveryService(g).discover(prefix)
+        user_ids = [u["id"] for u in discovered.get("users", [])]
+        group_ids = [gr["id"] for gr in discovered.get("groups", [])]
+        principal_ids = user_ids + group_ids
+        # Remove RBAC role assignments from Azure subscriptions
+        if sub_ids and principal_ids:
+            async with RbacService(tp) as rbac:
+                await remove_rbac_for_principals(rbac, sub_ids, principal_ids)
+        # Delete users and groups
+        if user_ids or group_ids:
+            async with GraphClient(tp) as g:
+                cleaner = CleanupService(g)
+                if user_ids:
+                    await cleaner.delete_users(user_ids)
+                if group_ids:
+                    await cleaner.delete_groups(group_ids)
+    asyncio.run(_do())
+    mgr = _get_state_manager()
+    if mgr:
+        mgr.delete_state(prefix)
 
 
 def _run_entra_provision(session_id, cfg_dict, tenant_id, client_id, client_secret):
@@ -210,6 +268,8 @@ class DevHandler(SimpleHTTPRequestHandler):
         elif self.path.startswith("/api/hack-state/"):
             prefix = self.path.replace("/api/hack-state/", "")
             self._handle_hack_get(prefix)
+        elif self.path == "/api/scheduled-hacks" or self.path.startswith("/api/scheduled-hacks?"):
+            self._handle_scheduled_hacks_list()
         elif self.path.startswith("/api/generated-docs/"):
             doc_id = self.path.split("/api/generated-docs/")[1]
             self._handle_download_doc(doc_id)
@@ -245,10 +305,22 @@ class DevHandler(SimpleHTTPRequestHandler):
         elif self.path.startswith("/api/hack-state/") and self.path.endswith("/assign-licenses"):
             prefix = self.path.replace("/api/hack-state/", "").replace("/assign-licenses", "")
             self._handle_hack_assign_licenses(prefix)
+        elif self.path.startswith("/api/hack-state/") and self.path.endswith("/set-end-date"):
+            prefix = self.path.replace("/api/hack-state/", "").replace("/set-end-date", "")
+            self._handle_set_end_date(prefix)
+        elif self.path == "/api/schedule-hack":
+            self._handle_schedule_hack()
         elif self.path == "/api/chat":
             self._handle_chat()
         elif self.path == "/api/generate-doc":
             self._handle_generate_doc()
+        else:
+            self._send_json({"error": "Not found"}, 404)
+
+    def do_DELETE(self):
+        if self.path.startswith("/api/scheduled-hacks/"):
+            job_id = self.path.split("/api/scheduled-hacks/")[1]
+            self._handle_cancel_scheduled_hack(job_id)
         else:
             self._send_json({"error": "Not found"}, 404)
 
@@ -760,6 +832,75 @@ class DevHandler(SimpleHTTPRequestHandler):
         c = (data.get("client_id") or "").strip()
         s = (data.get("client_secret") or "").strip()
         return (t, c, s) if t and c and s else None
+
+    def _handle_set_end_date(self, prefix):
+        data = self._read_json()
+        creds = self._creds(data)
+        if not creds:
+            self._send_json({"error": "Missing SPN credentials"}, 400); return
+        end_date = (data.get("endDate") or "").strip()
+        if not end_date:
+            self._send_json({"error": "endDate is required (ISO datetime)"}, 400); return
+        sub_ids = data.get("subscriptionIds") or []
+        scheduler = _get_scheduler()
+        if not scheduler:
+            self._send_json({"error": "Storage not configured"}, 503); return
+        try:
+            t, c, s = creds
+            job = scheduler.set_hack_end_date(prefix, end_date, {
+                "tenant_id": t, "client_id": c, "client_secret": s,
+            }, subscription_ids=sub_ids)
+            self._send_json({"message": f"End date set for '{prefix}'",
+                             "endDate": end_date,
+                             "subscriptionIds": sub_ids,
+                             "job": job.to_dict()})
+        except Exception as exc:
+            self._send_json({"error": str(exc)}, 500)
+
+    def _handle_scheduled_hacks_list(self):
+        scheduler = _get_scheduler()
+        if not scheduler:
+            self._send_json({"error": "Storage not configured"}, 503); return
+        # Parse query string for status filter
+        status = None
+        if "?" in self.path:
+            from urllib.parse import parse_qs, urlparse
+            qs = parse_qs(urlparse(self.path).query)
+            status = qs.get("status", [None])[0]
+        jobs = scheduler.list_jobs(status=status)
+        self._send_json([j.to_dict() for j in jobs])
+
+    def _handle_schedule_hack(self):
+        data = self._read_json()
+        creds = self._creds(data)
+        if not creds:
+            self._send_json({"error": "Missing SPN credentials"}, 400); return
+        scheduled_at = (data.get("scheduledAt") or "").strip()
+        if not scheduled_at:
+            self._send_json({"error": "scheduledAt is required (ISO datetime)"}, 400); return
+        config = data.get("config") or {}
+        if not config.get("domain"):
+            self._send_json({"error": "config.domain is required"}, 400); return
+        scheduler = _get_scheduler()
+        if not scheduler:
+            self._send_json({"error": "Storage not configured"}, 503); return
+        try:
+            t, c, s = creds
+            job = scheduler.schedule_provision(scheduled_at, config, {
+                "tenant_id": t, "client_id": c, "client_secret": s,
+            })
+            self._send_json({"message": "Hack scheduled", "job": job.to_dict()}, 201)
+        except Exception as exc:
+            self._send_json({"error": str(exc)}, 500)
+
+    def _handle_cancel_scheduled_hack(self, job_id):
+        scheduler = _get_scheduler()
+        if not scheduler:
+            self._send_json({"error": "Storage not configured"}, 503); return
+        if scheduler.cancel_job(job_id):
+            self._send_json({"message": "Job cancelled", "id": job_id})
+        else:
+            self._send_json({"error": "Job not found or not pending"}, 404)
 
     def _handle_tenant_info(self):
         data = self._read_json()

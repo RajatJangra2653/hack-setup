@@ -73,6 +73,7 @@ class HackStateManager:
                     "lastUpdated": state.get("lastUpdated", ""),
                     "createdAt": state.get("createdAt", ""),
                     "createdBy": state.get("createdBy", ""),
+                    "endDate": state.get("endDate", ""),
                 })
         return result
 

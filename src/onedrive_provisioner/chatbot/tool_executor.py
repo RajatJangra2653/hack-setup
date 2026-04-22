@@ -315,6 +315,80 @@ class ToolExecutor:
 
         return results
 
+    def _tool_set_hack_end_date(self, prefix: str, end_date: str,
+                                 subscription_ids: list = None) -> Any:
+        """Set an auto-cleanup end date for a hack."""
+        from onedrive_provisioner.scheduler import HackScheduler
+        mgr = self._get_mgr()
+        if not mgr:
+            return {"error": "Storage not configured"}
+        state = mgr.get_state(prefix)
+        if not state:
+            return {"error": f"No state found for prefix '{prefix}'"}
+        # We need a scheduler instance — build one inline
+        scheduler = HackScheduler(
+            get_state_manager=self._get_mgr,
+            run_provision=lambda *a: None,
+            run_cleanup=lambda *a: None,
+        )
+        t, c, s = self._creds
+        job = scheduler.set_hack_end_date(prefix, end_date, {
+            "tenant_id": t, "client_id": c, "client_secret": s,
+        }, subscription_ids=subscription_ids or [])
+        return {"message": f"End date set to {end_date} for '{prefix}'",
+                "endDate": end_date,
+                "subscriptionIds": subscription_ids or [],
+                "job": job.to_dict()}
+
+    def _tool_schedule_hack_provision(self, scheduled_at: str, config: dict) -> Any:
+        """Schedule a hack to be provisioned at a future date."""
+        from onedrive_provisioner.scheduler import HackScheduler
+        if not config.get("domain"):
+            return {"error": "config.domain is required"}
+        mgr = self._get_mgr()
+        if not mgr:
+            return {"error": "Storage not configured"}
+        scheduler = HackScheduler(
+            get_state_manager=self._get_mgr,
+            run_provision=lambda *a: None,
+            run_cleanup=lambda *a: None,
+        )
+        t, c, s = self._creds
+        job = scheduler.schedule_provision(scheduled_at, config, {
+            "tenant_id": t, "client_id": c, "client_secret": s,
+        })
+        return {"message": f"Hack '{config.get('prefix', '?')}' scheduled for {scheduled_at}",
+                "job": job.to_dict()}
+
+    def _tool_list_scheduled_jobs(self, status: str = None) -> Any:
+        """List all scheduled jobs."""
+        from onedrive_provisioner.scheduler import HackScheduler
+        mgr = self._get_mgr()
+        if not mgr:
+            return {"error": "Storage not configured"}
+        scheduler = HackScheduler(
+            get_state_manager=self._get_mgr,
+            run_provision=lambda *a: None,
+            run_cleanup=lambda *a: None,
+        )
+        jobs = scheduler.list_jobs(status=status)
+        return [j.to_dict() for j in jobs]
+
+    def _tool_cancel_scheduled_job(self, job_id: str) -> Any:
+        """Cancel a pending scheduled job."""
+        from onedrive_provisioner.scheduler import HackScheduler
+        mgr = self._get_mgr()
+        if not mgr:
+            return {"error": "Storage not configured"}
+        scheduler = HackScheduler(
+            get_state_manager=self._get_mgr,
+            run_provision=lambda *a: None,
+            run_cleanup=lambda *a: None,
+        )
+        if scheduler.cancel_job(job_id):
+            return {"message": f"Job {job_id} cancelled"}
+        return {"error": "Job not found or not in pending status"}
+
     def _tool_delete_hack_state(self, prefix: str) -> Any:
         """Delete only the blob state for a hack."""
         mgr = self._get_mgr()

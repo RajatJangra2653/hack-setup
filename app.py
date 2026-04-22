@@ -46,6 +46,7 @@ from onedrive_provisioner.storage.blob_client import BlobStateClient
 from onedrive_provisioner.chatbot import ChatbotAgent
 from onedrive_provisioner.chatbot.tool_executor import ToolExecutor
 from onedrive_provisioner.docgen import DocGenerator
+from onedrive_provisioner.scheduler import HackScheduler, ScheduledJob
 
 FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "frontend")
 
@@ -78,6 +79,72 @@ _MAX_JOBS = 200
 # ── In-memory device-code provisioning sessions ──
 _prov_sessions: Dict[str, Dict[str, Any]] = {}
 _prov_lock = threading.Lock()
+
+# ── Scheduler singleton ──
+_hack_scheduler: HackScheduler | None = None
+
+def _get_scheduler() -> HackScheduler | None:
+    global _hack_scheduler
+    if _hack_scheduler is not None:
+        return _hack_scheduler
+    mgr = _get_state_manager()
+    if not mgr:
+        return None
+    _hack_scheduler = HackScheduler(
+        get_state_manager=_get_state_manager,
+        run_provision=_scheduler_provision,
+        run_cleanup=_scheduler_cleanup,
+    )
+    _hack_scheduler.start()
+    return _hack_scheduler
+
+
+def _scheduler_provision(cfg_dict: dict, tenant_id: str, client_id: str, client_secret: str):
+    """Called by scheduler to provision a hack (runs in scheduler thread)."""
+    configure_logging("INFO")
+    cfg = EntraConfig.from_dict(cfg_dict)
+    azure = AzureConfig(tenant_id=tenant_id, client_id=client_id, client_secret=client_secret)
+    orch = EntraOrchestrator(azure, concurrency=int(cfg_dict.get("concurrency", 6)))
+    report = asyncio.run(orch.provision(cfg))
+    # Persist state
+    mgr = _get_state_manager()
+    if mgr:
+        state = HackStateManager.build_state_from_report(cfg_dict, report.to_dict())
+        mgr.save_state(cfg_dict.get("prefix", "unknown"), state)
+
+
+def _scheduler_cleanup(prefix: str, tenant_id: str, client_id: str, client_secret: str,
+                       subscription_ids: list = None):
+    """Called by scheduler to cleanup an expired hack (runs in scheduler thread).
+
+    Deletes Entra ID users, groups, removes RBAC assignments from subscriptions,
+    and deletes blob state.
+    """
+    sub_ids = subscription_ids or []
+    async def _do():
+        tp = _make_token_provider(tenant_id, client_id, client_secret)
+        async with GraphClient(tp) as g:
+            discovered = await DiscoveryService(g).discover(prefix)
+        user_ids = [u["id"] for u in discovered.get("users", [])]
+        group_ids = [gr["id"] for gr in discovered.get("groups", [])]
+        principal_ids = user_ids + group_ids
+        # Remove RBAC role assignments from Azure subscriptions
+        if sub_ids and principal_ids:
+            async with RbacService(tp) as rbac:
+                await remove_rbac_for_principals(rbac, sub_ids, principal_ids)
+        # Delete users and groups from Entra ID
+        if user_ids or group_ids:
+            async with GraphClient(tp) as g:
+                cleaner = CleanupService(g)
+                if user_ids:
+                    await cleaner.delete_users(user_ids)
+                if group_ids:
+                    await cleaner.delete_groups(group_ids)
+    asyncio.run(_do())
+    # Delete blob state
+    mgr = _get_state_manager()
+    if mgr:
+        mgr.delete_state(prefix)
 
 # ── In-memory Entra provisioning sessions ──
 _entra_sessions: Dict[str, Dict[str, Any]] = {}
@@ -977,6 +1044,96 @@ async def _async_assign_licenses(t, c, s, *, state, licenses, target_upns):
                 "status": "ok" if assigned else "failed",
             })
     return results
+
+
+# ────────────────────── Scheduler ──────────────────────
+
+@app.route("/api/hack-state/<prefix>/set-end-date", methods=["POST"])
+def set_hack_end_date(prefix):
+    """Set an end date for auto-cleanup of a hack.
+
+    Body: { tenant_id, client_id, client_secret, endDate: "2025-02-01T00:00:00Z",
+            subscriptionIds?: ["sub-id-1", ...] }
+    """
+    data = request.get_json(silent=True) or {}
+    creds = _extract_creds(data)
+    if not creds:
+        return jsonify({"error": "Missing SPN credentials"}), 400
+    end_date = (data.get("endDate") or "").strip()
+    if not end_date:
+        return jsonify({"error": "endDate is required (ISO datetime)"}), 400
+    sub_ids = data.get("subscriptionIds") or []
+
+    scheduler = _get_scheduler()
+    if not scheduler:
+        return jsonify({"error": "Storage not configured"}), 503
+
+    try:
+        t, c, s = creds
+        job = scheduler.set_hack_end_date(prefix, end_date, {
+            "tenant_id": t, "client_id": c, "client_secret": s,
+        }, subscription_ids=sub_ids)
+        return jsonify({"message": f"End date set for '{prefix}'",
+                        "endDate": end_date,
+                        "subscriptionIds": sub_ids,
+                        "job": job.to_dict()})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/scheduled-hacks", methods=["GET"])
+def list_scheduled_hacks():
+    """List all scheduled jobs (provision + cleanup)."""
+    scheduler = _get_scheduler()
+    if not scheduler:
+        return jsonify({"error": "Storage not configured"}), 503
+    status = request.args.get("status")
+    jobs = scheduler.list_jobs(status=status)
+    return jsonify([j.to_dict() for j in jobs])
+
+
+@app.route("/api/schedule-hack", methods=["POST"])
+def schedule_hack():
+    """Schedule a hack to be provisioned at a future date.
+
+    Body: { tenant_id, client_id, client_secret,
+            scheduledAt: "2025-02-01T09:00:00Z",
+            config: { prefix, hackName, domain, totalUsers, ... } }
+    """
+    data = request.get_json(silent=True) or {}
+    creds = _extract_creds(data)
+    if not creds:
+        return jsonify({"error": "Missing SPN credentials"}), 400
+    scheduled_at = (data.get("scheduledAt") or "").strip()
+    if not scheduled_at:
+        return jsonify({"error": "scheduledAt is required (ISO datetime)"}), 400
+    config = data.get("config") or {}
+    if not config.get("domain"):
+        return jsonify({"error": "config.domain is required"}), 400
+
+    scheduler = _get_scheduler()
+    if not scheduler:
+        return jsonify({"error": "Storage not configured"}), 503
+
+    try:
+        t, c, s = creds
+        job = scheduler.schedule_provision(scheduled_at, config, {
+            "tenant_id": t, "client_id": c, "client_secret": s,
+        })
+        return jsonify({"message": "Hack scheduled", "job": job.to_dict()}), 201
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/scheduled-hacks/<job_id>", methods=["DELETE"])
+def cancel_scheduled_hack(job_id):
+    """Cancel a pending scheduled job."""
+    scheduler = _get_scheduler()
+    if not scheduler:
+        return jsonify({"error": "Storage not configured"}), 503
+    if scheduler.cancel_job(job_id):
+        return jsonify({"message": "Job cancelled", "id": job_id})
+    return jsonify({"error": "Job not found or not pending"}), 404
 
 
 # ────────────────────── Document Generation ──────────────────────

@@ -691,12 +691,14 @@
           <div><strong>Users:</strong> <span id="mh-stUsers"></span></div>
           <div><strong>Created:</strong> <span id="mh-stCreated"></span></div>
           <div><strong>Last Updated:</strong> <span id="mh-stUpdated"></span></div>
+          <div id="mh-endDateRow"><strong>End Date:</strong> <span id="mh-stEndDate" style="color:#c62828;"></span></div>
         </div>
 
         <div style="margin-top:16px;">
           <div class="tabs">
             <div class="tab active" data-tab="mh-users" onclick="switchTab(this)">Users</div>
             <div class="tab" data-tab="mh-actions" onclick="switchTab(this)">Actions</div>
+            <div class="tab" data-tab="mh-schedule" onclick="switchTab(this)">Schedule</div>
             <div class="tab" data-tab="mh-versions" onclick="switchTab(this)">Versions</div>
             <div class="tab" data-tab="mh-raw" onclick="switchTab(this)">Raw JSON</div>
           </div>
@@ -755,6 +757,33 @@
             </div>
           </div>
 
+          <div data-tab-content="mh-schedule" class="hidden">
+            <div class="card" style="margin-top:10px;">
+              <h4>⏰ Auto-Cleanup End Date</h4>
+              <p class="hint">Set a date/time after which this hack will be automatically cleaned up — users, groups, RBAC role assignments, and blob state will all be deleted.</p>
+              <div class="row">
+                <div class="form-group">
+                  <label for="mh-endDateInput">End Date &amp; Time (UTC)</label>
+                  <input type="datetime-local" id="mh-endDateInput" />
+                </div>
+              </div>
+              <div class="form-group" style="margin-top:8px;">
+                <label for="mh-endDateSubs">Azure Subscription IDs (one per line)</label>
+                <div class="hint">RBAC role assignments for hack users/groups will be removed from these subscriptions during cleanup.</div>
+                <textarea id="mh-endDateSubs" rows="3" placeholder="Paste one subscription ID per line (optional — leave blank to skip RBAC cleanup)" style="font-size:12px;font-family:monospace;"></textarea>
+              </div>
+              <button class="btn btn-primary" onclick="withBusy(this, setHackEndDate)">⏰ Set End Date</button>
+              <button class="btn btn-secondary" onclick="withBusy(this, clearHackEndDate)" style="margin-left:8px;">✖ Clear End Date</button>
+              <span id="mh-endDateSpinner" class="hidden"><span class="spinner"></span></span>
+            </div>
+
+            <div class="card" style="margin-top:10px;">
+              <h4>📋 Scheduled Jobs for This Hack</h4>
+              <div id="mh-scheduledJobs" style="font-size:13px;">Loading...</div>
+              <button class="btn btn-secondary btn-sm" onclick="withBusy(this, loadScheduledJobsForHack)" style="margin-top:8px;">🔄 Refresh</button>
+            </div>
+          </div>
+
           <div data-tab-content="mh-versions" class="hidden">
             <div id="mh-versionsList" style="margin-top:10px;font-size:13px;"></div>
           </div>
@@ -774,6 +803,13 @@
             <tbody id="mh-actionBody"></tbody>
           </table>
         </div>
+      </div>
+
+      <div class="card" style="margin-top:16px;">
+        <h3>📅 All Scheduled Jobs</h3>
+        <p class="hint">View and manage all scheduled provisioning and auto-cleanup jobs.</p>
+        <button class="btn btn-secondary btn-sm" onclick="withBusy(this, loadAllScheduledJobs)">🔄 Load Scheduled Jobs</button>
+        <div id="mh-allScheduledJobs" style="margin-top:10px;font-size:13px;max-height:300px;overflow:auto;"></div>
       </div>
     </div><!-- /view-manage -->
 
@@ -2468,6 +2504,23 @@ function _renderManagedHackState(state) {
   document.getElementById('mh-stCreated').textContent = (state.createdAt || '').substring(0, 19);
   document.getElementById('mh-stUpdated').textContent = (state.lastUpdated || '').substring(0, 19);
 
+  // End date
+  const endDateSpan = document.getElementById('mh-stEndDate');
+  if (state.endDate) {
+    const ed = new Date(state.endDate);
+    endDateSpan.textContent = ed.toLocaleString() + ' (UTC: ' + state.endDate.substring(0,19) + ')';
+    const endInput = document.getElementById('mh-endDateInput');
+    if (endInput) endInput.value = state.endDate.substring(0, 16);
+  } else {
+    endDateSpan.textContent = 'Not set';
+    endDateSpan.style.color = '#888';
+  }
+  // Populate subscription IDs if saved in state
+  const subsArea = document.getElementById('mh-endDateSubs');
+  if (subsArea && state.subscriptionIds && state.subscriptionIds.length) {
+    subsArea.value = state.subscriptionIds.join('\n');
+  }
+
   // Users table
   const body = document.getElementById('mh-usersBody');
   body.innerHTML = '';
@@ -2647,6 +2700,139 @@ async function generateAdminGuide() {
   } catch (e) {
     toast('Error generating doc: ' + e.message, 'danger');
   }
+}
+
+// ──────────── Scheduler ────────────
+
+async function setHackEndDate() {
+  if (!_managedHackState) { toast('Load a hack first', 'danger'); return; }
+  const input = document.getElementById('mh-endDateInput').value;
+  if (!input) { toast('Select an end date & time', 'danger'); return; }
+  const endDate = new Date(input).toISOString();
+  const prefix = _managedHackState.prefix.replace(/-$/, '');
+  const creds = getSPNCreds();
+  if (!creds.tenant_id) { toast('Enter SPN credentials', 'danger'); return; }
+  const subsText = (document.getElementById('mh-endDateSubs').value || '').trim();
+  const subscriptionIds = subsText ? subsText.split('\n').map(s => s.trim()).filter(Boolean) : [];
+  try {
+    const res = await fetch(`${API}/hack-state/${encodeURIComponent(prefix)}/set-end-date`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...creds, endDate, subscriptionIds }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed');
+    toast(`End date set: ${endDate.substring(0, 19)}`, 'success');
+    // Update displayed end date
+    _managedHackState.endDate = endDate;
+    const endDateSpan = document.getElementById('mh-stEndDate');
+    endDateSpan.textContent = new Date(endDate).toLocaleString() + ' (UTC: ' + endDate.substring(0,19) + ')';
+    endDateSpan.style.color = '#c62828';
+    loadScheduledJobsForHack();
+  } catch (e) {
+    toast('Error: ' + e.message, 'danger');
+  }
+}
+
+async function clearHackEndDate() {
+  if (!_managedHackState) { toast('Load a hack first', 'danger'); return; }
+  const prefix = _managedHackState.prefix.replace(/-$/, '');
+  const creds = getSPNCreds();
+  if (!creds.tenant_id) { toast('Enter SPN credentials', 'danger'); return; }
+  try {
+    // Set end date to empty string to clear it
+    const res = await fetch(`${API}/hack-state/${encodeURIComponent(prefix)}/set-end-date`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...creds, endDate: '9999-12-31T23:59:59Z' }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed');
+    _managedHackState.endDate = '';
+    document.getElementById('mh-stEndDate').textContent = 'Not set';
+    document.getElementById('mh-stEndDate').style.color = '#888';
+    document.getElementById('mh-endDateInput').value = '';
+    toast('End date cleared', 'success');
+  } catch (e) {
+    toast('Error: ' + e.message, 'danger');
+  }
+}
+
+async function loadScheduledJobsForHack() {
+  if (!_managedHackState) return;
+  const prefix = _managedHackState.prefix.replace(/-$/, '');
+  const box = document.getElementById('mh-scheduledJobs');
+  box.innerHTML = '<span class="spinner" style="display:inline-block;width:14px;height:14px;"></span> Loading…';
+  try {
+    const res = await fetch(`${API}/scheduled-hacks`);
+    const jobs = await res.json();
+    if (!res.ok) throw new Error(jobs.error || 'Failed');
+    const filtered = jobs.filter(j => j.hack_prefix === prefix || j.hack_prefix === prefix + '-');
+    if (filtered.length === 0) {
+      box.innerHTML = '<span class="hint">No scheduled jobs for this hack.</span>';
+      return;
+    }
+    box.innerHTML = _renderScheduledJobsTable(filtered);
+  } catch (e) {
+    box.innerHTML = `<span style="color:var(--danger)">Error: ${esc(e.message)}</span>`;
+  }
+}
+
+async function loadAllScheduledJobs() {
+  const box = document.getElementById('mh-allScheduledJobs');
+  box.innerHTML = '<span class="spinner" style="display:inline-block;width:14px;height:14px;"></span> Loading…';
+  try {
+    const res = await fetch(`${API}/scheduled-hacks`);
+    const jobs = await res.json();
+    if (!res.ok) throw new Error(jobs.error || 'Failed');
+    if (jobs.length === 0) {
+      box.innerHTML = '<span class="hint">No scheduled jobs found.</span>';
+      return;
+    }
+    box.innerHTML = _renderScheduledJobsTable(jobs);
+  } catch (e) {
+    box.innerHTML = `<span style="color:var(--danger)">Error: ${esc(e.message)}</span>`;
+  }
+}
+
+function _renderScheduledJobsTable(jobs) {
+  let html = '<table style="width:100%;font-size:12px;"><thead><tr><th>Type</th><th>Prefix</th><th>Scheduled At</th><th>Status</th><th>Created</th><th></th></tr></thead><tbody>';
+  for (const j of jobs) {
+    const statusColor = j.status === 'completed' ? 'var(--success)' : j.status === 'failed' ? 'var(--danger)' : j.status === 'running' ? '#ff9800' : j.status === 'cancelled' ? '#999' : 'var(--primary)';
+    const icon = j.job_type === 'cleanup' ? '🧹' : '🚀';
+    html += `<tr>
+      <td>${icon} ${esc(j.job_type)}</td>
+      <td><code>${esc(j.hack_prefix)}</code></td>
+      <td>${esc((j.scheduled_at||'').substring(0,19))}</td>
+      <td style="color:${statusColor};font-weight:600;">${esc(j.status)}</td>
+      <td>${esc((j.created_at||'').substring(0,19))}</td>
+      <td>${j.status === 'pending' ? `<button class=\"btn btn-secondary btn-sm\" onclick=\"cancelScheduledJob('${esc(j.id)}')\">Cancel</button>` : (j.error ? `<span title=\"${esc(j.error)}\" style=\"cursor:help;\">⚠️</span>` : '')}</td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+  return html;
+}
+
+async function cancelScheduledJob(jobId) {
+  if (!confirm('Cancel this scheduled job?')) return;
+  try {
+    const res = await fetch(`${API}/scheduled-hacks/${encodeURIComponent(jobId)}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed');
+    toast('Job cancelled', 'success');
+    loadAllScheduledJobs();
+    if (_managedHackState) loadScheduledJobsForHack();
+  } catch (e) {
+    toast('Error: ' + e.message, 'danger');
+  }
+}
+
+function getSPNCreds() {
+  return {
+    tenant_id: document.getElementById('tenantId').value.trim(),
+    client_id: document.getElementById('clientId').value.trim(),
+    client_secret: document.getElementById('clientSecret').value.trim(),
+  };
 }
 
 // Init
