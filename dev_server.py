@@ -603,9 +603,29 @@ class DevHandler(SimpleHTTPRequestHandler):
             tp = MsalTokenProvider(AzureConfig(tenant_id=t, client_id=c, client_secret=s))
             async def _run():
                 async with GraphClient(tp) as g:
-                    return await TenantService(g).get_tenant_info()
-            domain, tap_max = asyncio.run(_run())
-            self._send_json({"domain": domain, "tapMaxLifetimeMinutes": tap_max})
+                    ts = TenantService(g)
+                    domain, tap_max = await ts.get_tenant_info()
+                    try:
+                        sku_data = await g.get("/subscribedSkus")
+                        skus = sku_data.get("value", [])
+                    except Exception:
+                        skus = []
+                    return domain, tap_max, skus
+            domain, tap_max, skus = asyncio.run(_run())
+            sku_summary = [
+                {
+                    "skuPartNumber": sk.get("skuPartNumber", ""),
+                    "skuId": sk.get("skuId", ""),
+                    "consumedUnits": sk.get("consumedUnits", 0),
+                    "prepaidUnits": sk.get("prepaidUnits", {}),
+                }
+                for sk in skus
+            ]
+            self._send_json({
+                "domain": domain,
+                "tapMaxLifetimeMinutes": tap_max,
+                "subscribedSkus": sku_summary,
+            })
         except Exception as exc:
             self._send_json({"error": str(exc)}, 500)
 

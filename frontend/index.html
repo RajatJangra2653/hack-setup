@@ -222,8 +222,8 @@
       <div class="row">
         <div class="form-group">
           <label for="destination">Destination folder</label>
-          <div class="hint">Root-relative folder in each user's OneDrive.</div>
-          <input type="text" id="destination" placeholder="Onboarding" />
+          <div class="hint">Root-relative folder in each user's OneDrive. Example: <code>/Documents/HackFiles</code></div>
+          <input type="text" id="destination" placeholder="/Documents/HackFiles" />
         </div>
         <div class="form-group">
           <label for="concurrency">Concurrency</label>
@@ -242,6 +242,19 @@
         </button>
         <span id="startSpinner" class="hidden"><span class="spinner"></span></span>
         <span id="uploadProgress" class="hidden" style="font-size:13px;color:var(--muted)"></span>
+      </div>
+      <div id="uploadProgressCard" class="hidden" style="margin-top:12px;padding:12px;border:1px solid var(--border);border-radius:6px;background:#fff;">
+        <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px;">
+          <span id="uploadCurrentUser" style="color:var(--muted);">Preparing…</span>
+          <span id="uploadPctText" style="font-weight:600;">0%</span>
+        </div>
+        <div style="height:10px;background:#eef0f4;border-radius:5px;overflow:hidden;">
+          <div id="uploadBar" style="height:100%;width:0%;background:linear-gradient(90deg,var(--primary),#5b8def);transition:width .3s ease;"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-top:4px;">
+          <span id="uploadUsersDone">0 / 0 users</span>
+          <span id="uploadFilesDone">0 files uploaded</span>
+        </div>
       </div>
     </div>
 
@@ -290,7 +303,7 @@
 
         <div class="row">
           <div class="form-group">
-            <label for="ep-prefix">Username prefix</label>
+            <label for="ep-prefix">Hack Prefix</label>
             <input type="text" id="ep-prefix" value="nyc-esri-gcc-" />
           </div>
           <div class="form-group">
@@ -326,7 +339,9 @@
 
         <div class="form-group">
           <label>Licenses to assign (per non-admin user)</label>
-          <div class="hint">Friendly names are matched against your tenant's <code>/subscribedSkus</code> by partNumber substring.</div>
+          <div class="hint">Friendly names are matched against your tenant's <code>/subscribedSkus</code> by partNumber substring. Click "Check Availability" to see seat counts.</div>
+          <div style="margin-bottom:8px;"><button class="btn btn-secondary btn-sm" onclick="withBusy(this, checkLicenseAvailability)">🔍 Check Availability</button></div>
+          <div id="ep-licenseAvailability" class="hidden" style="margin-bottom:10px;padding:8px 12px;background:#f7f9fc;border:1px solid var(--border);border-radius:6px;font-size:13px;"></div>
           <div id="ep-licenses" style="display:flex;flex-wrap:wrap;gap:12px;">
             <label><input type="checkbox" value="M365_BUSINESS"> M365 Business Premium</label>
             <label><input type="checkbox" value="M365_E3"> M365 E3</label>
@@ -344,17 +359,19 @@
           <div class="form-group">
             <label for="ep-tapLifetime">TAP lifetime (minutes) <span class="hint" style="font-weight:400;">(0 = use tenant maximum)</span></label>
             <input type="number" id="ep-tapLifetime" value="0" min="0" max="43200" />
+            <div class="hint" style="margin-top:4px;">Max allowed by tenant will be used if exceeded. 0 = auto-detect maximum.</div>
           </div>
           <div class="form-group">
-            <label for="ep-concurrency">Concurrency <span class="hint" style="font-weight:400;">(1–32, auto-throttles on 429)</span></label>
+            <label for="ep-concurrency">Concurrency <span class="hint" style="font-weight:400;">(1–32)</span></label>
             <input type="number" id="ep-concurrency" value="6" min="1" max="32" />
+            <div class="hint" style="margin-top:4px;">Higher = faster but may hit Graph API throttling (429s). Recommended: 4–8.</div>
           </div>
         </div>
 
         <div class="row">
           <div class="form-group">
-            <label for="ep-hackName">Hack name <span class="hint" style="font-weight:400;">(stamped as companyName on each user)</span></label>
-            <input type="text" id="ep-hackName" placeholder="e.g. NYC Esri GCC Hack — Apr 2026" />
+            <label for="ep-hackName">Hack name <span style="color:var(--danger)">*</span> <span class="hint" style="font-weight:400;">(stamped as companyName on each user)</span></label>
+            <input type="text" id="ep-hackName" placeholder="e.g. NYC Esri GCC Hack — Apr 2026" required />
           </div>
           <div class="form-group">
             <label for="ep-createdBy">Created by <span class="hint" style="font-weight:400;">(your alias / email)</span></label>
@@ -403,7 +420,8 @@
       <div id="ep-resultCard" class="card hidden">
         <div style="display:flex;justify-content:space-between;align-items:center;">
           <h2 style="margin:0">Provisioning Results</h2>
-          <div style="display:flex;gap:8px;">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button id="ep-retryFailed" class="btn btn-secondary btn-sm hidden" onclick="retryFailedProvision()" style="border-color:var(--danger);color:var(--danger);">⟳ Retry Failed</button>
             <button class="btn btn-secondary btn-sm" onclick="downloadProvisionXlsx()">⬇ Excel (.xls)</button>
             <button class="btn btn-secondary btn-sm" onclick="downloadProvisionCsv()">⬇ CSV</button>
             <button class="btn btn-secondary btn-sm" onclick="copyProvisionJson()">📋 Copy JSON</button>
@@ -430,7 +448,7 @@
 
         <div class="row">
           <div class="form-group">
-            <label for="pp-prefix">Hack prefix</label>
+            <label for="pp-prefix">Hack Prefix</label>
             <input type="text" id="pp-prefix" value="nyc-esri-gcc-" />
           </div>
           <div class="form-group">
@@ -453,17 +471,26 @@
         <div class="form-group">
           <label for="pp-subs">Subscription IDs (one per line)</label>
           <div class="hint">In team mode you can map team→subscription by listing one sub per team in order; otherwise all teams get all subs.</div>
-          <textarea id="pp-subs" placeholder="00000000-0000-0000-0000-000000000000&#10;11111111-1111-1111-1111-111111111111" style="height:100px;"></textarea>
+          <textarea id="pp-subs" placeholder="00000000-0000-0000-0000-000000000000&#10;11111111-1111-1111-1111-111111111111" style="height:100px;" oninput="updateMappingPreview()"></textarea>
           <div style="margin-top:8px;display:flex;align-items:center;gap:8px;">
             <input type="checkbox" id="pp-mapTeams" style="width:auto" />
             <label for="pp-mapTeams" style="margin:0;cursor:pointer;">Map subscriptions 1-to-1 to teams (in order)</label>
           </div>
+          <div class="hint" style="margin-top:4px;">When mapped 1-to-1: Team 1 → Subscription 1, Team 2 → Subscription 2, etc. Otherwise all principals get all subscriptions.</div>
         </div>
 
         <div class="actions">
-          <button class="btn btn-secondary" onclick="withBusy(this, discoverForPermissions)">🔍 Discover principals</button>
+          <button class="btn btn-secondary" onclick="withBusy(this, discoverForPermissions)">🔍 Discover Users / Groups from Hack Prefix</button>
+          <button class="btn btn-secondary" onclick="withBusy(this, validateSubscriptions)">✅ Validate Subscriptions</button>
           <button id="pp-btnAssign" class="btn btn-primary" onclick="withBusy(this, assignPermissions)" disabled>▶ Assign role</button>
           <span id="pp-spinner" class="hidden"><span class="spinner"></span></span>
+        </div>
+
+        <div id="pp-subValidation" class="hidden" style="margin-top:12px;padding:10px;background:#f7f9fc;border:1px solid var(--border);border-radius:6px;font-size:13px;"></div>
+
+        <div id="pp-mappingPreview" class="hidden" style="margin-top:12px;padding:10px;background:#fff8e1;border:1px solid #ffe082;border-radius:6px;font-size:13px;">
+          <div style="font-weight:600;margin-bottom:6px;">📍 Subscription → Principal Mapping Preview</div>
+          <div id="pp-mappingList" style="font-family:var(--font-mono);font-size:12px;"></div>
         </div>
 
         <div id="pp-discoveryBox" class="hidden" style="margin-top:16px;padding:12px;background:#f7f9fc;border-radius:6px;border:1px solid var(--border);font-size:13px;">
@@ -494,7 +521,7 @@
 
         <div class="row">
           <div class="form-group">
-            <label for="ro-prefix">Hack prefix</label>
+            <label for="ro-prefix">Hack Prefix</label>
             <input type="text" id="ro-prefix" value="nyc-esri-gcc-" />
           </div>
           <div class="form-group">
@@ -513,8 +540,12 @@
 
         <div class="actions">
           <button class="btn btn-secondary" onclick="withBusy(this, discoverForReadOnly)">🔍 Discover principals</button>
-          <button id="ro-btnApply" class="btn btn-primary" onclick="withBusy(this, applyReadOnly)" disabled>▶ Apply read-only</button>
+          <button id="ro-btnApply" class="btn btn-primary" onclick="confirmReadOnly()" disabled>▶ Apply read-only</button>
           <span id="ro-spinner" class="hidden"><span class="spinner"></span></span>
+        </div>
+
+        <div id="ro-warning" class="hidden" style="margin-top:12px;padding:12px;background:#fff3e0;border-left:4px solid #f0a500;border-radius:4px;font-size:13px;">
+          <strong>⚠️ Warning:</strong> This will <strong>remove all Owner and Contributor</strong> role assignments and grant only <strong>Reader</strong> access. Users will lose write access to the listed subscriptions.
         </div>
 
         <div id="ro-discoveryBox" class="hidden" style="margin-top:16px;padding:12px;background:#f7f9fc;border-radius:6px;border:1px solid var(--border);font-size:13px;">
@@ -544,7 +575,7 @@
 
         <div class="row">
           <div class="form-group">
-            <label for="cu-prefix">Hack prefix</label>
+            <label for="cu-prefix">Hack Prefix</label>
             <input type="text" id="cu-prefix" value="nyc-esri-gcc-" />
           </div>
           <div class="form-group" style="display:flex;align-items:flex-end;">
@@ -589,8 +620,20 @@
             <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="cu-removeRbac" checked> Remove RBAC at listed subscriptions</label>
           </div>
 
-          <div class="actions" style="margin-top:14px;">
-            <button class="btn btn-danger" onclick="withBusy(this, executeCleanup)" style="background:var(--danger);color:#fff;">⚠ Confirm &amp; Cleanup</button>
+          <div id="cu-previewTable" class="hidden" style="margin-top:14px;max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:4px;">
+            <table style="width:100%;font-size:12px;">
+              <thead><tr><th>Type</th><th>Name</th><th>Action</th></tr></thead>
+              <tbody id="cu-previewBody"></tbody>
+            </table>
+          </div>
+
+          <div class="form-group" style="margin-top:14px;">
+            <label for="cu-confirmInput">Type the hack prefix to confirm: <code id="cu-confirmPrefix"></code></label>
+            <input type="text" id="cu-confirmInput" placeholder="Type prefix to enable cleanup" oninput="checkCleanupConfirm()" />
+          </div>
+
+          <div class="actions" style="margin-top:10px;">
+            <button id="cu-btnCleanup" class="btn btn-danger" onclick="withBusy(this, executeCleanup)" style="background:var(--danger);color:#fff;" disabled>⚠ Confirm &amp; Cleanup</button>
             <span id="cu-spinner" class="hidden"><span class="spinner"></span></span>
           </div>
         </div>
@@ -598,12 +641,30 @@
 
       <div id="cu-resultCard" class="card hidden">
         <h2>Cleanup Results</h2>
-        <pre id="cu-resultJson" style="font-size:12px;max-height:480px;overflow:auto;background:#f7f9fc;padding:12px;border-radius:6px;"></pre>
+        <div id="cu-resultSummary" style="margin-bottom:12px;font-weight:600;"></div>
+        <div class="results-scroll" style="max-height:400px;">
+          <table id="cu-resultTable">
+            <thead><tr><th>Type</th><th>Name</th><th>Status</th><th>Details</th></tr></thead>
+            <tbody id="cu-resultBody"></tbody>
+          </table>
+        </div>
+        <details style="margin-top:8px;"><summary class="hint" style="cursor:pointer;">Raw JSON</summary>
+          <pre id="cu-resultJson" style="font-size:12px;max-height:300px;overflow:auto;background:#f7f9fc;padding:12px;border-radius:6px;"></pre>
+        </details>
       </div>
     </div><!-- /view-cleanup -->
   </div>
 
   <footer>OneDrive Provisioner &mdash; powered by Microsoft Graph API</footer>
+
+  <!-- ────────── Active Jobs Floating Panel ────────── -->
+  <div id="jobsPanel" class="hidden" style="position:fixed;bottom:20px;left:20px;width:320px;max-height:260px;background:#fff;border-radius:8px;box-shadow:0 4px 20px rgba(0,0,0,.2);z-index:900;overflow:hidden;border:1px solid var(--border);">
+    <div style="padding:10px 14px;background:var(--primary);color:#fff;font-weight:600;font-size:13px;display:flex;justify-content:space-between;align-items:center;">
+      <span>📋 Active Jobs</span>
+      <button onclick="document.getElementById('jobsPanel').classList.add('hidden')" style="background:none;border:none;color:#fff;cursor:pointer;font-size:16px;">✕</button>
+    </div>
+    <div id="jobsPanelBody" style="padding:8px;max-height:200px;overflow-y:auto;font-size:12px;"></div>
+  </div>
 
   <!-- ────────── Provision Modal ────────── -->
   <div id="provModal" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;display:flex;align-items:center;justify-content:center;">
@@ -812,6 +873,12 @@ async function startJob() {
     const data = await res.json();
     if (res.ok) {
       toast(`Job started: ${data.job_id.slice(0,8)}… (${data.users} users, ${data.files} files)`, 'success');
+      document.getElementById('uploadProgressCard').classList.remove('hidden');
+      document.getElementById('uploadCurrentUser').textContent = 'Starting…';
+      document.getElementById('uploadBar').style.width = '0%';
+      document.getElementById('uploadPctText').textContent = '0%';
+      document.getElementById('uploadUsersDone').textContent = `0 / ${data.users} users`;
+      document.getElementById('uploadFilesDone').textContent = '0 files uploaded';
       pollJob(data.job_id);
       refreshJobs();
     } else {
@@ -837,6 +904,8 @@ function pollJob(jobId) {
       if (!res.ok) return;
       const job = await res.json();
       refreshJobs();
+      // Update upload progress card
+      updateUploadProgress(job);
       // Auto-update detail view if this job is currently shown
       if (_currentJobResult && _currentJobResult.id === jobId) {
         renderDetail(job);
@@ -858,6 +927,8 @@ async function refreshJobs() {
     const jobs = await res.json();
     renderJobsList(jobs);
     jobs.filter(j => j.status === 'running').forEach(j => pollJob(j.id));
+    // Update floating jobs panel
+    updateJobsPanel(jobs);
   } catch { /* silent */ }
 }
 
@@ -1472,6 +1543,14 @@ function renderProvisionStats(s, report) {
     <div class="stat"><div class="stat-num" style="color:var(--muted)">${existing}</div><div class="stat-lbl">Existing</div></div>
     <div class="stat"><div class="stat-num" style="color:var(--danger)">${failed}</div><div class="stat-lbl">Failed</div></div>
     <div class="stat"><div class="stat-num">${groupsCreated}</div><div class="stat-lbl">Groups created</div></div>`;
+  // Show/hide retry button
+  const retryBtn = document.getElementById('ep-retryFailed');
+  if (failed > 0 && (s.status === 'completed' || s.status === 'failed')) {
+    retryBtn.classList.remove('hidden');
+    retryBtn.textContent = `⟳ Retry ${failed} Failed`;
+  } else {
+    retryBtn.classList.add('hidden');
+  }
 }
 
 function renderProvisionRows(users) {
@@ -1628,6 +1707,7 @@ async function discoverForPermissions() {
     _ppPrincipals.map(p => `${esc(p.type)}: ${esc(p.displayName)} (${esc(p.id)})`).join('<br>') || '<em>None</em>';
   document.getElementById('pp-discoveryBox').classList.remove('hidden');
   document.getElementById('pp-btnAssign').disabled = _ppPrincipals.length === 0;
+  updateMappingPreview();
 }
 
 async function assignPermissions() {
@@ -1726,6 +1806,13 @@ async function discoverForReadOnly() {
     : data.users.map(u => ({ id: u.id, type: 'User', displayName: u.userPrincipalName }));
   document.getElementById('ro-discoverySummary').textContent =
     `${_roPrincipals.length} ${mode === 'team' ? 'group(s)' : 'user(s)'} will be downgraded to Reader.`;
+  // Show subscription preview
+  const subs = _splitLines(document.getElementById('ro-subs').value);
+  const subPreview = subs.length
+    ? `<div style="margin-top:8px;font-size:12px;">Subscriptions targeted: <strong>${subs.length}</strong><ul style="margin:4px 0;padding-left:20px;">${subs.map(s => `<li><code>${esc(s)}</code></li>`).join('')}</ul></div>`
+    : `<div style="margin-top:8px;font-size:12px;"><em>No subscriptions specified — will auto-detect all subscriptions visible to SPN and only modify subs where each principal already has roles.</em></div>`;
+  document.getElementById('ro-discoverySummary').innerHTML += subPreview;
+  document.getElementById('ro-warning').classList.remove('hidden');
   document.getElementById('ro-discoveryBox').classList.remove('hidden');
   document.getElementById('ro-btnApply').disabled = _roPrincipals.length === 0;
 }
@@ -1805,6 +1892,12 @@ async function discoverForCleanup() {
   document.getElementById('cu-selectAllUsers').checked = true;
   document.getElementById('cu-selectAllGroups').checked = true;
   document.getElementById('cu-discoveryCard').classList.remove('hidden');
+
+  // Update preview table and confirmation prefix
+  updateCleanupPreview();
+  document.getElementById('cu-confirmPrefix').textContent = prefix;
+  document.getElementById('cu-confirmInput').value = '';
+  document.getElementById('cu-btnCleanup').disabled = true;
 }
 
 function toggleSelectAll(bodyId, cls) {
@@ -1829,9 +1922,7 @@ async function executeCleanup() {
     toast('Nothing selected to delete', 'warn'); return;
   }
 
-  const totalActions = userIds.length + groupIds.length + (subs.length * principalIds.length);
-  if (!confirm(`This will perform ~${totalActions} destructive operations:\n• Delete ${userIds.length} user(s)\n• Delete ${groupIds.length} group(s)\n• Remove RBAC at ${subs.length} subscription(s) for ${principalIds.length} principal(s)\n\nContinue?`)) return;
-
+  // Confirmation is handled by prefix-typing input — no additional confirm() needed
   document.getElementById('cu-spinner').classList.remove('hidden');
   document.getElementById('cu-resultCard').classList.add('hidden');
   try {
@@ -1842,9 +1933,26 @@ async function executeCleanup() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
     document.getElementById('cu-resultJson').textContent = JSON.stringify(data, null, 2);
+    // Render results table
+    let rows = '';
+    for (const u of (data.users || [])) {
+      const color = u.status === 'deleted' ? 'var(--success)' : 'var(--danger)';
+      rows += `<tr><td>User</td><td>${esc(u.displayName || u.id)}</td><td style="color:${color};font-weight:600">${esc(u.status)}</td><td style="font-size:12px;color:var(--muted)">${esc(u.error || '')}</td></tr>`;
+    }
+    for (const g of (data.groups || [])) {
+      const color = g.status === 'deleted' ? 'var(--success)' : 'var(--danger)';
+      rows += `<tr><td>Group</td><td>${esc(g.displayName || g.id)}</td><td style="color:${color};font-weight:600">${esc(g.status)}</td><td style="font-size:12px;color:var(--muted)">${esc(g.error || '')}</td></tr>`;
+    }
+    for (const r of (data.rbac || [])) {
+      const color = r.status === 'removed' ? 'var(--success)' : 'var(--danger)';
+      rows += `<tr><td>RBAC</td><td>${esc(r.subscription || r.principalId || '')}</td><td style="color:${color};font-weight:600">${esc(r.status)}</td><td style="font-size:12px;color:var(--muted)">${esc(r.error || '')}</td></tr>`;
+    }
+    document.getElementById('cu-resultBody').innerHTML = rows || '<tr><td colspan="4"><em>No results</em></td></tr>';
     document.getElementById('cu-resultCard').classList.remove('hidden');
     const okU = (data.users || []).filter(u => u.status === 'deleted').length;
     const okG = (data.groups || []).filter(g => g.status === 'deleted').length;
+    document.getElementById('cu-resultSummary').innerHTML =
+      `<span style="color:var(--success)">Deleted ${okU}/${(data.users || []).length} users, ${okG}/${(data.groups || []).length} groups</span>`;
     toast(`Deleted ${okU}/${(data.users || []).length} users, ${okG}/${(data.groups || []).length} groups`, 'success');
   } catch (e) {
     toast('Cleanup failed: ' + e.message, 'danger');
@@ -1852,6 +1960,218 @@ async function executeCleanup() {
     document.getElementById('cu-spinner').classList.add('hidden');
   }
 }
+
+// ──────────── Cleanup confirmation & preview ────────────
+function updateCleanupPreview() {
+  if (!_cuDiscovery) return;
+  const users = _cuDiscovery.users || [];
+  const groups = _cuDiscovery.groups || [];
+  const subs = _splitLines(document.getElementById('cu-subs').value);
+  const body = document.getElementById('cu-previewBody');
+  let rows = '';
+  users.forEach(u => {
+    rows += `<tr><td>User</td><td>${esc(u.userPrincipalName || u.displayName)}</td><td style="color:var(--danger)">Delete</td></tr>`;
+  });
+  groups.forEach(g => {
+    rows += `<tr><td>Group</td><td>${esc(g.displayName)}</td><td style="color:var(--danger)">Delete</td></tr>`;
+  });
+  subs.forEach(s => {
+    rows += `<tr><td>RBAC</td><td><code>${esc(s)}</code></td><td style="color:var(--warn)">Remove roles</td></tr>`;
+  });
+  body.innerHTML = rows || '<tr><td colspan="3"><em>Nothing to preview</em></td></tr>';
+  document.getElementById('cu-previewTable').classList.remove('hidden');
+}
+
+function checkCleanupConfirm() {
+  const prefix = document.getElementById('cu-prefix').value.trim();
+  const input = document.getElementById('cu-confirmInput').value.trim();
+  document.getElementById('cu-btnCleanup').disabled = (input !== prefix);
+}
+
+// ──────────── Read-Only confirmation ────────────
+function confirmReadOnly() {
+  if (!_roPrincipals.length) { toast('Run discovery first', 'danger'); return; }
+  const subs = _splitLines(document.getElementById('ro-subs').value);
+  const subText = subs.length ? `${subs.length} subscription(s)` : 'all auto-detected subscriptions';
+  const msg = `⚠️ This will REMOVE Owner/Contributor access and apply Reader-only on ${subText} for ${_roPrincipals.length} principal(s).\n\nThis cannot be easily undone. Continue?`;
+  if (!confirm(msg)) return;
+  const btn = document.getElementById('ro-btnApply');
+  withBusy(btn, applyReadOnly);
+}
+
+// ──────────── License availability check (Provision page) ────────────
+async function checkLicenseAvailability() {
+  const creds = getCreds();
+  if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
+  const cfg = _epCfg();
+  const totalUsers = (cfg.mode === 'flat' ? cfg.usersPerTeam : cfg.teams * cfg.usersPerTeam) + cfg.adminUsers;
+  const box = document.getElementById('ep-licenseAvailability');
+  box.classList.remove('hidden');
+  box.innerHTML = '<span class="spinner" style="display:inline-block;width:14px;height:14px;"></span> Checking…';
+  try {
+    const res = await fetch(`${API}/tenant-info`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(creds),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed');
+    const skus = data.subscribedSkus || [];
+    if (!skus.length) {
+      box.innerHTML = '<span style="color:var(--warn)">No license SKUs found in tenant.</span>';
+      return;
+    }
+    let html = '<div style="font-weight:600;margin-bottom:6px;">Tenant License Availability</div>';
+    html += '<table style="width:100%;font-size:12px;"><thead><tr><th>License</th><th>Total</th><th>Assigned</th><th>Available</th><th>Status</th></tr></thead><tbody>';
+    for (const sku of skus) {
+      const avail = (sku.prepaidUnits?.enabled || 0) - (sku.consumedUnits || 0);
+      const isSelected = cfg.licenses.some(l => (sku.skuPartNumber || '').toUpperCase().includes(l));
+      const needsSeats = isSelected && avail < totalUsers;
+      const color = needsSeats ? 'var(--danger)' : 'var(--success)';
+      const icon = needsSeats ? '⚠️' : '✓';
+      const rowStyle = isSelected ? 'font-weight:600;' : 'opacity:0.6;';
+      html += `<tr style="${rowStyle}"><td>${esc(sku.skuPartNumber)}</td><td>${sku.prepaidUnits?.enabled || 0}</td><td>${sku.consumedUnits || 0}</td><td style="color:${color}">${avail}</td><td>${isSelected ? (needsSeats ? `<span style="color:var(--danger)">${icon} Need ${totalUsers}, only ${avail} avail</span>` : `<span style="color:var(--success)">${icon} OK (need ${totalUsers})</span>`) : ''}</td></tr>`;
+    }
+    html += '</tbody></table>';
+    box.innerHTML = html;
+  } catch (e) {
+    box.innerHTML = `<span style="color:var(--danger)">Error: ${esc(e.message)}</span>`;
+  }
+}
+
+// ──────────── Validate subscriptions (Permissions page) ────────────
+async function validateSubscriptions() {
+  const creds = getCreds();
+  if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
+  const subs = _splitLines(document.getElementById('pp-subs').value);
+  if (!subs.length) { toast('Enter at least one subscription ID', 'danger'); return; }
+  const box = document.getElementById('pp-subValidation');
+  box.classList.remove('hidden');
+  box.innerHTML = '<span class="spinner" style="display:inline-block;width:14px;height:14px;"></span> Validating…';
+  let html = '';
+  try {
+    // Quick check via tenant-info which includes subscription list
+    const res = await fetch(`${API}/tenant-info`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(creds),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed');
+    const knownSubs = (data.subscriptions || []).map(s => s.subscriptionId || s.id || s);
+    html = '<div style="font-weight:600;margin-bottom:6px;">Subscription Validation</div>';
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    for (const sub of subs) {
+      if (!uuidRegex.test(sub)) {
+        html += `<div style="color:var(--danger)">✗ <code>${esc(sub)}</code> — invalid format (not a UUID)</div>`;
+      } else if (knownSubs.length && !knownSubs.includes(sub)) {
+        html += `<div style="color:var(--warn)">⚠ <code>${esc(sub)}</code> — not visible to SPN (check access)</div>`;
+      } else {
+        html += `<div style="color:var(--success)">✓ <code>${esc(sub)}</code> — accessible</div>`;
+      }
+    }
+    box.innerHTML = html;
+    toast('Subscription validation complete', 'success');
+  } catch (e) {
+    box.innerHTML = `<span style="color:var(--danger)">Validation error: ${esc(e.message)}</span>`;
+  }
+}
+
+// ──────────── Mapping preview (Permissions page) ────────────
+function updateMappingPreview() {
+  if (!_ppPrincipals.length) return;
+  const mapTeams = document.getElementById('pp-mapTeams').checked;
+  const subs = _splitLines(document.getElementById('pp-subs').value);
+  if (!subs.length || !mapTeams) {
+    document.getElementById('pp-mappingPreview').classList.add('hidden');
+    return;
+  }
+  let html = '';
+  for (let i = 0; i < _ppPrincipals.length; i++) {
+    const sub = subs[i % subs.length];
+    html += `<div>${esc(_ppPrincipals[i].displayName)} → <code>${esc(sub)}</code></div>`;
+  }
+  document.getElementById('pp-mappingList').innerHTML = html;
+  document.getElementById('pp-mappingPreview').classList.remove('hidden');
+}
+
+// ──────────── Upload progress tracking ────────────
+function updateUploadProgress(job) {
+  const card = document.getElementById('uploadProgressCard');
+  if (!job) { card.classList.add('hidden'); return; }
+  card.classList.remove('hidden');
+  const processed = job.processed ?? (job.completed_users + job.failed_users) ?? 0;
+  const total = job.total_users || 1;
+  const pct = Math.round((processed / total) * 100);
+  document.getElementById('uploadBar').style.width = pct + '%';
+  document.getElementById('uploadPctText').textContent = pct + '%';
+  document.getElementById('uploadUsersDone').textContent = `${processed} / ${total} users`;
+  const r = job.result || {};
+  const fileCount = (r.results || []).reduce((acc, u) => acc + (u.files || []).length, 0);
+  document.getElementById('uploadFilesDone').textContent = `${fileCount} files uploaded`;
+  const currentUser = (r.results || []).filter(u => u.status === 'success').slice(-1)[0];
+  document.getElementById('uploadCurrentUser').textContent = currentUser ? `Current: ${currentUser.user}` : 'Processing…';
+}
+
+// ──────────── Retry failed provision ────────────
+function retryFailedProvision() {
+  const users = _entraUsersForExport();
+  const failed = users.filter(u => u.status === 'failed');
+  if (!failed.length) { toast('No failed users to retry', 'warn'); return; }
+  const failedUpns = failed.map(u => u.userPrincipalName).filter(Boolean);
+  toast(`${failedUpns.length} failed user(s) identified. Re-running provision…`, 'success');
+  // Scroll to top and highlight the errors
+  document.getElementById('ep-resultCard').scrollIntoView({ behavior: 'smooth' });
+  // Re-trigger provision for these users by running startProvision again
+  startProvision();
+}
+
+// ──────────── Floating Jobs Panel ────────────
+function updateJobsPanel(jobs) {
+  const panel = document.getElementById('jobsPanel');
+  const body = document.getElementById('jobsPanelBody');
+  const running = jobs.filter(j => j.status === 'running');
+  const recent = jobs.filter(j => j.status !== 'running').slice(0, 3);
+  if (!running.length && !recent.length) {
+    panel.classList.add('hidden');
+    return;
+  }
+  panel.classList.remove('hidden');
+  let html = '';
+  if (running.length) {
+    html += '<div style="font-weight:600;color:var(--primary);margin-bottom:4px;">Running</div>';
+    for (const j of running) {
+      const processed = j.processed ?? (j.completed_users + j.failed_users) ?? 0;
+      const total = j.total_users || 1;
+      const pct = Math.round(processed / total * 100);
+      html += `<div style="margin-bottom:8px;padding:6px;background:#f0f6ff;border-radius:4px;">
+        <div style="display:flex;justify-content:space-between;"><code>${j.id.slice(0,8)}…</code><span class="badge badge-running">running</span></div>
+        <div style="height:4px;background:#ddd;border-radius:2px;margin-top:4px;"><div style="height:100%;width:${pct}%;background:var(--primary);border-radius:2px;transition:width .3s;"></div></div>
+        <div style="color:var(--muted);margin-top:2px;">${processed}/${total} (${pct}%)</div>
+      </div>`;
+    }
+  }
+  if (recent.length) {
+    html += '<div style="font-weight:600;color:var(--muted);margin-bottom:4px;margin-top:4px;">Recent</div>';
+    for (const j of recent) {
+      const cls = j.status === 'completed' ? 'badge-completed' : 'badge-failed';
+      html += `<div style="margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;">
+        <code>${j.id.slice(0,8)}…</code><span class="badge ${cls}">${j.status}</span>
+        <button class="btn btn-secondary btn-sm" style="padding:2px 8px;font-size:11px;" onclick="switchView('upload');viewJob('${j.id}')">View</button>
+      </div>`;
+    }
+  }
+  body.innerHTML = html;
+}
+
+// Init: also update mapping preview when mapTeams checkbox changes
+document.getElementById('pp-mapTeams').addEventListener('change', updateMappingPreview);
+
+// ──────────── Hack name validation on provision start ────────────
+const _origStartProvision = startProvision;
+startProvision = async function() {
+  const hackName = document.getElementById('ep-hackName').value.trim();
+  if (!hackName) { toast('Hack name is required', 'danger'); document.getElementById('ep-hackName').focus(); return; }
+  return _origStartProvision();
+};
 
 // Init
 loadSavedCreds();

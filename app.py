@@ -587,7 +587,14 @@ async def _async_tenant_info(t, c, s):
     tp = _make_token_provider(t, c, s)
     async with GraphClient(tp) as g:
         ts = TenantService(g)
-        return await ts.get_tenant_info()
+        domain, tap_max = await ts.get_tenant_info()
+        # Also fetch subscribedSkus for license availability
+        try:
+            sku_data = await g.get("/subscribedSkus")
+            skus = sku_data.get("value", [])
+        except Exception:
+            skus = []
+        return domain, tap_max, skus
 
 
 @app.route("/api/tenant-info", methods=["POST"])
@@ -597,8 +604,21 @@ def tenant_info():
     if not creds:
         return jsonify({"error": "Missing SPN credentials"}), 400
     try:
-        domain, tap_max = asyncio.run(_async_tenant_info(*creds))
-        return jsonify({"domain": domain, "tapMaxLifetimeMinutes": tap_max})
+        domain, tap_max, skus = asyncio.run(_async_tenant_info(*creds))
+        sku_summary = [
+            {
+                "skuPartNumber": s.get("skuPartNumber", ""),
+                "skuId": s.get("skuId", ""),
+                "consumedUnits": s.get("consumedUnits", 0),
+                "prepaidUnits": s.get("prepaidUnits", {}),
+            }
+            for s in skus
+        ]
+        return jsonify({
+            "domain": domain,
+            "tapMaxLifetimeMinutes": tap_max,
+            "subscribedSkus": sku_summary,
+        })
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
