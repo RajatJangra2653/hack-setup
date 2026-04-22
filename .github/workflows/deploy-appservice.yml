@@ -1,0 +1,59 @@
+name: Deploy to Azure App Service
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  AZURE_WEBAPP_NAME: onedrive-provisioner-app
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    name: Build and Deploy
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Create deployment package
+        run: |
+          # Copy prod requirements as requirements.txt for Oryx build
+          cp requirements-prod.txt requirements.txt
+
+          # Create a clean staging directory
+          mkdir -p staging
+
+          # Copy required files
+          cp app.py staging/
+          cp gunicorn.conf.py staging/
+          cp requirements.txt staging/
+          cp startup.sh staging/
+
+          # Copy required folders (excluding dev artifacts)
+          cp -r frontend staging/
+          cp -r src staging/
+
+          # Remove __pycache__ and .pyc files
+          find staging -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+          find staging -name "*.pyc" -delete 2>/dev/null || true
+
+          # Create zip
+          cd staging
+          zip -r ../deploy.zip .
+          cd ..
+
+          echo "Package size: $(du -sh deploy.zip | cut -f1)"
+
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.AZURE_WEBAPP_NAME }}
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          package: deploy.zip

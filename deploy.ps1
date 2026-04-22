@@ -37,14 +37,16 @@ az appservice plan create `
     --is-linux `
     --output none
 
-# 3) Create web app
+# 3) Create web app (suppress "already exists" warning which kills StrictMode)
 Write-Host ">> Creating web app..." -ForegroundColor Yellow
+$ErrorActionPreference = "Continue"
 az webapp create `
     --name $AppName `
     --resource-group $RG `
     --plan "$AppName-plan" `
     --runtime "PYTHON:$Python" `
-    --output none
+    --output none 2>&1 | Where-Object { $_ -notmatch 'WARNING' }
+$ErrorActionPreference = "Stop"
 
 # 4) Configure startup command (gunicorn with 600s timeout for long uploads)
 Write-Host ">> Configuring startup and settings..." -ForegroundColor Yellow
@@ -105,7 +107,25 @@ foreach ($d in $foldersToZip) {
     }
 }
 
-Compress-Archive -Path "$staging\*" -DestinationPath $zipPath -Force
+# Use System.IO.Compression.ZipArchive with manual entry creation
+# to ensure POSIX forward slashes (Linux compat).
+# (Both Compress-Archive AND ZipFile.CreateFromDirectory on Windows
+#  emit backslashes, which Linux extracts as literal filenames.)
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
+
+$archive = [System.IO.Compression.ZipFile]::Open(
+    $zipPath,
+    [System.IO.Compression.ZipArchiveMode]::Create
+)
+Get-ChildItem $staging -Recurse -File | ForEach-Object {
+    $relativePath = $_.FullName.Substring($staging.Length + 1).Replace('\', '/')
+    [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+        $archive, $_.FullName, $relativePath,
+        [System.IO.Compression.CompressionLevel]::Optimal
+    ) | Out-Null
+}
+$archive.Dispose()
 Remove-Item $staging -Recurse -Force
 
 # Restore original requirements.txt
