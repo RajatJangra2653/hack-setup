@@ -759,24 +759,39 @@ async def _async_cleanup(t, c, s, *, user_ids, group_ids, sub_ids, principal_ids
 
 @app.route("/api/cleanup-hack", methods=["POST"])
 def cleanup_hack():
-    """Delete selected users + groups + RBAC assignments.
+    """Delete selected users + groups + RBAC assignments, then remove blob state.
 
     Body: { tenant_id, client_id, client_secret,
             userIds: [], groupIds: [],
-            subscriptionIds: [], principalIds: [] }
+            subscriptionIds: [], principalIds: [],
+            hackPrefix: "" }
     """
     data = request.get_json(silent=True) or {}
     creds = _extract_creds(data)
     if not creds:
         return jsonify({"error": "Missing SPN credentials"}), 400
     try:
-        return jsonify(asyncio.run(_async_cleanup(
+        result = asyncio.run(_async_cleanup(
             *creds,
             user_ids=data.get("userIds") or [],
             group_ids=data.get("groupIds") or [],
             sub_ids=data.get("subscriptionIds") or [],
             principal_ids=data.get("principalIds") or [],
-        )))
+        ))
+        # Delete hack state from blob storage if prefix provided
+        prefix = (data.get("hackPrefix") or "").strip()
+        if prefix:
+            try:
+                mgr = _get_state_manager()
+                if mgr:
+                    deleted = mgr.delete_state(prefix)
+                    result["blob_state_deleted"] = deleted
+                else:
+                    result["blob_state_deleted"] = False
+                    result["blob_state_note"] = "Storage not configured"
+            except Exception as exc:
+                result["blob_state_error"] = str(exc)
+        return jsonify(result)
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 

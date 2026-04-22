@@ -876,7 +876,21 @@ class DevHandler(SimpleHTTPRequestHandler):
                     if group_ids:
                         out["groups"] = await cleaner.delete_groups(group_ids)
                 return out
-            self._send_json(asyncio.run(_run()))
+            result = asyncio.run(_run())
+            # Delete hack state from blob storage if prefix provided
+            prefix = (data.get("hackPrefix") or "").strip()
+            if prefix:
+                try:
+                    mgr = _get_state_manager()
+                    if mgr:
+                        deleted = mgr.delete_state(prefix)
+                        result["blob_state_deleted"] = deleted
+                    else:
+                        result["blob_state_deleted"] = False
+                        result["blob_state_note"] = "Storage not configured"
+                except Exception as exc:
+                    result["blob_state_error"] = str(exc)
+            self._send_json(result)
         except Exception as exc:
             self._send_json({"error": str(exc)}, 500)
 

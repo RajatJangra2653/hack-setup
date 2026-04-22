@@ -2161,7 +2161,7 @@ async function executeCleanup() {
   try {
     const res = await fetch(`${API}/cleanup-hack`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...creds, userIds, groupIds, subscriptionIds: subs, principalIds }),
+      body: JSON.stringify({ ...creds, userIds, groupIds, subscriptionIds: subs, principalIds, hackPrefix: document.getElementById('cu-prefix').value.trim() }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
@@ -2185,8 +2185,11 @@ async function executeCleanup() {
     const okU = (data.users || []).filter(u => u.status === 'deleted').length;
     const okG = (data.groups || []).filter(g => g.status === 'deleted').length;
     document.getElementById('cu-resultSummary').innerHTML =
-      `<span style="color:var(--success)">Deleted ${okU}/${(data.users || []).length} users, ${okG}/${(data.groups || []).length} groups</span>`;
-    toast(`Deleted ${okU}/${(data.users || []).length} users, ${okG}/${(data.groups || []).length} groups`, 'success');
+      `<span style="color:var(--success)">Deleted ${okU}/${(data.users || []).length} users, ${okG}/${(data.groups || []).length} groups</span>` +
+      (data.blob_state_deleted ? ' · <span style="color:var(--success)">Hack state removed from storage</span>' :
+       data.blob_state_error ? ` · <span style="color:var(--danger)">State cleanup error: ${esc(data.blob_state_error)}</span>` : '');
+    toast(`Deleted ${okU}/${(data.users || []).length} users, ${okG}/${(data.groups || []).length} groups` +
+      (data.blob_state_deleted ? ' + state cleaned' : ''), 'success');
   } catch (e) {
     toast('Cleanup failed: ' + e.message, 'danger');
   } finally {
