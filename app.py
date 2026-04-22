@@ -41,8 +41,28 @@ from onedrive_provisioner.entra import (
     remove_rbac_for_principals, downgrade_principals_to_reader, ROLE_IDS,
     run_preflight,
 )
+from onedrive_provisioner.storage import HackStateManager
+from onedrive_provisioner.storage.blob_client import BlobStateClient
 
 FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "frontend")
+
+# ── Blob Storage state persistence ──
+_state_mgr: HackStateManager | None = None
+
+def _get_state_manager() -> HackStateManager | None:
+    global _state_mgr
+    if _state_mgr is not None:
+        return _state_mgr
+    conn_str = os.environ.get("AZURE_STORAGE_CONNECTION_STRING", "")
+    if not conn_str:
+        return None
+    try:
+        client = BlobStateClient("", connection_string=conn_str)
+        _state_mgr = HackStateManager(client)
+        return _state_mgr
+    except Exception as exc:
+        print(f"[WARN] Could not init blob state manager: {exc}")
+        return None
 
 app = Flask(__name__, static_folder=None)
 app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # 200 MB upload limit
@@ -476,6 +496,16 @@ def _run_entra_provision(session_id: str, cfg_dict: dict,
 
         _set(status="completed", result=report.to_dict(),
              processed=report.total_users, total=report.total_users)
+
+        # Persist state to blob storage
+        try:
+            mgr = _get_state_manager()
+            if mgr:
+                state = HackStateManager.build_state_from_report(
+                    cfg_dict, report.to_dict(), session_id=session_id)
+                mgr.save_state(cfg_dict.get("prefix", "unknown"), state)
+        except Exception as blob_exc:
+            print(f"[WARN] Failed to save state to blob: {blob_exc}")
     except Exception as exc:
         _set(status="failed", error=str(exc))
 
@@ -770,6 +800,160 @@ def readonly_mode():
         return jsonify({"results": results})
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
+
+
+# ────────────────────── Hack State Management (Blob Storage) ──────────────────────
+
+@app.route("/api/hack-state", methods=["GET"])
+def list_hacks():
+    """List all hacks with saved state."""
+    mgr = _get_state_manager()
+    if not mgr:
+        return jsonify({"error": "Storage not configured (set AZURE_STORAGE_CONNECTION_STRING)"}), 503
+    try:
+        return jsonify(mgr.list_hacks())
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/hack-state/<prefix>", methods=["GET"])
+def get_hack_state(prefix):
+    """Retrieve full state for a hack prefix."""
+    mgr = _get_state_manager()
+    if not mgr:
+        return jsonify({"error": "Storage not configured"}), 503
+    state = mgr.get_state(prefix)
+    if not state:
+        return jsonify({"error": f"No state found for prefix '{prefix}'"}), 404
+    return jsonify(state)
+
+
+@app.route("/api/hack-state/<prefix>/versions", methods=["GET"])
+def get_hack_versions(prefix):
+    """List version history for a hack prefix."""
+    mgr = _get_state_manager()
+    if not mgr:
+        return jsonify({"error": "Storage not configured"}), 503
+    versions = mgr.list_versions(prefix)
+    return jsonify(versions)
+
+
+@app.route("/api/hack-state/<prefix>/regenerate-tap", methods=["POST"])
+def regenerate_tap(prefix):
+    """Regenerate TAP for selected users in a hack.
+
+    Body: { tenant_id, client_id, client_secret,
+            users?: [upn1, upn2, ...],  // omit for all non-admin users
+            tapLifetime?: 120 }
+    """
+    data = request.get_json(silent=True) or {}
+    creds = _extract_creds(data)
+    if not creds:
+        return jsonify({"error": "Missing SPN credentials"}), 400
+
+    mgr = _get_state_manager()
+    if not mgr:
+        return jsonify({"error": "Storage not configured"}), 503
+    state = mgr.get_state(prefix)
+    if not state:
+        return jsonify({"error": f"No state found for prefix '{prefix}'"}), 404
+
+    target_upns = data.get("users")  # None = all
+    tap_lifetime = int(data.get("tapLifetime", 120))
+
+    try:
+        results = asyncio.run(_async_regenerate_tap(
+            *creds, state=state, target_upns=target_upns,
+            tap_lifetime=tap_lifetime))
+        updated_state = mgr.update_user_taps(prefix, results)
+        return jsonify({"results": results, "updatedUsers": len(results)})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+async def _async_regenerate_tap(t, c, s, *, state, target_upns, tap_lifetime):
+    from onedrive_provisioner.entra.tap_service import TapService
+    tp = _make_token_provider(t, c, s)
+    results = []
+    async with GraphClient(tp) as g:
+        tap_svc = TapService(g, lifetime_minutes=tap_lifetime)
+        for u in state.get("users", []):
+            upn = u.get("userPrincipalName", "")
+            uid = u.get("userId", "")
+            if not uid:
+                continue
+            if target_upns and upn not in target_upns:
+                continue
+            tap = await tap_svc.issue(uid)
+            results.append({
+                "userPrincipalName": upn,
+                "tap": tap.get("temporaryAccessPass", "") if tap else "",
+                "tapExpires": tap.get("startDateTime", "") if tap else "",
+                "status": "ok" if tap else "failed",
+            })
+    return results
+
+
+@app.route("/api/hack-state/<prefix>/assign-licenses", methods=["POST"])
+def assign_licenses_to_hack(prefix):
+    """Assign additional licenses to users in a hack.
+
+    Body: { tenant_id, client_id, client_secret,
+            licenses: ["SKU_PART_1", ...],
+            users?: [upn1, ...] }  // omit for all non-admin users
+    """
+    data = request.get_json(silent=True) or {}
+    creds = _extract_creds(data)
+    if not creds:
+        return jsonify({"error": "Missing SPN credentials"}), 400
+
+    mgr = _get_state_manager()
+    if not mgr:
+        return jsonify({"error": "Storage not configured"}), 503
+    state = mgr.get_state(prefix)
+    if not state:
+        return jsonify({"error": f"No state found for prefix '{prefix}'"}), 404
+
+    licenses = data.get("licenses", [])
+    if not licenses:
+        return jsonify({"error": "licenses[] required"}), 400
+    target_upns = data.get("users")
+
+    try:
+        results = asyncio.run(_async_assign_licenses(
+            *creds, state=state, licenses=licenses, target_upns=target_upns))
+        updated_state = mgr.update_user_licenses(prefix, results)
+        return jsonify({"results": results, "updatedUsers": len(results)})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+async def _async_assign_licenses(t, c, s, *, state, licenses, target_upns):
+    from onedrive_provisioner.entra.license_service import LicenseService
+    tp = _make_token_provider(t, c, s)
+    results = []
+    async with GraphClient(tp) as g:
+        lic_svc = LicenseService(g)
+        sku_map = await lic_svc.resolve(licenses)
+        sku_ids = [sid for (sid, _) in sku_map.values()]
+        if not sku_ids:
+            return results
+        for u in state.get("users", []):
+            upn = u.get("userPrincipalName", "")
+            uid = u.get("userId", "")
+            if not uid or u.get("isAdmin"):
+                continue
+            if target_upns and upn not in target_upns:
+                continue
+            assigned = await lic_svc.assign(uid, sku_ids)
+            existing = u.get("licenses", [])
+            merged = list(set(existing + licenses))
+            results.append({
+                "userPrincipalName": upn,
+                "licenses": merged,
+                "status": "ok" if assigned else "failed",
+            })
+    return results
 
 
 # ────────────────────── Local dev ──────────────────────

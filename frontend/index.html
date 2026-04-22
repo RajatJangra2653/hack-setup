@@ -139,6 +139,7 @@
       <div class="tab" data-view="upload" onclick="switchView('upload')">📤 Upload Files</div>
       <div class="tab" data-view="readonly" onclick="switchView('readonly')">👀 Read-Only Mode</div>
       <div class="tab" data-view="cleanup" onclick="switchView('cleanup')">🗑️ Cleanup Hack</div>
+      <div class="tab" data-view="manage" onclick="switchView('manage')">📋 Manage Hack</div>
     </div>
 
     <!-- ────────── SPN Credentials Card ────────── -->
@@ -657,6 +658,123 @@
         </details>
       </div>
     </div><!-- /view-cleanup -->
+
+    <!-- ────────── Manage Existing Hack ────────── -->
+    <div id="view-manage" class="hidden">
+      <h2>📋 Manage Existing Hack</h2>
+      <p class="hint">Load a previously provisioned hack from Azure Blob Storage. Regenerate TAPs, assign licenses, or review state.</p>
+
+      <div class="card">
+        <h3>Load Hack</h3>
+        <div class="row">
+          <div class="form-group" style="flex:2;">
+            <label for="mh-prefix">Hack Prefix</label>
+            <div style="display:flex;gap:6px;">
+              <input type="text" id="mh-prefix" placeholder="e.g. nyc-esri-gcc-" style="flex:1;" />
+              <button class="btn btn-primary btn-sm" onclick="withBusy(this, loadHackState)">📥 Load</button>
+            </div>
+          </div>
+          <div class="form-group" style="flex:1;">
+            <label>&nbsp;</label>
+            <button class="btn btn-secondary btn-sm" onclick="withBusy(this, listSavedHacks)" style="width:100%;">📋 List All Saved Hacks</button>
+          </div>
+        </div>
+        <div id="mh-hackList" class="hidden" style="margin-top:10px;padding:8px 12px;background:#f7f9fc;border:1px solid var(--border);border-radius:6px;font-size:13px;max-height:200px;overflow:auto;"></div>
+      </div>
+
+      <div id="mh-stateCard" class="card hidden">
+        <h3>Hack State: <span id="mh-hackTitle"></span></h3>
+        <div class="row" style="gap:20px;">
+          <div><strong>Prefix:</strong> <span id="mh-stPrefix"></span></div>
+          <div><strong>Domain:</strong> <span id="mh-stDomain"></span></div>
+          <div><strong>Users:</strong> <span id="mh-stUsers"></span></div>
+          <div><strong>Created:</strong> <span id="mh-stCreated"></span></div>
+          <div><strong>Last Updated:</strong> <span id="mh-stUpdated"></span></div>
+        </div>
+
+        <div style="margin-top:16px;">
+          <div class="tabs">
+            <div class="tab active" data-tab="mh-users" onclick="switchTab(this)">Users</div>
+            <div class="tab" data-tab="mh-actions" onclick="switchTab(this)">Actions</div>
+            <div class="tab" data-tab="mh-versions" onclick="switchTab(this)">Versions</div>
+            <div class="tab" data-tab="mh-raw" onclick="switchTab(this)">Raw JSON</div>
+          </div>
+
+          <div data-tab-content="mh-users">
+            <div class="results-scroll" style="max-height:400px;">
+              <table>
+                <thead><tr><th>UPN</th><th>Status</th><th>Password</th><th>TAP</th><th>Licenses</th><th>Groups</th></tr></thead>
+                <tbody id="mh-usersBody"></tbody>
+              </table>
+            </div>
+            <div style="margin-top:8px;">
+              <button class="btn btn-secondary btn-sm" onclick="downloadManagedHackExcel()">📊 Export Excel</button>
+              <button class="btn btn-secondary btn-sm" onclick="downloadManagedHackCsv()">📄 Export CSV</button>
+            </div>
+          </div>
+
+          <div data-tab-content="mh-actions" class="hidden">
+            <div class="card" style="margin-top:10px;">
+              <h4>🔑 Regenerate TAP</h4>
+              <p class="hint">Generate new Temporary Access Pass for all (or selected) users in this hack.</p>
+              <div class="row">
+                <div class="form-group">
+                  <label for="mh-tapLifetime">TAP Lifetime (minutes)</label>
+                  <input type="number" id="mh-tapLifetime" value="120" min="10" max="43200" />
+                </div>
+                <div class="form-group">
+                  <label for="mh-tapUsers">Users (blank = all)</label>
+                  <textarea id="mh-tapUsers" rows="2" placeholder="user1@domain.com, user2@domain.com (blank = all non-admin users)"></textarea>
+                </div>
+              </div>
+              <button class="btn btn-primary" onclick="withBusy(this, regenTapForHack)">🔑 Regenerate TAP</button>
+              <span id="mh-tapSpinner" class="hidden"><span class="spinner"></span></span>
+            </div>
+
+            <div class="card" style="margin-top:10px;">
+              <h4>📦 Assign Additional Licenses</h4>
+              <p class="hint">Assign new licenses to users in this hack (non-admin only).</p>
+              <div class="form-group">
+                <label>Licenses to assign</label>
+                <div id="mh-licenseBox" style="display:flex;flex-wrap:wrap;gap:10px;">
+                  <span class="hint">Click "Load from Tenant" on the Provision tab first to see available licenses, or type SKU names below.</span>
+                </div>
+              </div>
+              <div class="form-group">
+                <label for="mh-licUsers">Users (blank = all non-admin)</label>
+                <textarea id="mh-licUsers" rows="2" placeholder="user1@domain.com, user2@domain.com (blank = all)"></textarea>
+              </div>
+              <div class="form-group">
+                <label for="mh-licNames">License SKU names (comma-separated)</label>
+                <input type="text" id="mh-licNames" placeholder="e.g. M365_G3_GOV, COPILOT_FOR_MICROSOFT_365_GCC" />
+              </div>
+              <button class="btn btn-primary" onclick="withBusy(this, assignLicensesToHack)">📦 Assign Licenses</button>
+              <span id="mh-licSpinner" class="hidden"><span class="spinner"></span></span>
+            </div>
+          </div>
+
+          <div data-tab-content="mh-versions" class="hidden">
+            <div id="mh-versionsList" style="margin-top:10px;font-size:13px;"></div>
+          </div>
+
+          <div data-tab-content="mh-raw" class="hidden">
+            <pre id="mh-rawJson" style="font-size:12px;max-height:400px;overflow:auto;background:#f7f9fc;padding:12px;border-radius:6px;"></pre>
+          </div>
+        </div>
+      </div>
+
+      <div id="mh-actionResult" class="card hidden" style="margin-top:12px;">
+        <h3>Action Result</h3>
+        <div id="mh-actionSummary" style="margin-bottom:8px;font-weight:600;"></div>
+        <div class="results-scroll" style="max-height:300px;">
+          <table>
+            <thead><tr><th>UPN</th><th>Status</th><th>TAP / Licenses</th></tr></thead>
+            <tbody id="mh-actionBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div><!-- /view-manage -->
+
   </div>
 
   <footer>OneDrive Provisioner &mdash; powered by Microsoft Graph API</footer>
@@ -1304,7 +1422,7 @@ function switchView(name) {
   document.querySelectorAll('.tab[data-view]').forEach(t => {
     t.classList.toggle('active', t.dataset.view === name);
   });
-  ['upload','provision','permissions','readonly','cleanup'].forEach(v => {
+  ['upload','provision','permissions','readonly','cleanup','manage'].forEach(v => {
     const el = document.getElementById('view-' + v);
     if (el) el.classList.toggle('hidden', v !== name);
   });
@@ -2255,6 +2373,217 @@ startProvision = async function() {
   if (!hackName) { toast('Hack name is required', 'danger'); document.getElementById('ep-hackName').focus(); return; }
   return _origStartProvision();
 };
+
+// ──────────── Manage Existing Hack (Blob State) ────────────
+let _managedHackState = null;
+
+async function listSavedHacks() {
+  const box = document.getElementById('mh-hackList');
+  box.classList.remove('hidden');
+  box.innerHTML = '<span class="spinner" style="display:inline-block;width:14px;height:14px;"></span> Loading…';
+  try {
+    const res = await fetch(`${API}/hack-state`);
+    const hacks = await res.json();
+    if (!res.ok) throw new Error(hacks.error || 'Failed');
+    if (Array.isArray(hacks) && hacks.length === 0) {
+      box.innerHTML = '<span class="hint">No saved hacks found. Provision users first, and state will be saved automatically.</span>';
+      return;
+    }
+    let html = '<div style="font-weight:600;margin-bottom:6px;">Saved Hacks</div>';
+    html += '<table style="width:100%;font-size:12px;"><thead><tr><th>Prefix</th><th>Hack Name</th><th>Domain</th><th>Users</th><th>Last Updated</th><th></th></tr></thead><tbody>';
+    for (const h of hacks) {
+      html += `<tr>
+        <td><code>${esc(h.prefix)}</code></td>
+        <td>${esc(h.hackName || '-')}</td>
+        <td>${esc(h.domain || '-')}</td>
+        <td>${h.totalUsers || 0}</td>
+        <td>${esc((h.lastUpdated||'').substring(0,19))}</td>
+        <td><button class="btn btn-secondary btn-sm" onclick="document.getElementById('mh-prefix').value='${esc(h.prefix)}';loadHackState()">Load</button></td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+    box.innerHTML = html;
+  } catch (e) {
+    box.innerHTML = `<span style="color:var(--danger)">Error: ${esc(e.message)}</span>`;
+  }
+}
+
+async function loadHackState() {
+  const prefix = document.getElementById('mh-prefix').value.trim();
+  if (!prefix) { toast('Enter a hack prefix', 'danger'); return; }
+  const cleanPrefix = prefix.replace(/-$/, '');
+  try {
+    const res = await fetch(`${API}/hack-state/${encodeURIComponent(cleanPrefix)}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Not found');
+    _managedHackState = data;
+    _renderManagedHackState(data);
+    toast(`Loaded state for "${cleanPrefix}"`, 'success');
+  } catch (e) {
+    toast('Failed to load hack: ' + e.message, 'danger');
+  }
+}
+
+function _renderManagedHackState(state) {
+  document.getElementById('mh-stateCard').classList.remove('hidden');
+  document.getElementById('mh-hackTitle').textContent = state.hackName || state.prefix || '';
+  document.getElementById('mh-stPrefix').textContent = state.prefix || '';
+  document.getElementById('mh-stDomain').textContent = state.domain || '';
+  document.getElementById('mh-stUsers').textContent = String(state.totalUsers || 0);
+  document.getElementById('mh-stCreated').textContent = (state.createdAt || '').substring(0, 19);
+  document.getElementById('mh-stUpdated').textContent = (state.lastUpdated || '').substring(0, 19);
+
+  // Users table
+  const body = document.getElementById('mh-usersBody');
+  body.innerHTML = '';
+  for (const u of (state.users || [])) {
+    const sCls = u.status === 'created' ? 'color:var(--success)' : u.status === 'failed' ? 'color:var(--danger)' : 'color:var(--muted)';
+    body.innerHTML += `<tr>
+      <td><code style="font-size:11px;">${esc(u.userPrincipalName)}</code></td>
+      <td style="${sCls}">${esc(u.status)}</td>
+      <td style="filter:blur(4px);cursor:pointer;" onclick="this.style.filter=this.style.filter?'':'blur(4px)'">${esc(u.password || '-')}</td>
+      <td style="filter:blur(4px);cursor:pointer;" onclick="this.style.filter=this.style.filter?'':'blur(4px)'">${esc(u.tap || '-')}</td>
+      <td style="font-size:11px;">${(u.licenses || []).map(esc).join(', ') || '-'}</td>
+      <td style="font-size:11px;">${(u.groups || []).map(esc).join(', ') || '-'}</td>
+    </tr>`;
+  }
+
+  // Raw JSON
+  document.getElementById('mh-rawJson').textContent = JSON.stringify(state, null, 2);
+
+  // Load versions
+  _loadHackVersions(state.prefix);
+}
+
+async function _loadHackVersions(prefix) {
+  const box = document.getElementById('mh-versionsList');
+  box.innerHTML = '<span class="spinner" style="display:inline-block;width:14px;height:14px;"></span>';
+  try {
+    const cleanPrefix = prefix.replace(/-$/, '');
+    const res = await fetch(`${API}/hack-state/${encodeURIComponent(cleanPrefix)}/versions`);
+    const versions = await res.json();
+    if (!res.ok) throw new Error(versions.error || 'Failed');
+    if (!versions.length) {
+      box.innerHTML = '<span class="hint">No version history.</span>';
+      return;
+    }
+    let html = '<div style="font-weight:600;margin-bottom:6px;">Version History</div><ul style="font-size:12px;max-height:200px;overflow:auto;">';
+    for (const v of versions) {
+      const ts = v.split('/').pop().replace('state_', '').replace('.json', '');
+      html += `<li><code>${esc(ts)}</code> — <code>${esc(v)}</code></li>`;
+    }
+    html += '</ul>';
+    box.innerHTML = html;
+  } catch (e) {
+    box.innerHTML = `<span style="color:var(--danger)">Error loading versions: ${esc(e.message)}</span>`;
+  }
+}
+
+async function regenTapForHack() {
+  if (!_managedHackState) { toast('Load a hack first', 'danger'); return; }
+  const creds = getCreds();
+  if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
+  const prefix = _managedHackState.prefix.replace(/-$/, '');
+  const tapLifetime = parseInt(document.getElementById('mh-tapLifetime').value || '120', 10);
+  const usersText = document.getElementById('mh-tapUsers').value.trim();
+  const users = usersText ? usersText.split(/[\r\n,]+/).map(s => s.trim()).filter(Boolean) : undefined;
+  document.getElementById('mh-tapSpinner').classList.remove('hidden');
+  try {
+    const res = await fetch(`${API}/hack-state/${encodeURIComponent(prefix)}/regenerate-tap`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...creds, tapLifetime, users }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed');
+    _showActionResult('TAP Regeneration', data.results || [], 'tap');
+    toast(`Regenerated TAP for ${data.updatedUsers} user(s)`, 'success');
+    // Reload state
+    await loadHackState();
+  } catch (e) {
+    toast('TAP regen failed: ' + e.message, 'danger');
+  } finally {
+    document.getElementById('mh-tapSpinner').classList.add('hidden');
+  }
+}
+
+async function assignLicensesToHack() {
+  if (!_managedHackState) { toast('Load a hack first', 'danger'); return; }
+  const creds = getCreds();
+  if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
+  const prefix = _managedHackState.prefix.replace(/-$/, '');
+  const licNames = document.getElementById('mh-licNames').value.split(/[\s,]+/).map(s => s.trim()).filter(Boolean);
+  if (!licNames.length) { toast('Enter at least one license SKU name', 'danger'); return; }
+  const usersText = document.getElementById('mh-licUsers').value.trim();
+  const users = usersText ? usersText.split(/[\r\n,]+/).map(s => s.trim()).filter(Boolean) : undefined;
+  document.getElementById('mh-licSpinner').classList.remove('hidden');
+  try {
+    const res = await fetch(`${API}/hack-state/${encodeURIComponent(prefix)}/assign-licenses`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...creds, licenses: licNames, users }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed');
+    _showActionResult('License Assignment', data.results || [], 'licenses');
+    toast(`Assigned licenses to ${data.updatedUsers} user(s)`, 'success');
+    await loadHackState();
+  } catch (e) {
+    toast('License assign failed: ' + e.message, 'danger');
+  } finally {
+    document.getElementById('mh-licSpinner').classList.add('hidden');
+  }
+}
+
+function _showActionResult(title, results, type) {
+  const card = document.getElementById('mh-actionResult');
+  card.classList.remove('hidden');
+  document.getElementById('mh-actionSummary').textContent = `${title}: ${results.length} user(s) processed`;
+  const body = document.getElementById('mh-actionBody');
+  body.innerHTML = '';
+  for (const r of results) {
+    const sCls = r.status === 'ok' ? 'color:var(--success)' : 'color:var(--danger)';
+    const detail = type === 'tap' ? (r.tap || '-') : (r.licenses || []).join(', ');
+    body.innerHTML += `<tr>
+      <td><code style="font-size:11px;">${esc(r.userPrincipalName)}</code></td>
+      <td style="${sCls}">${esc(r.status)}</td>
+      <td style="font-size:11px;">${esc(detail)}</td>
+    </tr>`;
+  }
+}
+
+function downloadManagedHackExcel() {
+  if (!_managedHackState || !_managedHackState.users) { toast('No data', 'warn'); return; }
+  const users = _managedHackState.users;
+  const headers = ['userPrincipalName','password','tap','tapExpires','status','licenses','groups','isAdmin','userId'];
+  const xmlEsc = (s) => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const headerRow = `<Row>${headers.map(h => `<Cell><Data ss:Type="String">${xmlEsc(h)}</Data></Cell>`).join('')}</Row>`;
+  const dataRows = users.map(u => {
+    const cells = [u.userPrincipalName, u.password||'', u.tap||'', u.tapExpires||'', u.status,
+      (u.licenses||[]).join('|'), (u.groups||[]).join('|'), u.isAdmin?'yes':'no', u.userId||''];
+    return `<Row>${cells.map(v => `<Cell><Data ss:Type="String">${xmlEsc(v)}</Data></Cell>`).join('')}</Row>`;
+  }).join('');
+  const xml = `<?xml version="1.0"?>\n<?mso-application progid="Excel.Sheet"?>\n<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">\n <Worksheet ss:Name="Users"><Table>${headerRow}${dataRows}</Table></Worksheet>\n</Workbook>`;
+  const blob = new Blob([xml], { type: 'application/vnd.ms-excel' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `hack_${_managedHackState.prefix || 'export'}.xls`;
+  a.click();
+}
+
+function downloadManagedHackCsv() {
+  if (!_managedHackState || !_managedHackState.users) { toast('No data', 'warn'); return; }
+  const users = _managedHackState.users;
+  const rows = [['userPrincipalName','password','tap','tapExpires','status','licenses','groups','isAdmin','userId']];
+  for (const u of users) {
+    rows.push([u.userPrincipalName, u.password||'', u.tap||'', u.tapExpires||'', u.status,
+      (u.licenses||[]).join('|'), (u.groups||[]).join('|'), u.isAdmin?'yes':'no', u.userId||'']);
+  }
+  const csv = '\ufeff' + rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `hack_${_managedHackState.prefix || 'export'}.csv`;
+  a.click();
+}
 
 // Init
 loadSavedCreds();
