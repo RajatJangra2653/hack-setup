@@ -304,12 +304,12 @@
         <div class="row">
           <div class="form-group">
             <label for="ep-prefix">Hack Prefix</label>
-            <input type="text" id="ep-prefix" value="nyc-esri-gcc-" />
+            <input type="text" id="ep-prefix" value="nyc-esri-gcc-" oninput="updateProvisionPreview()" />
           </div>
           <div class="form-group">
             <label for="ep-domain">UPN domain <span class="hint" style="font-weight:400;">(auto-detected if blank)</span></label>
             <div style="display:flex;gap:6px;">
-              <input type="text" id="ep-domain" placeholder="auto-detect from tenant" style="flex:1;" />
+              <input type="text" id="ep-domain" placeholder="auto-detect from tenant" style="flex:1;" oninput="updateProvisionPreview()" />
               <button class="btn btn-secondary btn-sm" type="button" onclick="withBusy(this, autoDetectDomain)">🔄 Detect</button>
             </div>
           </div>
@@ -339,19 +339,14 @@
 
         <div class="form-group">
           <label>Licenses to assign (per non-admin user)</label>
-          <div class="hint">Friendly names are matched against your tenant's <code>/subscribedSkus</code> by partNumber substring. Click "Check Availability" to see seat counts.</div>
-          <div style="margin-bottom:8px;"><button class="btn btn-secondary btn-sm" onclick="withBusy(this, checkLicenseAvailability)">🔍 Check Availability</button></div>
+          <div class="hint">Select from your tenant's available licenses. Click "Load from Tenant" or they'll auto-load on provision/pre-flight.</div>
+          <div style="margin-bottom:8px;display:flex;gap:8px;align-items:center;">
+            <button class="btn btn-secondary btn-sm" onclick="withBusy(this, loadTenantLicenses)">🔄 Load from Tenant</button>
+            <span id="ep-licLoading" class="hidden"><span class="spinner" style="width:14px;height:14px;"></span></span>
+          </div>
           <div id="ep-licenseAvailability" class="hidden" style="margin-bottom:10px;padding:8px 12px;background:#f7f9fc;border:1px solid var(--border);border-radius:6px;font-size:13px;"></div>
-          <div id="ep-licenses" style="display:flex;flex-wrap:wrap;gap:12px;">
-            <label><input type="checkbox" value="M365_BUSINESS"> M365 Business Premium</label>
-            <label><input type="checkbox" value="M365_E3"> M365 E3</label>
-            <label><input type="checkbox" value="M365_E5"> M365 E5</label>
-            <label><input type="checkbox" value="COPILOT"> Copilot for M365</label>
-            <label><input type="checkbox" value="TEAMS_ESSENTIALS"> Teams Essentials</label>
-            <label><input type="checkbox" value="TEAMS_PREMIUM"> Teams Premium</label>
-            <label><input type="checkbox" value="POWER_BI_PRO"> Power BI Pro</label>
-            <label><input type="checkbox" value="POWER_APPS"> Power Apps</label>
-            <label><input type="checkbox" value="COPILOT_STUDIO"> Copilot Studio</label>
+          <div id="ep-licenses" style="display:flex;flex-wrap:wrap;gap:10px;">
+            <span class="hint">Click "Load from Tenant" or enter credentials and detect tenant to see available licenses.</span>
           </div>
         </div>
 
@@ -1308,6 +1303,8 @@ function switchView(name) {
 }
 
 // ──────────── Tenant auto-detect ────────────
+let _tenantSkus = []; // cached SKUs from last tenant-info call
+
 async function autoDetectDomain() {
   const creds = getCreds();
   if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
@@ -1329,10 +1326,85 @@ async function autoDetectDomain() {
     } else {
       toast(`Tenant domain: ${data.domain}`, 'success');
     }
+    // Populate license checkboxes from tenant SKUs
+    if (data.subscribedSkus && data.subscribedSkus.length) {
+      _populateLicenseCheckboxes(data.subscribedSkus);
+    }
     updateProvisionPreview();
   } catch (e) {
     toast('Detect failed: ' + e.message, 'danger');
   }
+}
+
+async function loadTenantLicenses() {
+  const creds = getCreds();
+  if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
+  const spinner = document.getElementById('ep-licLoading');
+  spinner.classList.remove('hidden');
+  try {
+    const res = await fetch(`${API}/tenant-info`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(creds),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed');
+    const skus = data.subscribedSkus || [];
+    if (!skus.length) {
+      toast('No license SKUs found in tenant', 'warn');
+      return;
+    }
+    _populateLicenseCheckboxes(skus);
+    // Also fill domain/TAP if empty
+    if (!document.getElementById('ep-domain').value && data.domain) {
+      document.getElementById('ep-domain').value = data.domain;
+    }
+    if (data.tapMaxLifetimeMinutes) {
+      const cur = parseInt(document.getElementById('ep-tapLifetime').value || '0', 10);
+      if (cur === 0) document.getElementById('ep-tapLifetime').value = data.tapMaxLifetimeMinutes;
+    }
+    toast(`Loaded ${skus.length} license SKU(s) from tenant`, 'success');
+  } catch (e) {
+    toast('Failed to load licenses: ' + e.message, 'danger');
+  } finally {
+    spinner.classList.add('hidden');
+  }
+}
+
+function _populateLicenseCheckboxes(skus) {
+  _tenantSkus = skus;
+  // Preserve currently checked values
+  const prevChecked = new Set(Array.from(document.querySelectorAll('#ep-licenses input:checked')).map(c => c.value));
+  const container = document.getElementById('ep-licenses');
+  container.innerHTML = '';
+  for (const sku of skus) {
+    const avail = (sku.prepaidUnits?.enabled || 0) - (sku.consumedUnits || 0);
+    const total = sku.prepaidUnits?.enabled || 0;
+    const lbl = document.createElement('label');
+    lbl.style.cssText = 'display:flex;align-items:center;gap:4px;font-size:13px;';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.value = sku.skuPartNumber;
+    if (prevChecked.has(sku.skuPartNumber)) cb.checked = true;
+    const color = avail > 0 ? 'var(--success)' : 'var(--danger)';
+    lbl.appendChild(cb);
+    lbl.appendChild(document.createTextNode(' ' + sku.skuPartNumber + ' '));
+    const badge = document.createElement('span');
+    badge.style.cssText = `font-size:11px;color:${color};`;
+    badge.textContent = `(${avail}/${total} avail)`;
+    lbl.appendChild(badge);
+    container.appendChild(lbl);
+  }
+  // Also update the availability summary box
+  const box = document.getElementById('ep-licenseAvailability');
+  box.classList.remove('hidden');
+  box.innerHTML = `<span style="color:var(--muted);font-size:12px;">✓ ${skus.length} license SKU(s) loaded from tenant. Select the ones to assign.</span>`;
+}
+
+async function _ensureTenantDetected() {
+  const domain = document.getElementById('ep-domain').value.trim();
+  if (domain && _tenantSkus.length) return true;
+  await autoDetectDomain();
+  return !!document.getElementById('ep-domain').value.trim();
 }
 
 // ──────────── Entra Provisioning ────────────
@@ -1366,6 +1438,7 @@ function _epCfg() {
 async function runPreflight() {
   const creds = getCreds();
   if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
+  if (!(await _ensureTenantDetected())) { toast('Could not detect tenant domain', 'danger'); return; }
   const cfg = _epCfg();
   const box = document.getElementById('ep-preflightBox');
   const summary = document.getElementById('ep-preflightSummary');
@@ -1462,8 +1535,8 @@ function updateProvisionPreview() {
 async function startProvision() {
   const creds = getCreds();
   if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
+  if (!(await _ensureTenantDetected())) { toast('Could not detect tenant domain', 'danger'); return; }
   const cfg = _epCfg();
-  if (!cfg.domain) { toast('Domain is required', 'danger'); return; }
 
   document.getElementById('ep-btnStart').disabled = true;
   document.getElementById('ep-spinner').classList.remove('hidden');
