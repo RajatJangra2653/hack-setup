@@ -395,8 +395,12 @@
 
         <div id="ep-preview" class="hint" style="margin-top:8px;font-family:var(--font-mono);font-size:12px;"></div>
 
-        <!-- Optional lifecycle scheduling (PST) -->
+        <!-- Optional scheduling (PST) -->
         <div class="row" style="margin-top:12px;">
+          <div class="form-group">
+            <label for="ep-provisionDate">Provision Date/Time <span class="hint" style="font-weight:400;">(PST, optional — leave blank to run now)</span></label>
+            <input type="datetime-local" id="ep-provisionDate" />
+          </div>
           <div class="form-group">
             <label for="ep-readonlyDate">Read-Only Date/Time <span class="hint" style="font-weight:400;">(PST, optional)</span></label>
             <input type="datetime-local" id="ep-readonlyDate" />
@@ -406,9 +410,20 @@
             <input type="datetime-local" id="ep-endDate" />
           </div>
         </div>
-        <div class="form-group">
-          <label for="ep-scheduleSubs">Subscription IDs <span class="hint" style="font-weight:400;">(for RBAC, one per line, optional)</span></label>
-          <textarea id="ep-scheduleSubs" rows="2" placeholder="Paste Azure subscription IDs for RBAC readonly / cleanup"></textarea>
+        <div class="row">
+          <div class="form-group" style="flex:1;">
+            <label for="ep-scheduleSubs">Subscription IDs <span class="hint" style="font-weight:400;">(for RBAC, one per line, optional)</span></label>
+            <textarea id="ep-scheduleSubs" rows="2" placeholder="Paste Azure subscription IDs for RBAC assignment / readonly / cleanup"></textarea>
+          </div>
+          <div class="form-group" style="min-width:160px;">
+            <label for="ep-rbacRole">RBAC Role <span class="hint" style="font-weight:400;">(optional)</span></label>
+            <select id="ep-rbacRole">
+              <option value="">— none —</option>
+              <option value="Owner">Owner</option>
+              <option value="Contributor" selected>Contributor</option>
+              <option value="Reader">Reader</option>
+            </select>
+          </div>
         </div>
 
         <div class="actions" style="margin-top:16px;">
@@ -1750,6 +1765,12 @@ async function startProvision() {
   if (!(await _ensureTenantDetected())) { toast('Could not detect tenant domain', 'danger'); return; }
   const cfg = _epCfg();
 
+  // Check if this is a scheduled provision
+  const provDateVal = (document.getElementById('ep-provisionDate') || {}).value || '';
+  if (provDateVal) {
+    return _scheduleProvision(creds, cfg, provDateVal);
+  }
+
   document.getElementById('ep-btnStart').disabled = true;
   document.getElementById('ep-spinner').classList.remove('hidden');
   document.getElementById('ep-progress').textContent = 'Starting…';
@@ -1809,10 +1830,105 @@ async function pollProvision() {
         toast('Provisioning failed: ' + (s.error || 'Unknown'), 'danger');
       } else {
         toast(`Done: ${(_entraReport && _entraReport.created) || 0} created`, 'success');
+        _autoAssignRbac();
         _autoScheduleLifecycle();
       }
     }
   } catch (e) { /* keep polling */ }
+}
+
+/* Schedule provision for a future date */
+async function _scheduleProvision(creds, cfg, provDateVal) {
+  function pstToUtc(localVal) {
+    const d = new Date(localVal + ':00-08:00');
+    return d.toISOString();
+  }
+  const scheduledAt = pstToUtc(provDateVal);
+  const schedDate = new Date(scheduledAt);
+  if (schedDate <= new Date()) {
+    toast('Provision date must be in the future', 'danger');
+    return;
+  }
+  try {
+    const res = await fetch(`${API}/schedule-hack`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...creds, scheduledAt, config: cfg }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      toast(`Hack scheduled for ${schedDate.toLocaleString()} UTC`, 'success');
+      // Also schedule lifecycle (readonly/cleanup) if dates provided
+      const endDateVal = (document.getElementById('ep-endDate') || {}).value || '';
+      const roDateVal = (document.getElementById('ep-readonlyDate') || {}).value || '';
+      if (endDateVal) {
+        const subsRaw = (document.getElementById('ep-scheduleSubs') || {}).value || '';
+        const subIds = subsRaw.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+        const mode = cfg.mode || 'team';
+        const body = {
+          ...creds,
+          endDate: pstToUtc(endDateVal),
+          mode,
+          subscriptionIds: subIds,
+        };
+        if (roDateVal) body.readonlyDate = pstToUtc(roDateVal);
+        try {
+          await fetch(`${API}/hack-state/${encodeURIComponent(cfg.prefix)}/set-end-date`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+        } catch (_) { /* best-effort */ }
+      }
+    } else {
+      toast('Failed to schedule: ' + (data.error || ''), 'danger');
+    }
+  } catch (e) {
+    toast('Failed to schedule: ' + e.message, 'danger');
+  }
+}
+
+/* Auto-assign RBAC role on subscriptions after provisioning */
+async function _autoAssignRbac() {
+  const role = (document.getElementById('ep-rbacRole') || {}).value || '';
+  if (!role) return;
+  const subsRaw = (document.getElementById('ep-scheduleSubs') || {}).value || '';
+  const subIds = subsRaw.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+  if (!subIds.length) return;
+  const creds = getCreds();
+  if (!creds) return;
+  // Gather created users + groups from the provision report
+  const report = _entraReport;
+  if (!report) return;
+  const principals = [];
+  for (const u of (report.users || [])) {
+    if (u.status === 'created' && u.id) {
+      principals.push({ id: u.id, type: 'User', displayName: u.userPrincipalName || '' });
+    }
+  }
+  for (const g of (report.groups || [])) {
+    if (g.id) {
+      principals.push({ id: g.id, type: 'Group', displayName: g.displayName || '' });
+    }
+  }
+  if (!principals.length) return;
+  try {
+    toast(`Assigning ${role} on ${subIds.length} subscription(s) to ${principals.length} principal(s)…`, 'info');
+    const res = await fetch(`${API}/assign-permissions`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...creds, subscriptions: subIds, principals, role }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      const results = data.results || data;
+      const ok = Array.isArray(results) ? results.filter(r => r.status === 'assigned').length : '?';
+      const fail = Array.isArray(results) ? results.filter(r => r.status === 'failed').length : 0;
+      toast(`RBAC: ${ok} assigned, ${fail} failed`, fail > 0 ? 'warn' : 'success');
+    } else {
+      toast('RBAC assignment failed: ' + (data.error || ''), 'danger');
+    }
+  } catch (e) {
+    toast('RBAC assignment failed: ' + e.message, 'danger');
+  }
 }
 
 /* Auto-schedule readonly + cleanup jobs if dates were provided */
