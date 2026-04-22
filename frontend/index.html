@@ -942,6 +942,15 @@
         </div>
         <div id="mh-allScheduledJobs" style="margin-top:12px;font-size:13px;max-height:500px;overflow:auto;"></div>
       </div>
+
+      <!-- Job Detail Panel -->
+      <div id="sj-jobDetail" class="card hidden" style="margin-top:16px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <h3 style="margin:0;" id="sj-detailTitle">📄 Job Details</h3>
+          <button class="btn btn-secondary btn-sm" onclick="document.getElementById('sj-jobDetail').classList.add('hidden')">✕ Close</button>
+        </div>
+        <div id="sj-detailBody" style="margin-top:12px;font-size:13px;"></div>
+      </div>
     </div><!-- /view-scheduler -->
 
     <!-- ────────── Chat View ────────── -->
@@ -3337,6 +3346,7 @@ async function loadScheduledJobsForHack() {
     const jobs = await res.json();
     if (!res.ok) throw new Error(jobs.error || 'Failed');
     const filtered = jobs.filter(j => j.hack_prefix === prefix || j.hack_prefix === prefix + '-');
+    _allScheduledJobs = jobs;
     if (filtered.length === 0) {
       box.innerHTML = '<span class="hint">No scheduled jobs for this hack.</span>';
       return;
@@ -3346,6 +3356,8 @@ async function loadScheduledJobsForHack() {
     box.innerHTML = `<span style="color:var(--danger)">Error: ${esc(e.message)}</span>`;
   }
 }
+
+let _allScheduledJobs = [];
 
 async function loadAllScheduledJobs() {
   const box = document.getElementById('mh-allScheduledJobs');
@@ -3358,6 +3370,7 @@ async function loadAllScheduledJobs() {
     const res = await fetch(url);
     const jobs = await res.json();
     if (!res.ok) throw new Error(jobs.error || 'Failed');
+    _allScheduledJobs = jobs;
     if (jobs.length === 0) {
       box.innerHTML = '<span class="hint">No scheduled jobs found.</span>';
       return;
@@ -3373,17 +3386,74 @@ function _renderScheduledJobsTable(jobs) {
   for (const j of jobs) {
     const statusColor = j.status === 'completed' ? 'var(--success)' : j.status === 'failed' ? 'var(--danger)' : j.status === 'running' ? '#ff9800' : j.status === 'cancelled' ? '#999' : 'var(--primary)';
     const icon = j.job_type === 'cleanup' ? '🧹' : j.job_type === 'readonly' ? '🔒' : '🚀';
-    html += `<tr>
+    html += `<tr style="cursor:pointer;" onclick="viewJobDetail('${esc(j.id)}')" title="Click for details">
       <td>${icon} ${esc(j.job_type)}</td>
       <td><code>${esc(j.hack_prefix)}</code></td>
       <td>${esc((j.scheduled_at||'').substring(0,19))}</td>
       <td style="color:${statusColor};font-weight:600;">${esc(j.status)}</td>
       <td>${esc((j.created_at||'').substring(0,19))}</td>
-      <td>${j.status === 'pending' ? `<button class=\"btn btn-primary btn-sm\" onclick=\"runJobNow('${esc(j.id)}')\" style=\"margin-right:4px;\">▶ Run Now</button><button class=\"btn btn-secondary btn-sm\" onclick=\"cancelScheduledJob('${esc(j.id)}')\">Cancel</button>` : (j.error ? `<span title=\"${esc(j.error)}\" style=\"cursor:help;\">⚠️</span>` : '')}</td>
+      <td>${j.status === 'pending' ? `<button class=\"btn btn-primary btn-sm\" onclick=\"event.stopPropagation();runJobNow('${esc(j.id)}')\" style=\"margin-right:4px;\">▶ Run Now</button><button class=\"btn btn-secondary btn-sm\" onclick=\"event.stopPropagation();cancelScheduledJob('${esc(j.id)}')\">Cancel</button>` : (j.error ? `<span title=\"${esc(j.error)}\" style=\"cursor:help;\">⚠️</span>` : '')}</td>
     </tr>`;
   }
   html += '</tbody></table>';
   return html;
+}
+
+function viewJobDetail(jobId) {
+  const job = _allScheduledJobs.find(j => j.id === jobId);
+  if (!job) { toast('Job not found', 'danger'); return; }
+  const panel = document.getElementById('sj-jobDetail');
+  const body = document.getElementById('sj-detailBody');
+  const icon = job.job_type === 'cleanup' ? '🧹' : job.job_type === 'readonly' ? '🔒' : '🚀';
+  const statusColor = job.status === 'completed' ? 'var(--success)' : job.status === 'failed' ? 'var(--danger)' : job.status === 'running' ? '#ff9800' : job.status === 'cancelled' ? '#999' : 'var(--primary)';
+
+  // Build config display, masking sensitive fields
+  const sensitiveKeys = ['client_secret', 'password', 'secret', 'token', 'tap'];
+  let configHtml = '';
+  if (job.config && Object.keys(job.config).length > 0) {
+    configHtml = '<table style="width:100%;font-size:12px;margin-top:8px;"><tbody>';
+    for (const [k, v] of Object.entries(job.config)) {
+      const isSensitive = sensitiveKeys.some(sk => k.toLowerCase().includes(sk));
+      const displayVal = isSensitive ? '••••••••' : (typeof v === 'object' ? JSON.stringify(v) : String(v));
+      configHtml += `<tr><td style="font-weight:600;padding:4px 8px;white-space:nowrap;vertical-align:top;">${esc(k)}</td><td style="padding:4px 8px;word-break:break-all;">${esc(displayVal)}</td></tr>`;
+    }
+    configHtml += '</tbody></table>';
+  } else {
+    configHtml = '<span class="hint">No configuration stored.</span>';
+  }
+
+  body.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px 24px;margin-bottom:16px;">
+      <div><strong>Job ID</strong><br><code style="font-size:11px;">${esc(job.id)}</code></div>
+      <div><strong>Status</strong><br><span style="color:${statusColor};font-weight:600;font-size:14px;">${esc(job.status).toUpperCase()}</span></div>
+      <div><strong>Type</strong><br>${icon} ${esc(job.job_type)}</div>
+      <div><strong>Hack Prefix</strong><br><code>${esc(job.hack_prefix)}</code></div>
+      <div><strong>Scheduled At</strong><br>${esc(job.scheduled_at || '—')}</div>
+      <div><strong>Created At</strong><br>${esc(job.created_at || '—')}</div>
+      <div><strong>Completed At</strong><br>${esc(job.completed_at || '—')}</div>
+      <div><strong>Duration</strong><br>${job.created_at && job.completed_at ? _formatDuration(job.created_at, job.completed_at) : '—'}</div>
+    </div>
+    ${job.error ? `<div style="background:#fff3f3;border:1px solid var(--danger);border-radius:6px;padding:10px;margin-bottom:12px;"><strong style="color:var(--danger);">❌ Error</strong><pre style="margin:6px 0 0;white-space:pre-wrap;font-size:12px;">${esc(job.error)}</pre></div>` : ''}
+    <h4 style="margin:0 0 4px;">⚙️ Configuration</h4>
+    ${configHtml}
+  `;
+  panel.classList.remove('hidden');
+  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function _formatDuration(startISO, endISO) {
+  try {
+    const ms = new Date(endISO) - new Date(startISO);
+    if (ms < 0) return '—';
+    const secs = Math.floor(ms / 1000);
+    if (secs < 60) return secs + 's';
+    const mins = Math.floor(secs / 60);
+    const remSecs = secs % 60;
+    if (mins < 60) return mins + 'm ' + remSecs + 's';
+    const hrs = Math.floor(mins / 60);
+    const remMins = mins % 60;
+    return hrs + 'h ' + remMins + 'm';
+  } catch { return '—'; }
 }
 
 async function cancelScheduledJob(jobId) {
