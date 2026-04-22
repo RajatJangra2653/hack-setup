@@ -119,6 +119,7 @@ def _scheduler_readonly(prefix: str, tenant_id: str, client_id: str, client_secr
     """Called by scheduler to switch a hack to read-only mode (runs in scheduler thread).
 
     Discovers principals by prefix and downgrades them to Reader role.
+    Returns result dict with details of what was done.
     """
     sub_ids = subscription_ids or []
     async def _do():
@@ -129,10 +130,17 @@ def _scheduler_readonly(prefix: str, tenant_id: str, client_id: str, client_secr
         groups = discovered.get("groups", [])
         principals = [{"id": u["id"], "type": "user", "displayName": u.get("displayName", "")} for u in users]
         principals += [{"id": gr["id"], "type": "group", "displayName": gr.get("displayName", "")} for gr in groups]
+        rbac_results = []
         if sub_ids and principals:
             async with RbacService(tp) as rbac:
-                await downgrade_principals_to_reader(rbac, sub_ids, principals)
-    asyncio.run(_do())
+                rbac_results = await downgrade_principals_to_reader(rbac, sub_ids, principals)
+        return {
+            "users_discovered": len(users),
+            "groups_discovered": len(groups),
+            "principals": [{"id": p["id"], "type": p["type"], "displayName": p.get("displayName", "")} for p in principals],
+            "rbac_changes": rbac_results,
+        }
+    return asyncio.run(_do())
 
 
 def _scheduler_cleanup(prefix: str, tenant_id: str, client_id: str, client_secret: str,
@@ -140,33 +148,47 @@ def _scheduler_cleanup(prefix: str, tenant_id: str, client_id: str, client_secre
     """Called by scheduler to cleanup an expired hack (runs in scheduler thread).
 
     Deletes Entra ID users, groups, removes RBAC assignments from subscriptions,
-    and deletes blob state.
+    and deletes blob state. Returns result dict with details.
     """
     sub_ids = subscription_ids or []
     async def _do():
         tp = _make_token_provider(tenant_id, client_id, client_secret)
         async with GraphClient(tp) as g:
             discovered = await DiscoveryService(g).discover(prefix)
-        user_ids = [u["id"] for u in discovered.get("users", [])]
-        group_ids = [gr["id"] for gr in discovered.get("groups", [])]
+        users = discovered.get("users", [])
+        groups = discovered.get("groups", [])
+        user_ids = [u["id"] for u in users]
+        group_ids = [gr["id"] for gr in groups]
         principal_ids = user_ids + group_ids
         # Remove RBAC role assignments from Azure subscriptions
+        rbac_results = []
         if sub_ids and principal_ids:
             async with RbacService(tp) as rbac:
-                await remove_rbac_for_principals(rbac, sub_ids, principal_ids)
+                rbac_results = await remove_rbac_for_principals(rbac, sub_ids, principal_ids)
         # Delete users and groups from Entra ID
+        deleted_users = []
+        deleted_groups = []
         if user_ids or group_ids:
             async with GraphClient(tp) as g:
                 cleaner = CleanupService(g)
                 if user_ids:
                     await cleaner.delete_users(user_ids)
+                    deleted_users = [{"id": u["id"], "displayName": u.get("displayName", ""), "upn": u.get("userPrincipalName", "")} for u in users]
                 if group_ids:
                     await cleaner.delete_groups(group_ids)
-    asyncio.run(_do())
+                    deleted_groups = [{"id": gr["id"], "displayName": gr.get("displayName", "")} for gr in groups]
+        return {
+            "users_deleted": deleted_users,
+            "groups_deleted": deleted_groups,
+            "rbac_removed": rbac_results,
+        }
+    result = asyncio.run(_do())
     # Delete blob state
     mgr = _get_state_manager()
     if mgr:
         mgr.delete_state(prefix)
+    result["state_deleted"] = True
+    return result
 
 # ── In-memory Entra provisioning sessions ──
 _entra_sessions: Dict[str, Dict[str, Any]] = {}

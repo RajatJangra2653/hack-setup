@@ -34,6 +34,7 @@ class ScheduledJob:
     completed_at: str = ""
     error: str = ""
     config: Dict[str, Any] = field(default_factory=dict)  # provision config or cleanup details
+    result: Dict[str, Any] = field(default_factory=dict)  # execution results / details
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -50,6 +51,7 @@ class ScheduledJob:
             completed_at=d.get("completed_at", ""),
             error=d.get("error", ""),
             config=d.get("config", {}),
+            result=d.get("result", {}),
         )
 
 
@@ -327,7 +329,9 @@ class HackScheduler:
         if not all([t, c, s]):
             raise ValueError("Missing SPN credentials in scheduled cleanup job")
         sub_ids = cfg.get("subscription_ids", [])
-        self._run_cleanup(job.hack_prefix, t, c, s, subscription_ids=sub_ids)
+        result = self._run_cleanup(job.hack_prefix, t, c, s, subscription_ids=sub_ids)
+        if isinstance(result, dict):
+            job.result = result
 
     def _execute_readonly(self, job: ScheduledJob) -> None:
         """Switch a hack to read-only mode."""
@@ -341,8 +345,10 @@ class HackScheduler:
             raise ValueError("No readonly handler configured")
         sub_ids = cfg.get("subscription_ids", [])
         mode = cfg.get("mode", "team")
-        self._run_readonly(job.hack_prefix, t, c, s,
+        result = self._run_readonly(job.hack_prefix, t, c, s,
                            subscription_ids=sub_ids, mode=mode)
+        if isinstance(result, dict):
+            job.result = result
 
     def _execute_provision(self, job: ScheduledJob) -> None:
         """Run provisioning for a scheduled hack."""

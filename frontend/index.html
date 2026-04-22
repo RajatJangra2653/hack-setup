@@ -3422,6 +3422,9 @@ function viewJobDetail(jobId) {
     configHtml = '<span class="hint">No configuration stored.</span>';
   }
 
+  // Build results display
+  let resultsHtml = _renderJobResults(job);
+
   body.innerHTML = `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px 24px;margin-bottom:16px;">
       <div><strong>Job ID</strong><br><code style="font-size:11px;">${esc(job.id)}</code></div>
@@ -3434,11 +3437,115 @@ function viewJobDetail(jobId) {
       <div><strong>Duration</strong><br>${job.created_at && job.completed_at ? _formatDuration(job.created_at, job.completed_at) : '—'}</div>
     </div>
     ${job.error ? `<div style="background:#fff3f3;border:1px solid var(--danger);border-radius:6px;padding:10px;margin-bottom:12px;"><strong style="color:var(--danger);">❌ Error</strong><pre style="margin:6px 0 0;white-space:pre-wrap;font-size:12px;">${esc(job.error)}</pre></div>` : ''}
-    <h4 style="margin:0 0 4px;">⚙️ Configuration</h4>
+    ${resultsHtml}
+    <details style="margin-top:12px;"><summary style="cursor:pointer;font-weight:600;font-size:13px;">⚙️ Configuration</summary>
     ${configHtml}
+    </details>
   `;
   panel.classList.remove('hidden');
   panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function _renderJobResults(job) {
+  const r = job.result;
+  if (!r || Object.keys(r).length === 0) {
+    if (job.status === 'pending' || job.status === 'running') return '';
+    if (job.status === 'cancelled') return '<div class="hint" style="margin-bottom:8px;">Job was cancelled — no actions taken.</div>';
+    return '<div class="hint" style="margin-bottom:8px;">No execution details recorded.</div>';
+  }
+
+  let html = '<h4 style="margin:0 0 8px;">📊 Execution Results</h4>';
+
+  if (job.job_type === 'readonly') {
+    // Readonly: show discovered principals and RBAC changes per subscription
+    const users = r.users_discovered || 0;
+    const groups = r.groups_discovered || 0;
+    html += `<div style="display:flex;gap:16px;margin-bottom:10px;flex-wrap:wrap;">
+      <span style="background:#e3f2fd;padding:4px 10px;border-radius:4px;font-size:12px;">👥 ${users} user${users!==1?'s':''} discovered</span>
+      <span style="background:#e8f5e9;padding:4px 10px;border-radius:4px;font-size:12px;">👥 ${groups} group${groups!==1?'s':''} discovered</span>
+    </div>`;
+
+    const changes = r.rbac_changes || [];
+    if (changes.length > 0) {
+      // Group by subscription
+      const bySub = {};
+      for (const c of changes) {
+        const sub = c.subscription || '(unknown)';
+        if (!bySub[sub]) bySub[sub] = [];
+        bySub[sub].push(c);
+      }
+      for (const [sub, entries] of Object.entries(bySub)) {
+        const subShort = sub.length > 20 ? sub.substring(0,8) + '…' + sub.substring(sub.length-4) : sub;
+        html += `<div style="background:#f5f5f5;border-radius:6px;padding:10px;margin-bottom:8px;">
+          <strong>🔑 Subscription:</strong> <code style="font-size:11px;">${esc(sub)}</code>
+          <table style="width:100%;font-size:12px;margin-top:6px;"><thead><tr><th style="text-align:left;">Principal</th><th style="text-align:left;">Type</th><th>Elevated Removed</th><th>Reader</th><th>Errors</th></tr></thead><tbody>`;
+        for (const e of entries) {
+          const name = e.displayName || e.principalId || '—';
+          const removedCount = (e.removed || []).length;
+          const readerIcon = e.readerEnsured ? '✅' : '❌';
+          const errCount = (e.errors || []).length;
+          html += `<tr>
+            <td>${esc(name)}</td>
+            <td>${esc(e.principalType || '—')}</td>
+            <td style="text-align:center;">${removedCount}</td>
+            <td style="text-align:center;">${readerIcon}</td>
+            <td style="text-align:center;color:${errCount ? 'var(--danger)' : 'inherit'};">${errCount || '—'}</td>
+          </tr>`;
+        }
+        html += '</tbody></table></div>';
+      }
+    } else {
+      html += '<div class="hint">No RBAC changes were needed.</div>';
+    }
+  } else if (job.job_type === 'cleanup') {
+    // Cleanup: show deleted users, groups, RBAC removals
+    const delUsers = r.users_deleted || [];
+    const delGroups = r.groups_deleted || [];
+    const rbacRemoved = r.rbac_removed || [];
+
+    html += `<div style="display:flex;gap:16px;margin-bottom:10px;flex-wrap:wrap;">
+      <span style="background:#ffebee;padding:4px 10px;border-radius:4px;font-size:12px;">🗑️ ${delUsers.length} user${delUsers.length!==1?'s':''} deleted</span>
+      <span style="background:#ffebee;padding:4px 10px;border-radius:4px;font-size:12px;">🗑️ ${delGroups.length} group${delGroups.length!==1?'s':''} deleted</span>
+      <span style="background:#fff3e0;padding:4px 10px;border-radius:4px;font-size:12px;">🔑 RBAC removed from ${rbacRemoved.length} sub/principal pair${rbacRemoved.length!==1?'s':''}</span>
+    </div>`;
+
+    if (delUsers.length > 0) {
+      html += '<details style="margin-bottom:8px;"><summary style="cursor:pointer;font-size:12px;font-weight:600;">👤 Deleted Users</summary><table style="width:100%;font-size:12px;margin-top:4px;"><thead><tr><th style="text-align:left;">Display Name</th><th style="text-align:left;">UPN</th></tr></thead><tbody>';
+      for (const u of delUsers) {
+        html += `<tr><td>${esc(u.displayName || '—')}</td><td><code>${esc(u.upn || u.id)}</code></td></tr>`;
+      }
+      html += '</tbody></table></details>';
+    }
+    if (delGroups.length > 0) {
+      html += '<details style="margin-bottom:8px;"><summary style="cursor:pointer;font-size:12px;font-weight:600;">👥 Deleted Groups</summary><table style="width:100%;font-size:12px;margin-top:4px;"><thead><tr><th style="text-align:left;">Display Name</th><th style="text-align:left;">ID</th></tr></thead><tbody>';
+      for (const g of delGroups) {
+        html += `<tr><td>${esc(g.displayName || '—')}</td><td><code style="font-size:10px;">${esc(g.id)}</code></td></tr>`;
+      }
+      html += '</tbody></table></details>';
+    }
+    if (rbacRemoved.length > 0) {
+      html += '<details style="margin-bottom:8px;"><summary style="cursor:pointer;font-size:12px;font-weight:600;">🔑 RBAC Removals</summary>';
+      for (const entry of rbacRemoved) {
+        const sub = entry.subscription || '(unknown)';
+        const removed = entry.removed || [];
+        html += `<div style="margin:6px 0;padding:6px 8px;background:#f9f9f9;border-radius:4px;font-size:12px;">
+          <strong>Sub:</strong> <code style="font-size:10px;">${esc(sub)}</code> · 
+          <strong>Principal:</strong> <code style="font-size:10px;">${esc(entry.principal || '—')}</code> · 
+          <strong>${removed.length} assignment${removed.length!==1?'s':''} removed</strong>
+          ${entry.error ? ` · <span style="color:var(--danger);">Error: ${esc(entry.error)}</span>` : ''}
+        </div>`;
+      }
+      html += '</details>';
+    }
+    if (r.state_deleted) {
+      html += '<div style="font-size:12px;color:var(--success);margin-top:4px;">✅ Hack state blob deleted</div>';
+    }
+  } else {
+    // Provision or unknown type — show raw result
+    html += `<pre style="font-size:11px;background:#f5f5f5;padding:10px;border-radius:6px;max-height:300px;overflow:auto;">${esc(JSON.stringify(r, null, 2))}</pre>`;
+  }
+
+  return html;
 }
 
 function _formatDuration(startISO, endISO) {
