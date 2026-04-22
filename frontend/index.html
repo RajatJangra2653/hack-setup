@@ -357,7 +357,7 @@
             <span id="ep-licLoading" class="hidden"><span class="spinner" style="width:14px;height:14px;"></span></span>
           </div>
           <div id="ep-licenseAvailability" class="hidden" style="margin-bottom:10px;padding:8px 12px;background:#f7f9fc;border:1px solid var(--border);border-radius:6px;font-size:13px;"></div>
-          <div id="ep-licenses" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px 16px;">
+          <div id="ep-licenses" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px 16px;">
             <span class="hint">Click "Load from Tenant" or enter credentials and detect tenant to see available licenses.</span>
           </div>
         </div>
@@ -1837,14 +1837,18 @@ function _populateLicenseCheckboxes(skus) {
     const avail = (sku.prepaidUnits?.enabled || 0) - (sku.consumedUnits || 0);
     const total = sku.prepaidUnits?.enabled || 0;
     const lbl = document.createElement('label');
-    lbl.style.cssText = 'display:flex;align-items:center;gap:4px;font-size:13px;padding:4px 0;';
+    lbl.style.cssText = 'display:flex;align-items:center;gap:4px;font-size:13px;padding:4px 0;min-width:0;overflow:hidden;';
     const cb = document.createElement('input');
     cb.type = 'checkbox';
     cb.value = sku.skuPartNumber;
     if (prevChecked.has(sku.skuPartNumber)) cb.checked = true;
     const color = avail > 0 ? 'var(--success)' : 'var(--danger)';
     lbl.appendChild(cb);
-    lbl.appendChild(document.createTextNode(' ' + sku.skuPartNumber + ' '));
+    const nameSpan = document.createElement('span');
+    nameSpan.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+    nameSpan.textContent = ' ' + sku.skuPartNumber + ' ';
+    nameSpan.title = sku.skuPartNumber;
+    lbl.appendChild(nameSpan);
     const badge = document.createElement('span');
     badge.style.cssText = `font-size:11px;color:${color};`;
     badge.textContent = `(${avail}/${total} avail)`;
