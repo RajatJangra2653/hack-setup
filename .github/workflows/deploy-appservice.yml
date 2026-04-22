@@ -39,6 +39,7 @@ jobs:
           # Copy required folders (excluding dev artifacts)
           cp -r frontend staging/
           cp -r src staging/
+          cp -r assets staging/
 
           # Remove __pycache__ and .pyc files
           find staging -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
