@@ -363,6 +363,15 @@
           </div>
         </div>
 
+        <div class="form-group">
+          <label for="ep-password">Initial Password <span class="hint" style="font-weight:400;">(optional — leave blank for random)</span></label>
+          <div style="display:flex;gap:6px;">
+            <input type="password" id="ep-password" placeholder="Leave blank for auto-generated passwords" style="flex:1;" />
+            <button class="btn btn-secondary btn-sm" type="button" onclick="const i=document.getElementById('ep-password');i.type=i.type==='password'?'text':'password';this.textContent=i.type==='password'?'👁':'🙈'">👁</button>
+          </div>
+          <div class="hint" style="margin-top:4px;">If set, all users will get this password. Must force change on first login. If blank, each user gets a unique random password.</div>
+        </div>
+
         <div class="row">
           <div class="form-group">
             <label for="ep-hackName">Hack name <span style="color:var(--danger)">*</span> <span class="hint" style="font-weight:400;">(stamped as companyName on each user)</span></label>
@@ -1432,6 +1441,7 @@ function _epCfg() {
     dryRun: document.getElementById('ep-dryRun').checked,
     hackName: (document.getElementById('ep-hackName')||{}).value || '',
     createdBy: (document.getElementById('ep-createdBy')||{}).value || '',
+    initialPassword: (document.getElementById('ep-password')||{}).value || '',
   };
 }
 
