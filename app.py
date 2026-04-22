@@ -1226,6 +1226,205 @@ def _get_chatbot_agent() -> ChatbotAgent | None:
     return ChatbotAgent(endpoint=endpoint, api_key=key, deployment=deployment)
 
 
+# ────────────────────── Tenant setup: check & grant permissions ──────────────────────
+
+GRAPH_APPID = "00000003-0000-0000-c000-000000000000"
+
+REQUIRED_GRAPH_PERMISSIONS = [
+    {"value": "User.ReadWrite.All",                      "reason": "Create, update, delete users"},
+    {"value": "Group.ReadWrite.All",                     "reason": "Create team/admin groups"},
+    {"value": "GroupMember.ReadWrite.All",                "reason": "Add users to groups"},
+    {"value": "Organization.Read.All",                   "reason": "Read tenant info & subscribed SKUs"},
+    {"value": "RoleManagement.ReadWrite.Directory",      "reason": "Assign Global Reader to admin users"},
+    {"value": "UserAuthenticationMethod.ReadWrite.All",  "reason": "Create Temporary Access Passes (TAP)"},
+    {"value": "Policy.Read.All",                         "reason": "Read TAP policy configuration"},
+]
+
+# Extra permissions needed for file upload features
+OPTIONAL_GRAPH_PERMISSIONS = [
+    {"value": "Files.ReadWrite.All",  "reason": "Upload files to users' OneDrive (optional)"},
+]
+
+SELF_GRANT_PERMISSION = "AppRoleAssignment.ReadWrite.All"
+
+
+async def _async_check_permissions(t, c, s):
+    """Check which Graph app permissions the SPN currently has."""
+    import httpx
+    tp = _make_token_provider(t, c, s)
+    tok = tp.get_token()
+    H = {"Authorization": f"Bearer {tok}"}
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        # Find our service principal
+        sp_resp = await client.get(
+            f"https://graph.microsoft.com/v1.0/servicePrincipals?$filter=appId eq '{c}'",
+            headers=H,
+        )
+        sp_data = sp_resp.json().get("value", [])
+        if not sp_data:
+            raise ValueError(f"Service principal not found for client_id {c}")
+        sp_id = sp_data[0]["id"]
+        sp_display = sp_data[0].get("displayName", c)
+
+        # Find Microsoft Graph service principal
+        graph_resp = await client.get(
+            f"https://graph.microsoft.com/v1.0/servicePrincipals?$filter=appId eq '{GRAPH_APPID}'",
+            headers=H,
+        )
+        graph_data = graph_resp.json().get("value", [])
+        if not graph_data:
+            raise ValueError("Microsoft Graph service principal not found in tenant")
+        graph_sp_id = graph_data[0]["id"]
+        roles_by_value = {r["value"]: r for r in graph_data[0].get("appRoles", [])}
+
+        # Get existing app role assignments
+        assignments_resp = await client.get(
+            f"https://graph.microsoft.com/v1.0/servicePrincipals/{sp_id}/appRoleAssignments",
+            headers=H,
+        )
+        existing = assignments_resp.json().get("value", [])
+        existing_role_ids = {
+            a["appRoleId"] for a in existing
+            if a.get("resourceId") == graph_sp_id
+        }
+
+        # Check required permissions
+        results = []
+        for perm in REQUIRED_GRAPH_PERMISSIONS + OPTIONAL_GRAPH_PERMISSIONS:
+            role = roles_by_value.get(perm["value"])
+            granted = role["id"] in existing_role_ids if role else False
+            is_optional = perm in OPTIONAL_GRAPH_PERMISSIONS
+            results.append({
+                "permission": perm["value"],
+                "reason": perm["reason"],
+                "granted": granted,
+                "optional": is_optional,
+            })
+
+        # Check if SPN can self-grant (has AppRoleAssignment.ReadWrite.All)
+        self_grant_role = roles_by_value.get(SELF_GRANT_PERMISSION)
+        can_self_grant = (
+            self_grant_role["id"] in existing_role_ids
+            if self_grant_role else False
+        )
+
+        return {
+            "spnId": sp_id,
+            "spnDisplayName": sp_display,
+            "permissions": results,
+            "canSelfGrant": can_self_grant,
+        }
+
+
+async def _async_grant_permissions(t, c, s, permissions_to_grant):
+    """Grant specified Graph app permissions to the SPN."""
+    import httpx
+    tp = _make_token_provider(t, c, s)
+    tok = tp.get_token()
+    H = {"Authorization": f"Bearer {tok}", "Content-Type": "application/json"}
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        # Find our service principal
+        sp_resp = await client.get(
+            f"https://graph.microsoft.com/v1.0/servicePrincipals?$filter=appId eq '{c}'",
+            headers=H,
+        )
+        sp_data = sp_resp.json().get("value", [])
+        if not sp_data:
+            raise ValueError(f"Service principal not found for client_id {c}")
+        sp_id = sp_data[0]["id"]
+
+        # Find Microsoft Graph service principal and its roles
+        graph_resp = await client.get(
+            f"https://graph.microsoft.com/v1.0/servicePrincipals?$filter=appId eq '{GRAPH_APPID}'",
+            headers=H,
+        )
+        graph_data = graph_resp.json().get("value", [])
+        if not graph_data:
+            raise ValueError("Microsoft Graph service principal not found")
+        graph_sp_id = graph_data[0]["id"]
+        roles_by_value = {r["value"]: r for r in graph_data[0].get("appRoles", [])}
+
+        # Existing assignments
+        assignments_resp = await client.get(
+            f"https://graph.microsoft.com/v1.0/servicePrincipals/{sp_id}/appRoleAssignments",
+            headers=H,
+        )
+        existing = assignments_resp.json().get("value", [])
+        existing_role_ids = {
+            a["appRoleId"] for a in existing
+            if a.get("resourceId") == graph_sp_id
+        }
+
+        results = []
+        for perm_value in permissions_to_grant:
+            role = roles_by_value.get(perm_value)
+            if not role:
+                results.append({"permission": perm_value, "status": "not_found",
+                                "error": "Permission not found in Graph appRoles"})
+                continue
+            if role["id"] in existing_role_ids:
+                results.append({"permission": perm_value, "status": "already_granted"})
+                continue
+            r = await client.post(
+                f"https://graph.microsoft.com/v1.0/servicePrincipals/{sp_id}/appRoleAssignments",
+                headers=H,
+                json={
+                    "principalId": sp_id,
+                    "resourceId": graph_sp_id,
+                    "appRoleId": role["id"],
+                },
+            )
+            if r.status_code in (200, 201):
+                results.append({"permission": perm_value, "status": "granted"})
+            else:
+                err_body = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+                err_msg = err_body.get("error", {}).get("message", r.text[:200])
+                results.append({"permission": perm_value, "status": "failed", "error": err_msg})
+
+        return results
+
+
+@app.route("/api/check-permissions", methods=["POST"])
+def check_permissions():
+    """Check which Graph API permissions the SPN currently has.
+
+    Body: { tenant_id, client_id, client_secret }
+    Returns: { spnId, spnDisplayName, permissions: [...], canSelfGrant }
+    """
+    data = request.get_json(silent=True) or {}
+    creds = _extract_creds(data)
+    if not creds:
+        return jsonify({"error": "Missing SPN credentials"}), 400
+    try:
+        result = asyncio.run(_async_check_permissions(*creds))
+        return jsonify(result)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/grant-permissions", methods=["POST"])
+def grant_permissions():
+    """Grant missing Graph API permissions to the SPN (requires AppRoleAssignment.ReadWrite.All).
+
+    Body: { tenant_id, client_id, client_secret, permissions: ["User.ReadWrite.All", ...] }
+    Returns: { results: [...] }
+    """
+    data = request.get_json(silent=True) or {}
+    creds = _extract_creds(data)
+    if not creds:
+        return jsonify({"error": "Missing SPN credentials"}), 400
+    perms = data.get("permissions") or []
+    if not perms:
+        return jsonify({"error": "permissions[] required"}), 400
+    try:
+        results = asyncio.run(_async_grant_permissions(*creds, perms))
+        return jsonify({"results": results})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 @app.route("/api/chat", methods=["POST"])
 def chat():
     """Chat with the AI assistant.

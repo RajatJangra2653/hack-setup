@@ -147,6 +147,8 @@
       <div class="tab" data-view="cleanup" onclick="switchView('cleanup')">🗑️ Cleanup Hack</div>
       <div class="tab" data-view="manage" onclick="switchView('manage')">📋 Manage Hack</div>
       <div class="tab" data-view="chat" onclick="switchView('chat')">🤖 Chat</div>
+      <div class="tab" data-view="tenant-setup" onclick="switchView('tenant-setup')">⚙ Setup Tenant</div>
+      <div class="tab" data-view="help" onclick="switchView('help')">❓ Help</div>
     </div>
 
     <!-- ────────── SPN Credentials Card ────────── -->
@@ -897,6 +899,212 @@
       </div>
     </div><!-- /view-chat -->
 
+    <!-- ────────── Setup Tenant View ────────── -->
+    <div id="view-tenant-setup" class="hidden">
+      <h2>⚙ Setup Your Tenant</h2>
+      <p class="hint">Check and configure the required permissions for your Service Principal (App Registration). Some permissions can be auto-granted if your SPN has <code>AppRoleAssignment.ReadWrite.All</code>.</p>
+
+      <div class="card">
+        <h3>Prerequisites</h3>
+        <div style="background:#fff9e6;padding:14px 16px;border-left:4px solid var(--warn);border-radius:0 6px 6px 0;margin-bottom:16px;font-size:13px;line-height:1.7;">
+          <b>Before using this tool, ensure you have:</b>
+          <ol style="margin:8px 0 0 16px;padding:0;">
+            <li>An <b>Azure AD App Registration</b> (Service Principal) in your tenant</li>
+            <li>A <b>Client Secret</b> generated for the app registration</li>
+            <li>The app must be granted <b>admin consent</b> for the required permissions listed below</li>
+            <li>For Azure RBAC features: the SPN needs <b>Owner</b> or <b>User Access Administrator</b> role on target subscriptions</li>
+          </ol>
+        </div>
+
+        <div class="section-label">Required Microsoft Graph API Permissions</div>
+        <div class="hint" style="margin-bottom:12px;">These are <b>Application</b> permissions (not Delegated). They require admin consent.</div>
+
+        <div class="actions" style="margin-bottom:16px;">
+          <button class="btn btn-primary" onclick="withBusy(this, checkTenantPermissions)">🔍 Check Permissions</button>
+          <span id="ts-spinner" class="hidden"><span class="spinner"></span> Checking…</span>
+        </div>
+
+        <div id="ts-results" class="hidden">
+          <div id="ts-spnInfo" style="margin-bottom:12px;padding:10px;background:#f7f9fc;border:1px solid var(--border);border-radius:6px;font-size:13px;"></div>
+          <table id="ts-permTable" style="font-size:13px;">
+            <thead><tr><th style="width:30px;">Status</th><th>Permission</th><th>Purpose</th><th>Type</th></tr></thead>
+            <tbody id="ts-permBody"></tbody>
+          </table>
+
+          <div id="ts-grantSection" class="hidden" style="margin-top:16px;padding:16px;border:2px solid var(--warn);border-radius:8px;background:#fffdf5;">
+            <h4 style="margin-bottom:8px;">⚡ Auto-Grant Missing Permissions</h4>
+            <div id="ts-grantInfo" style="font-size:13px;margin-bottom:12px;"></div>
+            <button class="btn btn-primary" onclick="withBusy(this, grantMissingPermissions)" id="ts-grantBtn">🔑 Grant Missing Permissions</button>
+            <div id="ts-grantResults" style="margin-top:10px;font-size:13px;"></div>
+          </div>
+
+          <div id="ts-manualSection" class="hidden" style="margin-top:16px;padding:16px;border:2px solid var(--primary);border-radius:8px;background:#f0f6ff;">
+            <h4 style="margin-bottom:8px;">📋 Manual Setup Required</h4>
+            <div style="font-size:13px;line-height:1.7;">
+              <p>Your SPN does not have <code>AppRoleAssignment.ReadWrite.All</code>, so permissions must be granted manually.</p>
+              <p style="margin-top:8px;"><b>Steps:</b></p>
+              <ol style="margin:6px 0 0 16px;padding:0;">
+                <li>Go to <b>Azure Portal</b> → <b>Azure Active Directory</b> → <b>App registrations</b></li>
+                <li>Select your app → <b>API permissions</b> → <b>Add a permission</b></li>
+                <li>Choose <b>Microsoft Graph</b> → <b>Application permissions</b></li>
+                <li>Add each missing permission listed above</li>
+                <li>Click <b>Grant admin consent for [your tenant]</b></li>
+              </ol>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Azure Subscription RBAC</h3>
+        <div style="font-size:13px;line-height:1.7;">
+          <p>For features like <b>Assign Permissions</b>, <b>Read-Only Mode</b>, and <b>Cleanup</b> that manage Azure subscription role assignments, the SPN also needs:</p>
+          <div style="margin:12px 0;padding:10px 14px;background:#f7f9fc;border:1px solid var(--border);border-radius:6px;">
+            <code style="font-weight:700;">Owner</code> or <code style="font-weight:700;">User Access Administrator</code> role on each target Azure subscription
+          </div>
+          <p>This must be granted through the Azure Portal → Subscriptions → Access control (IAM) → Add role assignment.</p>
+          <p style="margin-top:8px;color:var(--muted);">Note: This is an Azure RBAC role, not a Graph API permission, and cannot be auto-granted from this tool.</p>
+        </div>
+      </div>
+    </div><!-- /view-tenant-setup -->
+
+    <!-- ────────── Help / Documentation View ────────── -->
+    <div id="view-help" class="hidden">
+      <h2>❓ Help & Documentation</h2>
+      <p class="hint">Complete guide to all features of the Spektra Hack Setup tool.</p>
+
+      <div class="card">
+        <h3>🏠 Overview</h3>
+        <div style="font-size:13px;line-height:1.8;">
+          <p><b>Spektra Hack Setup</b> is a comprehensive tool for provisioning and managing hackathon environments on Microsoft Azure & Entra ID. It automates user creation, licensing, RBAC assignments, file uploads to OneDrive, lifecycle management (scheduling read-only and cleanup), and more.</p>
+          <p style="margin-top:8px;">The tool uses a <b>Service Principal (App Registration)</b> to interact with Microsoft Graph API and Azure ARM API. Enter your SPN credentials at the top of the page — they are used for all operations and never stored on the server.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>🛠 Setup Hack</h3>
+        <div style="font-size:13px;line-height:1.8;">
+          <p>The primary tab for creating a new hackathon environment. Provisions users, groups, licenses, TAPs, and RBAC roles in one go.</p>
+          <table style="margin-top:10px;">
+            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Hack Prefix</td><td style="padding:6px 0;">A short identifier (e.g. <code>nyc-esri-gcc-</code>) prepended to all user and group names. Used to discover and manage hack resources later.</td></tr>
+            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Mode</td><td style="padding:6px 0;"><b>Team-based</b>: Creates team groups (team01, team02, …) with users distributed across them. <b>Flat</b>: Creates all users without team grouping.</td></tr>
+            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Teams / Users per team</td><td style="padding:6px 0;">Controls how many teams and users per team to create. Total users = teams × users per team.</td></tr>
+            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Admin users</td><td style="padding:6px 0;">Number of admin accounts to create. Admins are assigned Global Reader role and placed in an admins group.</td></tr>
+            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Licenses</td><td style="padding:6px 0;">Select M365/Azure licenses to assign to each non-admin user. Click "Load from Tenant" to see available licenses with remaining capacity.</td></tr>
+            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">TAP lifetime</td><td style="padding:6px 0;">Temporary Access Pass duration in minutes. Set to 0 to use the tenant's maximum. Users use TAP to sign in without a password.</td></tr>
+            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Password</td><td style="padding:6px 0;">Optional shared password for all users. Leave blank for unique random passwords per user.</td></tr>
+            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Force password change</td><td style="padding:6px 0;">If checked, users must change their password on first sign-in.</td></tr>
+            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Hack name</td><td style="padding:6px 0;">Stamped as <code>companyName</code> on each user object for easy identification.</td></tr>
+            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Skip existing</td><td style="padding:6px 0;">If checked, skip users that already exist in the tenant instead of failing.</td></tr>
+            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Pre-flight check</td><td style="padding:6px 0;">Validates permissions, license availability, and subscription access before provisioning.</td></tr>
+            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Schedule Hack</td><td style="padding:6px 0;">Schedule provisioning for a future date/time instead of running immediately.</td></tr>
+          </table>
+          <div style="margin-top:10px;padding:8px 12px;background:#dff6dd;border-radius:6px;">💡 <b>Tip:</b> After provisioning, the tool automatically schedules read-only and cleanup jobs if lifecycle dates are provided.</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>🔐 Assign Permissions</h3>
+        <div style="font-size:13px;line-height:1.8;">
+          <p>Assign Azure RBAC roles (Owner, Contributor, or Reader) on one or more Azure subscriptions to the hack's team groups or individual users.</p>
+          <p style="margin-top:6px;">The tool discovers principals (groups/users) by hack prefix and assigns the selected role on each specified subscription.</p>
+          <div style="margin-top:10px;padding:8px 12px;background:#fff4ce;border-radius:6px;">⚠️ <b>Requires:</b> The SPN must have <code>Owner</code> or <code>User Access Administrator</code> role on the target subscriptions.</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>📤 Upload Files</h3>
+        <div style="font-size:13px;line-height:1.8;">
+          <p>Upload files or folders to every user's OneDrive in bulk. Supports drag-and-drop, folder selection, and maintains folder structure.</p>
+          <table style="margin-top:10px;">
+            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Users</td><td style="padding:6px 0;">Enter UPNs (one per line) or click "Load from tenant" to fetch all users.</td></tr>
+            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Files</td><td style="padding:6px 0;">Drag & drop files/folders or use the file picker. Folder structure is preserved.</td></tr>
+            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Destination</td><td style="padding:6px 0;">Root-relative path in each user's OneDrive (e.g. <code>/Documents/HackFiles</code>).</td></tr>
+            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Concurrency</td><td style="padding:6px 0;">Number of parallel uploads. Higher = faster but may hit API throttling.</td></tr>
+            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Dry run</td><td style="padding:6px 0;">Preview the upload plan without actually uploading anything.</td></tr>
+          </table>
+          <div style="margin-top:10px;padding:8px 12px;background:#dff6dd;border-radius:6px;">💡 <b>Tip:</b> Check licenses first to ensure users have OneDrive (SharePoint Online) enabled.</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>👀 Read-Only Mode</h3>
+        <div style="font-size:13px;line-height:1.8;">
+          <p>Downgrade all hack users' Azure subscription access to <b>Reader</b> role. This is useful when the hack ends and you want to prevent further changes while keeping read access for review.</p>
+          <p style="margin-top:6px;">Enter the hack prefix and subscription IDs. The tool discovers all principals (groups/users) by prefix and downgrades their RBAC assignments from Owner/Contributor to Reader.</p>
+          <p style="margin-top:6px;">Two modes: <b>team</b> (discovers groups) or <b>flat</b> (discovers individual users).</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>🗑️ Cleanup Hack</h3>
+        <div style="font-size:13px;line-height:1.8;">
+          <p>Completely remove all resources created for a hack. This includes:</p>
+          <ul style="margin:8px 0 0 20px;">
+            <li>Delete all users matching the hack prefix</li>
+            <li>Delete all groups (team groups + admin group)</li>
+            <li>Remove all RBAC role assignments on specified subscriptions</li>
+            <li>Remove blob state data</li>
+          </ul>
+          <div style="margin-top:10px;padding:8px 12px;background:#fde7e9;border-radius:6px;">🚨 <b>Warning:</b> This action is <b>irreversible</b>. All hack users, groups, and permissions will be permanently deleted.</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>📋 Manage Hack</h3>
+        <div style="font-size:13px;line-height:1.8;">
+          <p>Load and manage a previously provisioned hack from Azure Blob Storage.</p>
+          <table style="margin-top:10px;">
+            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Load Hack</td><td style="padding:6px 0;">Enter the hack prefix to load state from blob storage. View all created users, their passwords, TAPs, licenses, and group memberships.</td></tr>
+            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Regenerate TAP</td><td style="padding:6px 0;">Generate new Temporary Access Passes for users whose TAPs have expired.</td></tr>
+            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Assign Licenses</td><td style="padding:6px 0;">Assign additional licenses to hack users who are missing them.</td></tr>
+            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Set End Date</td><td style="padding:6px 0;">Schedule automatic read-only and cleanup jobs for the hack.</td></tr>
+            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Export</td><td style="padding:6px 0;">Download results as Excel (.xls) or CSV for distribution to hack participants.</td></tr>
+            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Scheduled Jobs</td><td style="padding:6px 0;">View and manage all scheduled provisioning, read-only, and cleanup jobs.</td></tr>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>🤖 AI Chat Assistant</h3>
+        <div style="font-size:13px;line-height:1.8;">
+          <p>An AI-powered assistant that can help you manage hacks through natural language commands. Powered by Azure OpenAI (GPT-4o).</p>
+          <p style="margin-top:6px;"><b>What it can do:</b></p>
+          <ul style="margin:6px 0 0 20px;">
+            <li>List and search saved hacks</li>
+            <li>Show tenant info and available licenses</li>
+            <li>Regenerate TAPs for specific users</li>
+            <li>Assign licenses to users</li>
+            <li>Show upload job status</li>
+            <li>Generate admin guide documents (DOCX) for hack participants</li>
+          </ul>
+          <p style="margin-top:8px;"><b>Quick actions:</b> Use the buttons below the chat input for common operations.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>⚙ Setup Tenant</h3>
+        <div style="font-size:13px;line-height:1.8;">
+          <p>Check whether your Service Principal has all the required Microsoft Graph permissions. If your SPN has <code>AppRoleAssignment.ReadWrite.All</code>, missing permissions can be auto-granted directly from the UI.</p>
+          <p style="margin-top:8px;">See also the <b>Azure Subscription RBAC</b> section for subscription-level role requirements.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>📖 Glossary</h3>
+        <div style="font-size:13px;line-height:1.8;">
+          <table>
+            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">SPN</td><td style="padding:6px 0;">Service Principal — the identity used to authenticate API calls. Created via App Registration in Azure AD.</td></tr>
+            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">UPN</td><td style="padding:6px 0;">User Principal Name — the sign-in name of a user (e.g. <code>user01@contoso.onmicrosoft.com</code>).</td></tr>
+            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">TAP</td><td style="padding:6px 0;">Temporary Access Pass — a time-limited passcode that can be used instead of a password for initial sign-in.</td></tr>
+            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">RBAC</td><td style="padding:6px 0;">Role-Based Access Control — Azure's system for managing permissions on subscriptions and resources.</td></tr>
+            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">SKU</td><td style="padding:6px 0;">Stock Keeping Unit — an identifier for a Microsoft license plan (e.g. ENTERPRISEPACK = Office 365 E3).</td></tr>
+            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Hack Prefix</td><td style="padding:6px 0;">A short string prepended to all users/groups for a hack, making them easy to discover and clean up.</td></tr>
+          </table>
+        </div>
+      </div>
+    </div><!-- /view-help -->
+
   </div>
 
   <footer>Spektra hack setup &mdash; powered by Microsoft Graph API</footer>
@@ -1544,7 +1752,7 @@ function switchView(name) {
   document.querySelectorAll('.tab[data-view]').forEach(t => {
     t.classList.toggle('active', t.dataset.view === name);
   });
-  ['upload','provision','permissions','readonly','cleanup','manage','chat'].forEach(v => {
+  ['upload','provision','permissions','readonly','cleanup','manage','chat','tenant-setup','help'].forEach(v => {
     const el = document.getElementById('view-' + v);
     if (el) el.classList.toggle('hidden', v !== name);
   });
@@ -3280,6 +3488,135 @@ function clearChat() {
     <div class="chat-msg chat-assistant" style="align-self:flex-start;max-width:85%;background:#e3f2fd;padding:10px 14px;border-radius:12px 12px 12px 2px;font-size:14px;line-height:1.5;">
       👋 Hi! I'm the Spektra hack setup Assistant. I can help you manage hacks, check user status, regenerate TAPs, assign licenses, and more. What would you like to do?
     </div>`;
+}
+
+// ──────────── Tenant Setup: Check & Grant Permissions ────────────
+
+let _lastPermCheckResult = null;
+
+async function checkTenantPermissions() {
+  const creds = getCreds();
+  if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
+
+  const resultsDiv = document.getElementById('ts-results');
+  const spin = document.getElementById('ts-spinner');
+  spin.classList.remove('hidden');
+  resultsDiv.classList.add('hidden');
+
+  try {
+    const res = await fetch(`${API}/check-permissions`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(creds),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed');
+
+    _lastPermCheckResult = data;
+
+    // SPN info
+    document.getElementById('ts-spnInfo').innerHTML =
+      `<b>Service Principal:</b> ${esc(data.spnDisplayName)} <span style="color:var(--muted);margin-left:8px;">(${esc(data.spnId)})</span>` +
+      (data.canSelfGrant
+        ? '<span style="margin-left:12px;color:var(--success);font-weight:600;">✅ Can auto-grant permissions</span>'
+        : '<span style="margin-left:12px;color:var(--warn);font-weight:600;">⚠ Cannot auto-grant (missing AppRoleAssignment.ReadWrite.All)</span>');
+
+    // Permission table
+    const tbody = document.getElementById('ts-permBody');
+    tbody.innerHTML = '';
+    let missingRequired = [];
+    let missingOptional = [];
+    for (const p of data.permissions) {
+      const statusIcon = p.granted
+        ? '<span style="color:var(--success);font-size:18px;">✅</span>'
+        : '<span style="color:var(--danger);font-size:18px;">❌</span>';
+      const typeLabel = p.optional
+        ? '<span style="color:var(--muted);font-size:12px;">Optional</span>'
+        : '<span style="font-weight:600;font-size:12px;">Required</span>';
+      tbody.innerHTML += `<tr>
+        <td style="text-align:center;">${statusIcon}</td>
+        <td><code>${esc(p.permission)}</code></td>
+        <td>${esc(p.reason)}</td>
+        <td>${typeLabel}</td>
+      </tr>`;
+      if (!p.granted) {
+        if (p.optional) missingOptional.push(p.permission);
+        else missingRequired.push(p.permission);
+      }
+    }
+
+    // Grant section
+    const grantSection = document.getElementById('ts-grantSection');
+    const manualSection = document.getElementById('ts-manualSection');
+    const allMissing = [...missingRequired, ...missingOptional];
+
+    if (allMissing.length === 0) {
+      grantSection.classList.add('hidden');
+      manualSection.classList.add('hidden');
+      toast('All permissions are granted! ✅', 'success');
+    } else if (data.canSelfGrant) {
+      grantSection.classList.remove('hidden');
+      manualSection.classList.add('hidden');
+      document.getElementById('ts-grantInfo').innerHTML =
+        `<b>${missingRequired.length}</b> required and <b>${missingOptional.length}</b> optional permission(s) missing. ` +
+        `Click below to auto-grant them using the SPN's <code>AppRoleAssignment.ReadWrite.All</code> permission.`;
+      document.getElementById('ts-grantResults').innerHTML = '';
+    } else {
+      grantSection.classList.add('hidden');
+      manualSection.classList.remove('hidden');
+    }
+
+    resultsDiv.classList.remove('hidden');
+    toast(`Found ${allMissing.length} missing permission(s)`, allMissing.length > 0 ? 'warn' : 'success');
+  } catch (e) {
+    toast('Error checking permissions: ' + e.message, 'danger');
+  } finally {
+    spin.classList.add('hidden');
+  }
+}
+
+async function grantMissingPermissions() {
+  const creds = getCreds();
+  if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
+  if (!_lastPermCheckResult) { toast('Run permission check first', 'warn'); return; }
+
+  const missing = _lastPermCheckResult.permissions
+    .filter(p => !p.granted)
+    .map(p => p.permission);
+  if (missing.length === 0) { toast('No missing permissions to grant', 'info'); return; }
+
+  const resultsDiv = document.getElementById('ts-grantResults');
+  resultsDiv.innerHTML = '<span class="spinner" style="display:inline-block;width:14px;height:14px;"></span> Granting permissions…';
+
+  try {
+    const res = await fetch(`${API}/grant-permissions`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...creds, permissions: missing }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed');
+
+    let html = '<div style="margin-top:8px;">';
+    let grantedCount = 0;
+    for (const r of data.results) {
+      const icon = r.status === 'granted' ? '✅'
+        : r.status === 'already_granted' ? '✅'
+        : r.status === 'failed' ? '❌' : '⚠';
+      if (r.status === 'granted' || r.status === 'already_granted') grantedCount++;
+      html += `<div style="padding:4px 0;"><code>${esc(r.permission)}</code> — ${icon} ${esc(r.status)}`;
+      if (r.error) html += ` <span style="color:var(--danger);font-size:12px;">(${esc(r.error)})</span>`;
+      html += '</div>';
+    }
+    html += '</div>';
+    resultsDiv.innerHTML = html;
+
+    toast(`Granted ${grantedCount}/${missing.length} permissions`, grantedCount === missing.length ? 'success' : 'warn');
+
+    // Re-check to refresh the table
+    setTimeout(() => checkTenantPermissions(), 1500);
+  } catch (e) {
+    resultsDiv.innerHTML = `<span style="color:var(--danger);">Error: ${esc(e.message)}</span>`;
+    toast('Error granting permissions: ' + e.message, 'danger');
+  }
 }
 </script>
 </body>

@@ -331,6 +331,10 @@ class DevHandler(SimpleHTTPRequestHandler):
             self._handle_chat()
         elif self.path == "/api/generate-doc":
             self._handle_generate_doc()
+        elif self.path == "/api/check-permissions":
+            self._handle_check_permissions()
+        elif self.path == "/api/grant-permissions":
+            self._handle_grant_permissions()
         else:
             self._send_json({"error": "Not found"}, 404)
 
@@ -1174,6 +1178,169 @@ class DevHandler(SimpleHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(entry["data"])
+
+    # ── Tenant setup: check & grant permissions ──
+
+    GRAPH_APPID = "00000003-0000-0000-c000-000000000000"
+
+    REQUIRED_GRAPH_PERMISSIONS = [
+        {"value": "User.ReadWrite.All",                      "reason": "Create, update, delete users"},
+        {"value": "Group.ReadWrite.All",                     "reason": "Create team/admin groups"},
+        {"value": "GroupMember.ReadWrite.All",                "reason": "Add users to groups"},
+        {"value": "Organization.Read.All",                   "reason": "Read tenant info & subscribed SKUs"},
+        {"value": "RoleManagement.ReadWrite.Directory",      "reason": "Assign Global Reader to admin users"},
+        {"value": "UserAuthenticationMethod.ReadWrite.All",  "reason": "Create Temporary Access Passes (TAP)"},
+        {"value": "Policy.Read.All",                         "reason": "Read TAP policy configuration"},
+    ]
+
+    OPTIONAL_GRAPH_PERMISSIONS = [
+        {"value": "Files.ReadWrite.All",  "reason": "Upload files to users' OneDrive (optional)"},
+    ]
+
+    SELF_GRANT_PERMISSION = "AppRoleAssignment.ReadWrite.All"
+
+    def _handle_check_permissions(self):
+        import httpx
+        data = self._read_json()
+        creds = self._creds(data)
+        if not creds:
+            self._send_json({"error": "Missing SPN credentials"}, 400); return
+        t, c, s = creds
+        try:
+            tp = MsalTokenProvider(AzureConfig(tenant_id=t, client_id=c, client_secret=s))
+            tok = tp.get_token()
+            H = {"Authorization": f"Bearer {tok}"}
+
+            async def _run():
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    sp_resp = await client.get(
+                        f"https://graph.microsoft.com/v1.0/servicePrincipals?$filter=appId eq '{c}'",
+                        headers=H,
+                    )
+                    sp_data = sp_resp.json().get("value", [])
+                    if not sp_data:
+                        raise ValueError(f"Service principal not found for client_id {c}")
+                    sp_id = sp_data[0]["id"]
+                    sp_display = sp_data[0].get("displayName", c)
+
+                    graph_resp = await client.get(
+                        f"https://graph.microsoft.com/v1.0/servicePrincipals?$filter=appId eq '{self.GRAPH_APPID}'",
+                        headers=H,
+                    )
+                    graph_data = graph_resp.json().get("value", [])
+                    if not graph_data:
+                        raise ValueError("Microsoft Graph SP not found in tenant")
+                    graph_sp_id = graph_data[0]["id"]
+                    roles_by_value = {r["value"]: r for r in graph_data[0].get("appRoles", [])}
+
+                    assignments_resp = await client.get(
+                        f"https://graph.microsoft.com/v1.0/servicePrincipals/{sp_id}/appRoleAssignments",
+                        headers=H,
+                    )
+                    existing = assignments_resp.json().get("value", [])
+                    existing_role_ids = {a["appRoleId"] for a in existing if a.get("resourceId") == graph_sp_id}
+
+                    results = []
+                    all_perms = self.REQUIRED_GRAPH_PERMISSIONS + self.OPTIONAL_GRAPH_PERMISSIONS
+                    for perm in all_perms:
+                        role = roles_by_value.get(perm["value"])
+                        granted = role["id"] in existing_role_ids if role else False
+                        is_optional = perm in self.OPTIONAL_GRAPH_PERMISSIONS
+                        results.append({
+                            "permission": perm["value"],
+                            "reason": perm["reason"],
+                            "granted": granted,
+                            "optional": is_optional,
+                        })
+
+                    self_grant_role = roles_by_value.get(self.SELF_GRANT_PERMISSION)
+                    can_self_grant = self_grant_role["id"] in existing_role_ids if self_grant_role else False
+
+                    return {
+                        "spnId": sp_id,
+                        "spnDisplayName": sp_display,
+                        "permissions": results,
+                        "canSelfGrant": can_self_grant,
+                    }
+
+            self._send_json(asyncio.run(_run()))
+        except Exception as exc:
+            self._send_json({"error": str(exc)}, 500)
+
+    def _handle_grant_permissions(self):
+        import httpx
+        data = self._read_json()
+        creds = self._creds(data)
+        if not creds:
+            self._send_json({"error": "Missing SPN credentials"}, 400); return
+        perms = data.get("permissions") or []
+        if not perms:
+            self._send_json({"error": "permissions[] required"}, 400); return
+        t, c, s = creds
+        try:
+            tp = MsalTokenProvider(AzureConfig(tenant_id=t, client_id=c, client_secret=s))
+            tok = tp.get_token()
+            H = {"Authorization": f"Bearer {tok}", "Content-Type": "application/json"}
+
+            async def _run():
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    sp_resp = await client.get(
+                        f"https://graph.microsoft.com/v1.0/servicePrincipals?$filter=appId eq '{c}'",
+                        headers=H,
+                    )
+                    sp_data = sp_resp.json().get("value", [])
+                    if not sp_data:
+                        raise ValueError(f"Service principal not found for client_id {c}")
+                    sp_id = sp_data[0]["id"]
+
+                    graph_resp = await client.get(
+                        f"https://graph.microsoft.com/v1.0/servicePrincipals?$filter=appId eq '{self.GRAPH_APPID}'",
+                        headers=H,
+                    )
+                    graph_data = graph_resp.json().get("value", [])
+                    if not graph_data:
+                        raise ValueError("Microsoft Graph SP not found")
+                    graph_sp_id = graph_data[0]["id"]
+                    roles_by_value = {r["value"]: r for r in graph_data[0].get("appRoles", [])}
+
+                    assignments_resp = await client.get(
+                        f"https://graph.microsoft.com/v1.0/servicePrincipals/{sp_id}/appRoleAssignments",
+                        headers=H,
+                    )
+                    existing = assignments_resp.json().get("value", [])
+                    existing_role_ids = {a["appRoleId"] for a in existing if a.get("resourceId") == graph_sp_id}
+
+                    results = []
+                    for perm_value in perms:
+                        role = roles_by_value.get(perm_value)
+                        if not role:
+                            results.append({"permission": perm_value, "status": "not_found",
+                                            "error": "Permission not found in Graph appRoles"})
+                            continue
+                        if role["id"] in existing_role_ids:
+                            results.append({"permission": perm_value, "status": "already_granted"})
+                            continue
+                        r = await client.post(
+                            f"https://graph.microsoft.com/v1.0/servicePrincipals/{sp_id}/appRoleAssignments",
+                            headers=H,
+                            json={
+                                "principalId": sp_id,
+                                "resourceId": graph_sp_id,
+                                "appRoleId": role["id"],
+                            },
+                        )
+                        if r.status_code in (200, 201):
+                            results.append({"permission": perm_value, "status": "granted"})
+                        else:
+                            err_body = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+                            err_msg = err_body.get("error", {}).get("message", r.text[:200])
+                            results.append({"permission": perm_value, "status": "failed", "error": err_msg})
+
+                    return results
+
+            self._send_json({"results": asyncio.run(_run())})
+        except Exception as exc:
+            self._send_json({"error": str(exc)}, 500)
 
     def log_message(self, format, *args):
         msg = format % args
