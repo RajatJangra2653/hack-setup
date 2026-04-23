@@ -14,7 +14,7 @@ class TapService:
         self._g = graph
         self._lifetime = lifetime_minutes
 
-    async def issue(self, user_id: str, *, usable_once: bool = True) -> Optional[dict]:
+    async def issue(self, user_id: str, *, usable_once: bool = False) -> Optional[dict]:
         """Create a TAP. Returns dict with temporaryAccessPass + expirationDateTime,
         or None if the tenant policy disallows TAP for this user."""
         body = {
