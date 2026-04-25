@@ -113,6 +113,28 @@
     .toast-info { background: var(--primary); }
     @keyframes slideIn { from { transform: translateY(40px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 
+    .modal-backdrop {
+      position: fixed; inset: 0; z-index: 2000; display: flex; align-items: center; justify-content: center;
+      padding: 20px; background: rgba(15, 23, 42, .52); backdrop-filter: blur(4px);
+    }
+    .modal-card {
+      width: min(560px, 100%); max-height: min(760px, 92vh); overflow: auto; background: #fff;
+      border-radius: 22px; box-shadow: 0 30px 80px rgba(15,23,42,.34); border: 1px solid #dbeafe;
+      animation: modalIn .16s ease-out;
+    }
+    .modal-head { display: flex; gap: 12px; align-items: flex-start; padding: 22px 22px 12px; border-bottom: 1px solid #e2e8f0; }
+    .modal-icon { width: 42px; height: 42px; border-radius: 14px; display: grid; place-items: center; background: #eff6ff; font-size: 22px; flex: 0 0 auto; }
+    .modal-title { margin: 0; font-size: 18px; font-weight: 850; color: #0f172a; }
+    .modal-subtitle { margin-top: 4px; font-size: 13px; color: var(--muted); }
+    .modal-body { padding: 16px 22px; font-size: 14px; color: #1e293b; }
+    .modal-body .modal-line { margin: 6px 0; }
+    .modal-body .modal-kv { display: grid; grid-template-columns: 130px minmax(0,1fr); gap: 8px; padding: 7px 0; border-bottom: 1px dashed #e2e8f0; }
+    .modal-body .modal-kv:last-child { border-bottom: 0; }
+    .modal-body .modal-kv span:first-child { color: var(--muted); font-weight: 700; }
+    .modal-confirm-text { margin-top: 12px; padding: 10px 12px; border-radius: 12px; background: #f8fafc; border: 1px solid #e2e8f0; font-family: var(--font-mono); font-size: 12px; word-break: break-word; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 22px 22px; border-top: 1px solid #e2e8f0; }
+    @keyframes modalIn { from { transform: translateY(12px) scale(.98); opacity: 0; } to { transform: translateY(0) scale(1); opacity: 1; } }
+
     .checkbox-row { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
     .checkbox-row input { width: auto; }
 
@@ -266,6 +288,22 @@
       border-radius: 14px; font-size: 13px;
     }
     .assignment-preview table { background: #fff; margin-top: 8px; }
+    .team-map-panel {
+      margin-top: 12px; padding: 14px; border: 1px solid #bfdbfe; border-radius: 16px; background: #f8fbff;
+    }
+    .team-map-header { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; flex-wrap: wrap; margin-bottom: 10px; }
+    .team-map-header strong { display: block; font-size: 14px; }
+    .team-map-grid { display: grid; grid-template-columns: minmax(230px, .9fr) minmax(280px, 1.1fr); gap: 10px; }
+    .team-map-row { display: contents; }
+    .team-map-cell { padding: 10px; border: 1px solid var(--border); background: #fff; min-height: 52px; display: flex; align-items: center; }
+    .team-map-cell:first-child { border-radius: 12px 0 0 12px; }
+    .team-map-cell:last-child { border-radius: 0 12px 12px 0; }
+    .team-map-cell select { margin: 0; }
+    @media (max-width: 760px) {
+      .team-map-grid { grid-template-columns: 1fr; }
+      .team-map-row { display: block; margin-bottom: 10px; }
+      .team-map-cell { border-radius: 12px !important; margin-bottom: 6px; }
+    }
     .lifecycle-steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(185px,1fr)); gap: 12px; margin-bottom: 20px; }
     .lifecycle-card {
       border-radius: 18px; padding: 14px; background: rgba(255,255,255,.88); border: 1px solid var(--border);
@@ -311,6 +349,23 @@
   </style>
 </head>
 <body>
+  <div id="confirmModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="confirmModalTitle">
+    <div class="modal-card">
+      <div class="modal-head">
+        <div id="confirmModalIcon" class="modal-icon">⚠️</div>
+        <div>
+          <h3 id="confirmModalTitle" class="modal-title">Confirm action</h3>
+          <div id="confirmModalSubtitle" class="modal-subtitle">Review the details before continuing.</div>
+        </div>
+      </div>
+      <div id="confirmModalBody" class="modal-body"></div>
+      <div class="modal-actions">
+        <button id="confirmModalCancel" type="button" class="btn btn-secondary">Cancel</button>
+        <button id="confirmModalOk" type="button" class="btn btn-primary">Continue</button>
+      </div>
+    </div>
+  </div>
+
   <header>
     <div class="container hero-shell">
       <div class="hero-mark">⚡</div>
@@ -377,7 +432,7 @@
 
     <!-- ────────── SPN Credentials Card ────────── -->
     <span id="activeStepTarget"></span>
-    <div class="card">
+    <div id="secureConnectionCard" class="card">
       <h2>Secure connection</h2>
       <div class="hint" style="margin-bottom:12px">Enter the Service Principal credentials used for Microsoft Graph and Azure management calls. Values are sent per request and are not stored on the server.</div>
       <div class="row">
@@ -690,9 +745,9 @@
             <label for="ep-rbacStrategy">Auto RBAC assignment strategy</label>
             <select id="ep-rbacStrategy">
               <option value="all" selected>Every target gets every selected subscription</option>
-              <option value="one-to-one">Map teams/users to subscriptions in order</option>
+              <option value="one-to-one">Admins all subs; teams/users map in order</option>
             </select>
-            <div class="hint">Used after provisioning when an RBAC role and subscriptions are provided.</div>
+            <div class="hint">In one-to-one mode, admin targets receive every subscription; team/user targets map to subscriptions in order.</div>
           </div>
           <div class="form-group">
             <label for="ep-rbacTargetScope">Auto RBAC targets</label>
@@ -823,9 +878,9 @@
             <label for="pp-assignmentStrategy">Assignment strategy</label>
             <select id="pp-assignmentStrategy" onchange="updateMappingPreview()">
               <option value="all" selected>Every target gets every selected subscription</option>
-              <option value="one-to-one">Map teams/users to subscriptions in order</option>
+              <option value="one-to-one">Admins all subs; teams/users map in order</option>
             </select>
-            <div class="hint">Use one-to-one when each team or user should work in a dedicated subscription.</div>
+            <div class="hint">Use one-to-one when each team or user should work in a dedicated subscription. Admin targets still receive every selected subscription.</div>
           </div>
           <div class="form-group">
             <label for="pp-targetScope">Targets to assign</label>
@@ -847,6 +902,20 @@
         </div>
 
         <div id="pp-subValidation" class="hidden" style="margin-top:12px;padding:10px;background:#f7f9fc;border:1px solid var(--border);border-radius:6px;font-size:13px;"></div>
+
+        <div id="pp-teamMappingPanel" class="team-map-panel hidden">
+          <div class="team-map-header">
+            <div>
+              <strong>Team → Subscription Mapping</strong>
+              <div class="hint">Left side shows discovered team groups. Pick the subscription each team should receive on the right.</div>
+            </div>
+            <label style="display:flex;align-items:center;gap:8px;font-weight:700;font-size:13px;">
+              <input type="checkbox" id="pp-adminAllSubs" checked onchange="updateMappingPreview()" style="width:auto;">
+              Give admin group access to all selected subscriptions
+            </label>
+          </div>
+          <div id="pp-teamMappingList"></div>
+        </div>
 
         <div id="pp-mappingPreview" class="assignment-preview hidden">
           <div style="font-weight:600;margin-bottom:6px;">📍 Subscription → Principal Mapping Preview</div>
@@ -917,6 +986,7 @@
 
         <div id="ro-discoveryBox" class="hidden" style="margin-top:16px;padding:12px;background:#f7f9fc;border-radius:6px;border:1px solid var(--border);font-size:13px;">
           <div id="ro-discoverySummary" style="font-weight:600;"></div>
+          <div id="ro-discoveryDetails" style="margin-top:12px;"></div>
         </div>
       </div>
 
@@ -1123,8 +1193,14 @@
               <p class="hint">Assign new licenses to users in this hack. Admins are excluded unless the option below is enabled.</p>
               <div class="form-group">
                 <label>Licenses to assign</label>
-                <div id="mh-licenseBox" style="display:flex;flex-wrap:wrap;gap:10px;">
-                  <span class="hint">Click "Load from Tenant" on the Provision tab first to see available licenses, or type SKU names below.</span>
+                <div class="hint">Load available tenant SKUs here, select the ones to assign, or type SKU names below.</div>
+                <div style="margin-bottom:8px;display:flex;gap:8px;align-items:center;">
+                  <button class="btn btn-secondary btn-sm" onclick="withBusy(this, loadManagedHackLicenses)">🔄 Load from Tenant</button>
+                  <span id="mh-licLoading" class="hidden"><span class="spinner" style="width:14px;height:14px;"></span></span>
+                </div>
+                <div id="mh-licenseAvailability" class="hidden" style="margin-bottom:10px;padding:8px 12px;background:#f7f9fc;border:1px solid var(--border);border-radius:6px;font-size:13px;"></div>
+                <div id="mh-licenseBox" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 16px;">
+                  <span class="hint">Click "Load from Tenant" to see available licenses, or type SKU names below.</span>
                 </div>
               </div>
               <div class="form-group">
@@ -1662,6 +1738,60 @@ async function withBusy(btn, fn, ...args) {
   }
 }
 
+// ──────────── In-app confirmation modal ────────────
+function uxConfirm(options = {}) {
+  const modal = document.getElementById('confirmModal');
+  const title = document.getElementById('confirmModalTitle');
+  const subtitle = document.getElementById('confirmModalSubtitle');
+  const icon = document.getElementById('confirmModalIcon');
+  const body = document.getElementById('confirmModalBody');
+  const ok = document.getElementById('confirmModalOk');
+  const cancel = document.getElementById('confirmModalCancel');
+  if (!modal || !title || !body || !ok || !cancel) return Promise.resolve(false);
+
+  title.textContent = options.title || 'Confirm action';
+  subtitle.textContent = options.subtitle || 'Review the details before continuing.';
+  icon.textContent = options.icon || '⚠️';
+  ok.textContent = options.confirmText || 'Continue';
+  cancel.textContent = options.cancelText || 'Cancel';
+  ok.className = `btn ${options.danger ? 'btn-primary' : 'btn-primary'}`;
+
+  if (options.html) {
+    body.innerHTML = options.html;
+  } else {
+    const message = String(options.message || '').split('\n').filter(line => line.trim());
+    body.innerHTML = message.map(line => `<div class="modal-line">${esc(line)}</div>`).join('') || '<div class="hint">No additional details.</div>';
+  }
+
+  modal.classList.remove('hidden');
+  ok.focus();
+
+  return new Promise(resolve => {
+    let done = false;
+    const cleanup = (result) => {
+      if (done) return;
+      done = true;
+      modal.classList.add('hidden');
+      ok.removeEventListener('click', onOk);
+      cancel.removeEventListener('click', onCancel);
+      modal.removeEventListener('click', onBackdrop);
+      document.removeEventListener('keydown', onKey);
+      resolve(result);
+    };
+    const onOk = () => cleanup(true);
+    const onCancel = () => cleanup(false);
+    const onBackdrop = (event) => { if (event.target === modal) cleanup(false); };
+    const onKey = (event) => {
+      if (event.key === 'Escape') cleanup(false);
+      if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey && !event.altKey) cleanup(true);
+    };
+    ok.addEventListener('click', onOk);
+    cancel.addEventListener('click', onCancel);
+    modal.addEventListener('click', onBackdrop);
+    document.addEventListener('keydown', onKey);
+  });
+}
+
 // ──────────── File Handling ────────────
 function handleFiles(fileList) {
   _selectedFiles = [];
@@ -2017,7 +2147,91 @@ async function loadTenantUsers() {
 
 // ──────────── Helpers ────────────
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function escAttr(s) { return esc(s).replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
 function fmtSize(b) { if(b==null) return '–'; if(b<1024) return b+'B'; if(b<1048576) return (b/1024).toFixed(1)+'KB'; return (b/1048576).toFixed(1)+'MB'; }
+
+const LICENSE_DISPLAY_NAMES = {
+  SPE_E3: 'Microsoft 365 E3',
+  SPE_E5: 'Microsoft 365 E5',
+  SPE_F1: 'Microsoft 365 F1',
+  SPE_F3: 'Microsoft 365 F3',
+  ENTERPRISEPACK: 'Office 365 E3',
+  ENTERPRISEPREMIUM: 'Office 365 E5',
+  DEVELOPERPACK_E5: 'Microsoft 365 E5 Developer',
+  M365_G3_GOV: 'Microsoft 365 G3 GCC',
+  M365_G5_GOV: 'Microsoft 365 G5 GCC',
+  M365_G3_GOVERNMENT: 'Microsoft 365 G3 GCC',
+  M365_G5_GOVERNMENT: 'Microsoft 365 G5 GCC',
+  EMSPREMIUM: 'Enterprise Mobility + Security E5',
+  EMS: 'Enterprise Mobility + Security E3',
+  SPB: 'Microsoft 365 Business Premium',
+  O365_BUSINESS_PREMIUM: 'Microsoft 365 Business Standard',
+  O365_BUSINESS_ESSENTIALS: 'Microsoft 365 Business Basic',
+  TEAMS_ESSENTIALS: 'Microsoft Teams Essentials',
+  Teams_Ess: 'Microsoft Teams Essentials',
+  TEAMS_PREMIUM: 'Microsoft Teams Premium',
+  Teams_Premium: 'Microsoft Teams Premium',
+  POWER_BI_PRO: 'Power BI Pro',
+  PBI_PREMIUM_PER_USER: 'Power BI Premium Per User',
+  POWERAPPS_PER_USER: 'Power Apps Premium',
+  POWER_APPS_PER_USER: 'Power Apps Premium',
+  FLOW_FREE: 'Power Automate Free',
+  Microsoft_365_Copilot: 'Microsoft 365 Copilot',
+  COPILOT_FOR_MICROSOFT_365: 'Microsoft 365 Copilot',
+  M365_COPILOT: 'Microsoft 365 Copilot',
+  Microsoft_Copilot_Studio_User: 'Microsoft Copilot Studio User',
+  CCIBOTS_PRIVPREV_VIRAL: 'Microsoft Copilot Studio',
+  COPILOT_STUDIO: 'Microsoft Copilot Studio',
+};
+
+function licenseDisplayName(sku, includeSku = false) {
+  const raw = String(sku || '').trim();
+  if (!raw) return '';
+  const key = Object.keys(LICENSE_DISPLAY_NAMES).find(k => k.toUpperCase() === raw.toUpperCase());
+  let friendly = key ? LICENSE_DISPLAY_NAMES[key] : '';
+  if (!friendly) {
+    const upper = raw.toUpperCase();
+    if (upper.includes('SPE_E5')) friendly = 'Microsoft 365 E5';
+    else if (upper.includes('SPE_E3')) friendly = 'Microsoft 365 E3';
+    else if (upper.includes('SPE_F3')) friendly = 'Microsoft 365 F3';
+    else if (upper.includes('SPE_F1')) friendly = 'Microsoft 365 F1';
+    else if (upper.includes('ENTERPRISEPREMIUM')) friendly = 'Office 365 E5';
+    else if (upper.includes('ENTERPRISEPACK')) friendly = 'Office 365 E3';
+    else if (upper.includes('POWER_BI') || upper.includes('PBI_')) friendly = upper.includes('PREMIUM') ? 'Power BI Premium Per User' : 'Power BI Pro';
+    else if (upper.includes('COPILOT') && upper.includes('STUDIO')) friendly = 'Microsoft Copilot Studio';
+    else if (upper.includes('COPILOT')) friendly = 'Microsoft 365 Copilot';
+    else if (upper.includes('TEAMS') && upper.includes('PREMIUM')) friendly = 'Microsoft Teams Premium';
+    else if (upper.includes('TEAMS')) friendly = 'Microsoft Teams';
+    else if (upper.includes('POWERAPPS') || upper.includes('POWER_APPS')) friendly = 'Power Apps';
+  }
+  if (!friendly) friendly = raw;
+  return includeSku && friendly !== raw ? `${friendly} (${raw})` : friendly;
+}
+
+function formatLicenseList(licenses, includeSku = false) {
+  if (!licenses) return '';
+  const values = Array.isArray(licenses) ? licenses : String(licenses).split(/[|,]+/);
+  return values.map(v => licenseDisplayName(v, includeSku)).filter(Boolean).join(', ');
+}
+
+function replaceKnownLicenseNames(text) {
+  let out = String(text || '');
+  const tokens = Object.keys(LICENSE_DISPLAY_NAMES).sort((a, b) => b.length - a.length);
+  for (const token of tokens) {
+    const friendly = LICENSE_DISPLAY_NAMES[token];
+    const re = new RegExp(`\\b${token.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}\\b`, 'gi');
+    out = out.replace(re, friendly);
+  }
+  return out;
+}
+
+function safeChatLinkUrl(url) {
+  const raw = String(url || '').trim();
+  if (!raw || raw === '#') return '';
+  if (/^\/api\/generated-docs\/[a-f0-9-]+$/i.test(raw)) return raw;
+  if (/^https?:\/\//i.test(raw) || raw.startsWith('/')) return raw;
+  return '';
+}
 
 function toast(msg, type='success') {
   const el = document.createElement('div');
@@ -2072,7 +2286,7 @@ async function checkLicenses() {
               ? '<span class="status-dot success"></span>Yes'
               : '<span class="status-dot failed"></span>No'}
         </td>
-        <td style="font-size:12px;color:var(--muted)">${r.error ? esc(r.error) : (r.licenses || []).join(', ') || '–'}</td>
+        <td style="font-size:12px;color:var(--muted)">${r.error ? esc(r.error) : esc(formatLicenseList(r.licenses)) || '–'}</td>
       </tr>
     `).join('');
 
@@ -2270,6 +2484,8 @@ function switchView(name) {
   if (activeStepTitle) activeStepTitle.textContent = labels[name] || 'Hack lifecycle';
   const activeStepHint = document.getElementById('activeStepHint');
   if (activeStepHint) activeStepHint.textContent = hints[name] || 'Select a lifecycle action to continue.';
+  const secureConnectionCard = document.getElementById('secureConnectionCard');
+  if (secureConnectionCard) secureConnectionCard.classList.toggle('hidden', !['tenant-setup', 'provision'].includes(name));
   ['upload','provision','permissions','readonly','cleanup','manage','scheduler','chat','tenant-setup','help'].forEach(v => {
     const el = document.getElementById('view-' + v);
     if (el) el.classList.toggle('hidden', v !== name);
@@ -2347,11 +2563,37 @@ async function loadTenantLicenses() {
   }
 }
 
-function _populateLicenseCheckboxes(skus) {
-  _tenantSkus = skus;
+async function loadManagedHackLicenses() {
+  const creds = getCreds();
+  if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
+  const spinner = document.getElementById('mh-licLoading');
+  if (spinner) spinner.classList.remove('hidden');
+  try {
+    const res = await fetch(`${API}/tenant-info`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(creds),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed');
+    const skus = data.subscribedSkus || [];
+    if (!skus.length) {
+      toast('No license SKUs found in tenant', 'warn');
+      return;
+    }
+    _populateManagedLicenseCheckboxes(skus);
+    toast(`Loaded ${skus.length} license SKU(s) for Manage Hack`, 'success');
+  } catch (e) {
+    toast('Failed to load licenses: ' + e.message, 'danger');
+  } finally {
+    if (spinner) spinner.classList.add('hidden');
+  }
+}
+
+function _renderLicenseCheckboxes(containerId, availabilityId, skus, options = {}) {
   // Preserve currently checked values
-  const prevChecked = new Set(Array.from(document.querySelectorAll('#ep-licenses input:checked')).map(c => c.value));
-  const container = document.getElementById('ep-licenses');
+  const prevChecked = new Set(Array.from(document.querySelectorAll(`#${containerId} input:checked`)).map(c => c.value));
+  const container = document.getElementById(containerId);
+  if (!container) return;
   container.innerHTML = '';
   for (const sku of skus) {
     const avail = (sku.prepaidUnits?.enabled || 0) - (sku.consumedUnits || 0);
@@ -2362,11 +2604,12 @@ function _populateLicenseCheckboxes(skus) {
     cb.type = 'checkbox';
     cb.value = sku.skuPartNumber;
     if (prevChecked.has(sku.skuPartNumber)) cb.checked = true;
+    if (options.onChange) cb.addEventListener('change', options.onChange);
     const color = avail > 0 ? 'var(--success)' : 'var(--danger)';
     lbl.appendChild(cb);
     const nameSpan = document.createElement('span');
     nameSpan.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
-    nameSpan.textContent = ' ' + sku.skuPartNumber + ' ';
+    nameSpan.textContent = ' ' + licenseDisplayName(sku.skuPartNumber) + ' ';
     nameSpan.title = sku.skuPartNumber;
     lbl.appendChild(nameSpan);
     const badge = document.createElement('span');
@@ -2376,9 +2619,21 @@ function _populateLicenseCheckboxes(skus) {
     container.appendChild(lbl);
   }
   // Also update the availability summary box
-  const box = document.getElementById('ep-licenseAvailability');
-  box.classList.remove('hidden');
-  box.innerHTML = `<span style="color:var(--muted);font-size:12px;">✓ ${skus.length} license SKU(s) loaded from tenant. Select the ones to assign.</span>`;
+  const box = document.getElementById(availabilityId);
+  if (box) {
+    box.classList.remove('hidden');
+    box.innerHTML = `<span style="color:var(--muted);font-size:12px;">✓ ${skus.length} license SKU(s) loaded from tenant. Select the ones to assign.</span>`;
+  }
+}
+
+function _populateLicenseCheckboxes(skus) {
+  _tenantSkus = skus;
+  _renderLicenseCheckboxes('ep-licenses', 'ep-licenseAvailability', skus);
+}
+
+function _populateManagedLicenseCheckboxes(skus) {
+  _tenantSkus = skus;
+  _renderLicenseCheckboxes('mh-licenseBox', 'mh-licenseAvailability', skus);
 }
 
 async function _ensureTenantDetected() {
@@ -2819,12 +3074,13 @@ async function _autoAssignRbac() {
   try {
     toast(`Assigning ${role}: ${plan.length} RBAC assignment(s)…`, 'info');
     let results = [];
+    const hackPrefix = (_epCfg().prefix || '').trim();
     if (strategy === 'one-to-one') {
       for (const item of plan) {
-        results = results.concat(await _doAssign(creds, [item.subscription], [item.principal], role));
+        results = results.concat(await _doAssign(creds, [item.subscription], [item.principal], role, hackPrefix));
       }
     } else {
-      results = await _doAssign(creds, subIds, principals, role);
+      results = await _doAssign(creds, subIds, principals, role, hackPrefix);
     }
     const ok = results.filter(r => r.status === 'assigned').length;
     const fail = results.filter(r => r.status === 'failed').length;
@@ -2908,15 +3164,17 @@ function renderProvisionRows(users) {
       ? `<code id="${pwId}" style="font-size:11px;filter:blur(4px);cursor:pointer;" onclick="this.style.filter=this.style.filter?'':'blur(4px)'" title="Click to reveal/hide">${esc(u.password)}</code>
          <button class="btn btn-secondary btn-sm" style="padding:1px 6px;font-size:10px;margin-left:4px" onclick="navigator.clipboard.writeText('${esc(u.password).replace(/'/g, '&#39;')}').then(()=>toast('Password copied','success'))">⧉</button>`
       : '<span class="hint">—</span>';
-    const lic = (u.licenses || []).join(', ') || '<span class="hint">—</span>';
-    const grp = (u.groups || []).join(', ') || '<span class="hint">—</span>';
+    const licText = formatLicenseList(u.licenses);
+    const lic = licText ? esc(licText) : '<span class="hint">—</span>';
+    const grpText = (u.groups || []).join(', ');
+    const grp = grpText ? esc(grpText) : '<span class="hint">—</span>';
     return `<tr>
       <td><code style="font-size:12px">${esc(u.userPrincipalName)}</code>${u.isAdmin ? ' <span class="hint">[admin]</span>' : ''}</td>
       <td><span style="color:${color};font-weight:600">${esc(u.status)}</span></td>
       <td>${pw}</td>
       <td>${tap}</td>
-      <td style="font-size:12px">${esc(lic) === '—' ? lic : esc(lic)}</td>
-      <td style="font-size:12px">${esc(grp) === '—' ? grp : esc(grp)}</td>
+      <td style="font-size:12px">${lic}</td>
+      <td style="font-size:12px">${grp}</td>
       <td style="font-size:12px;color:var(--muted)">${esc(u.message || '')}</td>
     </tr>`;
   }).join('') || '<tr><td colspan="7" class="empty">No users yet…</td></tr>';
@@ -3011,6 +3269,47 @@ function copyProvisionJson() {
 // ──────────── Permissions / Discovery / Read-Only / Cleanup ────────────
 function _splitLines(text) {
   return (text || '').split(/[\r\n,]+/).map(s => s.trim()).filter(Boolean);
+}
+
+async function postJsonWithServerConfirmation(url, body, options = {}) {
+  const send = async (payload) => {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => ({}));
+    return { res, data };
+  };
+
+  let { res, data } = await send(body);
+  if (res.status === 409 && data.confirmationRequired) {
+    const expected = data.expected || {};
+    const confirmed = await uxConfirm({
+      title: options.title || 'Server-side confirmation required',
+      subtitle: data.message || 'Review the server-generated operation details before continuing.',
+      icon: '🛡️',
+      confirmText: options.confirmText || 'Confirm and continue',
+      html: `
+        <div class="modal-kv"><span>Operation</span><strong>${esc(data.operation || 'privileged operation')}</strong></div>
+        <div class="modal-kv"><span>Prefix</span><strong>${esc(expected.prefix || '-')}</strong></div>
+        <div class="modal-kv"><span>Resources</span><strong>${esc(expected.resourceCount ?? expected.targetUserCount ?? expected.principalCount ?? 0)}</strong></div>
+        <div class="modal-kv"><span>Subscriptions</span><strong>${esc(expected.subscriptionCount ?? 0)}</strong></div>
+        <div class="modal-confirm-text">${esc(data.confirmText || '')}</div>
+      `,
+    });
+    if (!confirmed) throw new Error('Operation cancelled before server confirmation');
+    ({ res, data } = await send({
+      ...body,
+      confirmation: {
+        operationId: data.operationId,
+        token: data.token,
+        confirmText: data.confirmText,
+      },
+    }));
+  }
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
 }
 
 let _loadedSubscriptions = [];
@@ -3187,6 +3486,23 @@ async function loadHackPrefixSelect(selectId, inputId, options = {}) {
   }
 }
 
+async function prefillPermissionsFromHack(prefix) {
+  const cleanPrefix = String(prefix || '').replace(/-$/, '');
+  if (!cleanPrefix) return;
+  try {
+    const res = await fetch(`${API}/hack-state/${encodeURIComponent(cleanPrefix)}`);
+    const state = await res.json();
+    if (!res.ok) return;
+    const mode = String(state.mode || '').toLowerCase() === 'flat' ? 'flat' : 'team';
+    const modeEl = document.getElementById('pp-mode');
+    if (modeEl) modeEl.value = mode;
+    const strategyEl = document.getElementById('pp-assignmentStrategy');
+    if (mode === 'team' && strategyEl) strategyEl.value = 'one-to-one';
+  } catch (_) {
+    // Best-effort only; discovery still works from the typed prefix.
+  }
+}
+
 function applyHackPrefixSelect(selectId, inputId) {
   const sel = document.getElementById(selectId);
   const input = document.getElementById(inputId);
@@ -3195,9 +3511,14 @@ function applyHackPrefixSelect(selectId, inputId) {
   if (inputId === 'pp-prefix') {
     _ppDiscovery = null;
     _ppPrincipals = [];
+    _ppTeamSubscriptionMap = {};
     document.getElementById('pp-btnAssign').disabled = true;
     document.getElementById('pp-discoveryBox').classList.add('hidden');
+    document.getElementById('pp-teamMappingPanel').classList.add('hidden');
     updateMappingPreview();
+    prefillPermissionsFromHack(sel.value).then(() => {
+      if (getCreds()) discoverForPermissions();
+    });
   } else if (inputId === 'ro-prefix') {
     _roPrincipals = [];
     document.getElementById('ro-btnApply').disabled = true;
@@ -3239,9 +3560,14 @@ async function _discover(prefix) {
 let _ppPrincipals = [];
 let _ppDiscovery = null;
 let _ppLastResults = null;
+let _ppTeamSubscriptionMap = {};
 
 function _isAdminPrincipalName(name) {
   return /(^|-)admins?$/i.test(String(name || '')) || /(^|\s)admin(s)?($|\s)/i.test(String(name || ''));
+}
+
+function _isAdminPrincipal(principal) {
+  return _isAdminPrincipalName(`${principal.displayName || ''} ${principal.userPrincipalName || ''}`);
 }
 
 function _principalTeamKey(principal) {
@@ -3252,6 +3578,87 @@ function _principalTeamKey(principal) {
 
 function _principalLabel(principal) {
   return principal.displayName || principal.userPrincipalName || principal.id || '';
+}
+
+function _principalKey(principal) {
+  return principal.id || _principalLabel(principal);
+}
+
+function _ppAdminAllSubsEnabled() {
+  const cb = document.getElementById('pp-adminAllSubs');
+  return !cb || cb.checked;
+}
+
+function _teamMappingEligible() {
+  if (!_ppDiscovery) return false;
+  return document.getElementById('pp-mode').value === 'team'
+    && document.getElementById('pp-assignmentStrategy').value === 'one-to-one'
+    && document.getElementById('pp-targetScope').value !== 'users';
+}
+
+function _currentTeamPrincipals() {
+  return (_ppPrincipals || []).filter(p => !_isAdminPrincipal(p));
+}
+
+function _discoveredAdminPrincipals() {
+  if (!_ppDiscovery) return [];
+  return (_ppDiscovery.groups || [])
+    .filter(g => g.id && _isAdminPrincipalName(g.displayName))
+    .map(g => ({ id: g.id, type: 'Group', displayName: g.displayName }));
+}
+
+function setTeamSubscriptionMapping(principalKey, subscriptionId) {
+  if (subscriptionId) _ppTeamSubscriptionMap[principalKey] = subscriptionId;
+  else delete _ppTeamSubscriptionMap[principalKey];
+  updateMappingPreview();
+}
+
+function renderTeamSubscriptionMapping(subs) {
+  const panel = document.getElementById('pp-teamMappingPanel');
+  const list = document.getElementById('pp-teamMappingList');
+  if (!panel || !list) return;
+  if (!_teamMappingEligible() || !subs.length) {
+    panel.classList.add('hidden');
+    list.innerHTML = '';
+    return;
+  }
+
+  const teams = _currentTeamPrincipals();
+  const admins = _discoveredAdminPrincipals();
+  if (!teams.length && !admins.length) {
+    panel.classList.add('hidden');
+    list.innerHTML = '';
+    return;
+  }
+
+  const adminBox = document.getElementById('pp-adminAllSubs');
+  if (adminBox) adminBox.disabled = admins.length === 0;
+  const subOptions = (selected) => subs.map(sub =>
+    `<option value="${esc(sub)}" ${sub === selected ? 'selected' : ''}>${esc(_subscriptionDisplay(sub))}</option>`
+  ).join('');
+  const rows = teams.map((team, index) => {
+    const key = _principalKey(team);
+    const selected = _ppTeamSubscriptionMap[key] && subs.includes(_ppTeamSubscriptionMap[key])
+      ? _ppTeamSubscriptionMap[key]
+      : subs[index % subs.length];
+    if (!_ppTeamSubscriptionMap[key]) _ppTeamSubscriptionMap[key] = selected;
+    return `<div class="team-map-row">
+      <div class="team-map-cell">
+        <div>
+          <div style="font-weight:800;">${esc(_principalLabel(team))}</div>
+          <div class="subscription-id">${esc(team.id || '')}</div>
+        </div>
+      </div>
+      <div class="team-map-cell">
+        <select onchange="setTeamSubscriptionMapping('${esc(key)}', this.value)">${subOptions(selected)}</select>
+      </div>
+    </div>`;
+  }).join('');
+  const adminNote = admins.length
+    ? `<div style="margin-bottom:10px;color:var(--muted);font-size:12px;">Admin target(s): ${admins.map(a => `<strong>${esc(_principalLabel(a))}</strong>`).join(', ')} ${_ppAdminAllSubsEnabled() ? 'will receive every selected subscription.' : 'will follow normal one-to-one mapping.'}</div>`
+    : '<div style="margin-bottom:10px;color:var(--muted);font-size:12px;">No admin group discovered in the selected targets.</div>';
+  list.innerHTML = `${adminNote}<div class="team-map-grid">${rows || '<div class="hint">No team groups selected.</div>'}</div>`;
+  panel.classList.remove('hidden');
 }
 
 function refreshPermissionPrincipals() {
@@ -3292,16 +3699,38 @@ async function discoverForPermissions() {
   const data = await _discover(prefix);
   if (!data) return;
   _ppDiscovery = data;
+  _ppTeamSubscriptionMap = {};
   refreshPermissionPrincipals();
 }
 
 function _buildAssignmentPlan(subs, principals, strategy) {
   if (strategy === 'one-to-one') {
-    return principals.map((principal, i) => ({
-      subscription: subs[i % subs.length],
-      principal,
-      note: i >= subs.length ? 'cycled subscription list' : '',
-    }));
+    const plan = [];
+    const explicitAdmins = principals.filter(_isAdminPrincipal);
+    const discoveredAdmins = _discoveredAdminPrincipals();
+    const adminById = new Map([...explicitAdmins, ...discoveredAdmins].map(p => [p.id, p]));
+    const admins = Array.from(adminById.values());
+    const nonAdmins = principals.filter(p => !_isAdminPrincipal(p));
+    if (_ppAdminAllSubsEnabled()) {
+      for (const admin of admins) {
+        for (const sub of subs) {
+          plan.push({ subscription: sub, principal: admin, note: 'admin access to all selected subscriptions' });
+        }
+      }
+    } else {
+      nonAdmins.unshift(...admins);
+    }
+    nonAdmins.forEach((principal, i) => {
+      const key = _principalKey(principal);
+      const mappedSub = _ppTeamSubscriptionMap[key];
+      const subscription = mappedSub && subs.includes(mappedSub) ? mappedSub : subs[i % subs.length];
+      plan.push({
+        subscription,
+        principal,
+        note: mappedSub ? 'selected in team mapping' : (i >= subs.length ? 'cycled subscription list' : ''),
+      });
+    });
+    return plan;
   }
   const plan = [];
   for (const sub of subs) {
@@ -3331,14 +3760,22 @@ async function assignPermissions() {
 
   let allResults = [];
   try {
+    const hackPrefix = document.getElementById('pp-prefix').value.trim();
     if (strategy === 'one-to-one') {
+      const bySubscription = new Map();
       for (const item of plan) {
-        const r = await _doAssign(creds, [item.subscription], [item.principal], role);
+        const key = String(item.subscription || '');
+        if (!bySubscription.has(key)) bySubscription.set(key, []);
+        const list = bySubscription.get(key);
+        if (!list.some(p => p.id === item.principal.id)) list.push(item.principal);
+      }
+      for (const [subscription, principals] of bySubscription.entries()) {
+        const r = await _doAssign(creds, [subscription], principals, role, hackPrefix);
         allResults = allResults.concat(r);
         renderRbacRows(allResults);
       }
     } else {
-      const r = await _doAssign(creds, subs, _ppPrincipals, role);
+      const r = await _doAssign(creds, subs, _ppPrincipals, role, hackPrefix);
       allResults = r;
       renderRbacRows(allResults);
     }
@@ -3353,13 +3790,12 @@ async function assignPermissions() {
   }
 }
 
-async function _doAssign(creds, subscriptions, principals, role) {
-  const res = await fetch(`${API}/assign-permissions`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...creds, subscriptions, principals, role }),
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+async function _doAssign(creds, subscriptions, principals, role, hackPrefix = '') {
+  const data = await postJsonWithServerConfirmation(
+    `${API}/assign-permissions`,
+    { ...creds, subscriptions, principals, role, hackPrefix },
+    { title: 'Confirm Azure RBAC assignment' },
+  );
   return data.results || [];
 }
 
@@ -3392,25 +3828,117 @@ function downloadRbacCsv() {
 // ── Read-only ──
 let _roPrincipals = [];
 let _roLastResults = null;
+let _roPreview = null;
+let _roSubscriptionMap = new Map();
+
+async function _discoverReadOnlyPreview(prefix, mode, subs) {
+  const creds = getCreds();
+  if (!creds) { toast('Enter SPN credentials first', 'danger'); return null; }
+  if (!prefix) { toast('Prefix is required', 'danger'); return null; }
+  const res = await fetch(`${API}/readonly-preview`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...creds, prefix, mode, subscriptions: subs }),
+  });
+  const data = await res.json();
+  if (!res.ok) { toast('Discovery failed: ' + (data.error || res.status), 'danger'); return null; }
+  return data;
+}
+
+function _codeId(value) {
+  return `<code style="font-size:11px;word-break:break-all;white-space:normal;">${esc(value || '-')}</code>`;
+}
+
+function _readonlyDiscoveryTable(title, headers, rows, emptyText) {
+  const body = rows.length
+    ? rows.join('')
+    : `<tr><td colspan="${headers.length}" class="empty">${esc(emptyText)}</td></tr>`;
+  return `
+    <div style="margin-top:12px;">
+      <div style="font-weight:700;margin-bottom:6px;">${esc(title)}</div>
+      <div class="results-scroll" style="max-height:220px;border:1px solid var(--border);border-radius:6px;background:#fff;">
+        <table style="margin:0;">
+          <thead><tr>${headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead>
+          <tbody>${body}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+function _renderReadOnlyDiscoveryDetails(preview) {
+  const selectedIds = new Set((preview.principals || []).map(p => p.id));
+  const users = (preview.users || []).slice().sort((a, b) => String(a.userPrincipalName || '').localeCompare(String(b.userPrincipalName || '')));
+  const groups = (preview.groups || []).slice().sort((a, b) => String(a.displayName || '').localeCompare(String(b.displayName || '')));
+  const subs = (preview.subscriptions || []).slice().sort((a, b) => String(a.displayName || a.subscriptionId || '').localeCompare(String(b.displayName || b.subscriptionId || '')));
+  const principalSubs = preview.principalSubscriptions || [];
+
+  const userRows = users.map(u => `<tr>
+    <td>${selectedIds.has(u.id) ? '<span class="badge badge-completed">target</span>' : '<span class="hint">discovered</span>'}</td>
+    <td>${esc(u.userPrincipalName || '-')}</td>
+    <td>${esc(u.displayName || '-')}</td>
+    <td>${_codeId(u.id)}</td>
+    <td>${u.accountEnabled === false ? '<span style="color:var(--danger)">Disabled</span>' : 'Enabled'}</td>
+  </tr>`);
+
+  const groupRows = groups.map(g => `<tr>
+    <td>${selectedIds.has(g.id) ? '<span class="badge badge-completed">target</span>' : '<span class="hint">discovered</span>'}</td>
+    <td>${esc(g.displayName || '-')}</td>
+    <td>${_codeId(g.id)}</td>
+    <td>${g.securityEnabled === false ? 'No' : 'Yes'}</td>
+  </tr>`);
+
+  const subRows = subs.map(s => `<tr>
+    <td>${esc(s.displayName || '(name unavailable)')}</td>
+    <td>${_codeId(s.subscriptionId)}</td>
+    <td>${esc(s.state || (s.visibleToSpn ? 'Enabled' : 'Not visible/listed'))}</td>
+    <td>${s.source === 'specified' ? 'Specified' : 'Auto-detected'}</td>
+    <td>${Number(s.matchedPrincipalCount || 0)}</td>
+    <td>${Number(s.assignmentCount || 0)}</td>
+    <td>${esc((s.roles || []).join(', ') || '-')}</td>
+  </tr>`);
+
+  const assignmentRows = [];
+  for (const principal of principalSubs) {
+    const subList = principal.subscriptions || [];
+    if (!subList.length && (principal.errors || []).length) {
+      assignmentRows.push(`<tr><td>${esc(principal.displayName || principal.id)}</td><td colspan="3" style="color:var(--danger)">${esc((principal.errors || []).join('; '))}</td></tr>`);
+      continue;
+    }
+    for (const sub of subList) {
+      assignmentRows.push(`<tr>
+        <td>${esc(principal.type || '')}: ${esc(principal.displayName || principal.id)}</td>
+        <td>${esc(sub.displayName || '(name unavailable)')}</td>
+        <td>${_codeId(sub.subscriptionId)}</td>
+        <td>${esc((sub.roles || []).join(', ') || '-')}</td>
+      </tr>`);
+    }
+  }
+
+  document.getElementById('ro-discoveryDetails').innerHTML =
+    _readonlyDiscoveryTable('Discovered users', ['Use', 'UPN', 'Name', 'User ID', 'Status'], userRows, 'No users found for this prefix') +
+    _readonlyDiscoveryTable('Discovered groups', ['Use', 'Group name', 'Group ID', 'Security enabled'], groupRows, 'No groups found for this prefix') +
+    _readonlyDiscoveryTable('Subscriptions that will be checked/touched', ['Subscription name', 'Subscription ID', 'State', 'Source', 'Matched principals', 'Assignments', 'Existing roles'], subRows, preview.autoDetectedSubscriptions ? 'No subscriptions with existing assignments were found for selected targets' : 'No subscriptions listed') +
+    _readonlyDiscoveryTable('RBAC match preview', ['Target principal', 'Subscription name', 'Subscription ID', 'Existing roles'], assignmentRows, 'No existing RBAC assignments found for selected targets');
+}
 
 async function discoverForReadOnly() {
   const prefix = document.getElementById('ro-prefix').value.trim();
   document.getElementById('ro-discoveryBox').classList.add('hidden');
   document.getElementById('ro-btnApply').disabled = true;
-  const data = await _discover(prefix);
-  if (!data) return;
+  document.getElementById('ro-discoveryDetails').innerHTML = '';
   const mode = document.getElementById('ro-mode').value;
-  _roPrincipals = mode === 'team'
-    ? data.groups.map(g => ({ id: g.id, type: 'Group', displayName: g.displayName }))
-    : data.users.map(u => ({ id: u.id, type: 'User', displayName: u.userPrincipalName }));
-  document.getElementById('ro-discoverySummary').textContent =
-    `${_roPrincipals.length} ${mode === 'team' ? 'group(s)' : 'user(s)'} will be downgraded to Reader.`;
-  // Show subscription preview
   const subs = _splitLines(document.getElementById('ro-subs').value);
-  const subPreview = subs.length
-    ? `<div style="margin-top:8px;font-size:12px;">Subscriptions targeted: <strong>${subs.length}</strong><ul style="margin:4px 0;padding-left:20px;">${subs.map(s => `<li><code>${esc(s)}</code></li>`).join('')}</ul></div>`
-    : `<div style="margin-top:8px;font-size:12px;"><em>No subscriptions specified — will auto-detect all subscriptions visible to SPN and only modify subs where each principal already has roles.</em></div>`;
-  document.getElementById('ro-discoverySummary').innerHTML += subPreview;
+  const data = await _discoverReadOnlyPreview(prefix, mode, subs);
+  if (!data) return;
+  _roPreview = data;
+  _roPrincipals = data.principals || [];
+  _roSubscriptionMap = new Map((data.subscriptions || []).map(s => [String(s.subscriptionId || '').toLowerCase(), s]));
+  const subCount = (data.subscriptions || []).length;
+  const subModeText = data.autoDetectedSubscriptions
+    ? `${subCount} subscription(s) auto-detected from existing RBAC assignments`
+    : `${subCount} specified subscription(s) checked`;
+  document.getElementById('ro-discoverySummary').textContent =
+    `Discovered ${(data.users || []).length} user(s), ${(data.groups || []).length} group(s), ${_roPrincipals.length} selected target(s), and ${subModeText}.`;
+  _renderReadOnlyDiscoveryDetails(data);
   document.getElementById('ro-warning').classList.remove('hidden');
   document.getElementById('ro-discoveryBox').classList.remove('hidden');
   document.getElementById('ro-btnApply').disabled = _roPrincipals.length === 0;
@@ -3426,18 +3954,18 @@ async function applyReadOnly() {
   document.getElementById('ro-resultCard').classList.remove('hidden');
   document.getElementById('ro-tbody').innerHTML = '<tr><td colspan="5" class="empty">Working…</td></tr>';
   try {
-    const res = await fetch(`${API}/readonly-mode`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...creds, subscriptions: subs, principals: _roPrincipals }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    const data = await postJsonWithServerConfirmation(
+      `${API}/readonly-mode`,
+      { ...creds, subscriptions: subs, principals: _roPrincipals, hackPrefix: document.getElementById('ro-prefix').value.trim() },
+      { title: 'Confirm read-only downgrade' },
+    );
     _roLastResults = data.results || [];
     document.getElementById('ro-tbody').innerHTML = _roLastResults.map(r => {
       const removedCount = (r.removed || []).filter(x => x.ok).length;
       const errs = (r.errors || []).join('; ');
+      const subInfo = _roSubscriptionMap.get(String(r.subscription || '').toLowerCase()) || {};
       return `<tr>
-        <td><code style="font-size:11px">${esc(r.subscription)}</code></td>
+        <td><strong>${esc(subInfo.displayName || '(name unavailable)')}</strong><br>${_codeId(r.subscription)}</td>
         <td>${esc(r.displayName || r.principalId)}</td>
         <td>${removedCount} elevated removed</td>
         <td>${r.readerEnsured ? '<span style="color:var(--success);font-weight:600">✓</span>' : '<span style="color:var(--danger)">✗</span>'}</td>
@@ -3455,9 +3983,10 @@ async function applyReadOnly() {
 
 function downloadReadOnlyCsv() {
   if (!_roLastResults) { toast('Nothing to export', 'warn'); return; }
-  const rows = [['subscription','principalId','displayName','principalType','removedCount','readerEnsured','errors']];
+  const rows = [['subscription','subscriptionName','principalId','displayName','principalType','removedCount','readerEnsured','errors']];
   for (const r of _roLastResults) {
-    rows.push([r.subscription, r.principalId, r.displayName || '', r.principalType || '',
+    const subInfo = _roSubscriptionMap.get(String(r.subscription || '').toLowerCase()) || {};
+    rows.push([r.subscription, subInfo.displayName || '', r.principalId, r.displayName || '', r.principalType || '',
                (r.removed || []).filter(x => x.ok).length, r.readerEnsured ? 'yes' : 'no',
                (r.errors || []).join('; ')]);
   }
@@ -3521,16 +4050,15 @@ async function executeCleanup() {
     toast('Nothing selected to delete', 'warn'); return;
   }
 
-  // Confirmation is handled by prefix-typing input — no additional confirm() needed
+  // Confirmation is handled by prefix-typing input — no additional modal needed
   document.getElementById('cu-spinner').classList.remove('hidden');
   document.getElementById('cu-resultCard').classList.add('hidden');
   try {
-    const res = await fetch(`${API}/cleanup-hack`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...creds, userIds, groupIds, subscriptionIds: subs, principalIds, hackPrefix: document.getElementById('cu-prefix').value.trim() }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    const data = await postJsonWithServerConfirmation(
+      `${API}/cleanup-hack`,
+      { ...creds, userIds, groupIds, subscriptionIds: subs, principalIds, hackPrefix: document.getElementById('cu-prefix').value.trim() },
+      { title: 'Confirm destructive cleanup' },
+    );
     document.getElementById('cu-resultJson').textContent = JSON.stringify(data, null, 2);
     // Render results table
     let rows = '';
@@ -3598,12 +4126,22 @@ function checkCleanupConfirm() {
 }
 
 // ──────────── Read-Only confirmation ────────────
-function confirmReadOnly() {
+async function confirmReadOnly() {
   if (!_roPrincipals.length) { toast('Run discovery first', 'danger'); return; }
   const subs = _splitLines(document.getElementById('ro-subs').value);
   const subText = subs.length ? `${subs.length} subscription(s)` : 'all auto-detected subscriptions';
-  const msg = `⚠️ This will REMOVE Owner/Contributor access and apply Reader-only on ${subText} for ${_roPrincipals.length} principal(s).\n\nThis cannot be easily undone. Continue?`;
-  if (!confirm(msg)) return;
+  const confirmed = await uxConfirm({
+    title: 'Confirm read-only downgrade',
+    subtitle: 'This will remove write permissions for the selected hack targets.',
+    icon: '👀',
+    confirmText: 'Apply read-only',
+    html: `
+      <div class="modal-line">This will <strong>remove Owner/Contributor</strong> access and apply <strong>Reader-only</strong> on <strong>${esc(subText)}</strong>.</div>
+      <div class="modal-kv"><span>Targets</span><strong>${esc(_roPrincipals.length)} principal(s)</strong></div>
+      <div class="modal-line" style="color:var(--danger);font-weight:700;">This cannot be easily undone.</div>
+    `,
+  });
+  if (!confirmed) return;
   const btn = document.getElementById('ro-btnApply');
   withBusy(btn, applyReadOnly);
 }
@@ -3639,7 +4177,7 @@ async function checkLicenseAvailability() {
       const color = needsSeats ? 'var(--danger)' : 'var(--success)';
       const icon = needsSeats ? '⚠️' : '✓';
       const rowStyle = isSelected ? 'font-weight:600;' : 'opacity:0.6;';
-      html += `<tr style="${rowStyle}"><td>${esc(sku.skuPartNumber)}</td><td>${sku.prepaidUnits?.enabled || 0}</td><td>${sku.consumedUnits || 0}</td><td style="color:${color}">${avail}</td><td>${isSelected ? (needsSeats ? `<span style="color:var(--danger)">${icon} Need ${licenseSeatCount}, only ${avail} avail</span>` : `<span style="color:var(--success)">${icon} OK (need ${licenseSeatCount})</span>`) : ''}</td></tr>`;
+      html += `<tr style="${rowStyle}"><td title="${escAttr(sku.skuPartNumber || '')}">${esc(licenseDisplayName(sku.skuPartNumber))}</td><td>${sku.prepaidUnits?.enabled || 0}</td><td>${sku.consumedUnits || 0}</td><td style="color:${color}">${avail}</td><td>${isSelected ? (needsSeats ? `<span style="color:var(--danger)">${icon} Need ${licenseSeatCount}, only ${avail} avail</span>` : `<span style="color:var(--success)">${icon} OK (need ${licenseSeatCount})</span>`) : ''}</td></tr>`;
     }
     html += '</tbody></table>';
     box.innerHTML = html;
@@ -3681,16 +4219,23 @@ async function validateSubscriptions() {
 
 // ──────────── Mapping preview (Permissions page) ────────────
 function updateMappingPreview() {
-  if (!_ppPrincipals.length) return;
-  const strategy = document.getElementById('pp-assignmentStrategy').value;
-  const subs = _splitLines(document.getElementById('pp-subs').value);
-  if (!subs.length) {
+  if (!_ppPrincipals.length) {
+    document.getElementById('pp-teamMappingPanel').classList.add('hidden');
     document.getElementById('pp-mappingPreview').classList.add('hidden');
     return;
   }
+  const strategy = document.getElementById('pp-assignmentStrategy').value;
+  const subs = _splitLines(document.getElementById('pp-subs').value);
+  if (!subs.length) {
+    document.getElementById('pp-teamMappingPanel').classList.add('hidden');
+    document.getElementById('pp-mappingPreview').classList.add('hidden');
+    return;
+  }
+  renderTeamSubscriptionMapping(subs);
   const plan = _buildAssignmentPlan(subs, _ppPrincipals, strategy);
   const maxRows = 60;
-  let html = `<div><strong>${plan.length}</strong> role assignment(s) will be attempted using <strong>${strategy === 'one-to-one' ? 'one-to-one mapping' : 'all subscriptions to all targets'}</strong>.</div>`;
+  const adminAll = strategy === 'one-to-one' && _ppAdminAllSubsEnabled();
+  let html = `<div><strong>${plan.length}</strong> role assignment(s) will be attempted using <strong>${strategy === 'one-to-one' ? 'team/user mapping' : 'all subscriptions to all targets'}</strong>${adminAll ? ' with admin targets on every selected subscription' : ''}.</div>`;
   html += '<table><thead><tr><th>Target</th><th>Subscription</th><th>Note</th></tr></thead><tbody>';
   html += plan.slice(0, maxRows).map(item => `<tr>
     <td>${esc(item.principal.type)} · ${esc(_principalLabel(item.principal))}</td>
@@ -3787,6 +4332,7 @@ startProvision = async function() {
 // ──────────── Manage Existing Hack (Blob State) ────────────
 let _managedHackState = null;
 let _managedHackReport = null;
+let _managedReportDatePrefillPrefix = '';
 
 async function listSavedHacks(archived = false) {
   const box = document.getElementById('mh-hackList');
@@ -3896,7 +4442,7 @@ function _renderManagedHackState(state) {
       <td style="${sCls}">${esc(u.status)}</td>
       <td style="filter:blur(4px);cursor:pointer;" onclick="this.style.filter=this.style.filter?'':'blur(4px)'">${esc(u.password || '-')}</td>
       <td style="filter:blur(4px);cursor:pointer;" onclick="this.style.filter=this.style.filter?'':'blur(4px)'">${esc(u.tap || '-')}</td>
-      <td style="font-size:11px;">${(u.licenses || []).map(esc).join(', ') || '-'}</td>
+      <td style="font-size:11px;" title="${escAttr((u.licenses || []).join(', '))}">${esc(formatLicenseList(u.licenses)) || '-'}</td>
       <td style="font-size:11px;">${(u.groups || []).map(esc).join(', ') || '-'}</td>
     </tr>`;
   }
@@ -3943,12 +4489,11 @@ async function regenTapForHack() {
   const users = usersText ? usersText.split(/[\r\n,]+/).map(s => s.trim()).filter(Boolean) : undefined;
   document.getElementById('mh-tapSpinner').classList.remove('hidden');
   try {
-    const res = await fetch(`${API}/hack-state/${encodeURIComponent(prefix)}/regenerate-tap`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...creds, tapLifetime, users }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Failed');
+    const data = await postJsonWithServerConfirmation(
+      `${API}/hack-state/${encodeURIComponent(prefix)}/regenerate-tap`,
+      { ...creds, tapLifetime, users },
+      { title: 'Confirm TAP regeneration' },
+    );
     _showActionResult('TAP Regeneration', data.results || [], 'tap');
     toast(`Regenerated TAP for ${data.updatedUsers} user(s)`, 'success');
     // Reload state
@@ -3966,19 +4511,20 @@ async function assignLicensesToHack() {
   const creds = getCreds();
   if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
   const prefix = _managedHackState.prefix.replace(/-$/, '');
-  const licNames = document.getElementById('mh-licNames').value.split(/[\s,]+/).map(s => s.trim()).filter(Boolean);
-  if (!licNames.length) { toast('Enter at least one license SKU name', 'danger'); return; }
+  const selectedLicenses = Array.from(document.querySelectorAll('#mh-licenseBox input:checked')).map(c => c.value);
+  const typedLicenses = document.getElementById('mh-licNames').value.split(/[\s,]+/).map(s => s.trim()).filter(Boolean);
+  const licNames = Array.from(new Set([...selectedLicenses, ...typedLicenses]));
+  if (!licNames.length) { toast('Select or enter at least one license SKU name', 'danger'); return; }
   const usersText = document.getElementById('mh-licUsers').value.trim();
   const users = usersText ? usersText.split(/[\r\n,]+/).map(s => s.trim()).filter(Boolean) : undefined;
   const includeAdmins = document.getElementById('mh-includeAdminLicenses').checked;
   document.getElementById('mh-licSpinner').classList.remove('hidden');
   try {
-    const res = await fetch(`${API}/hack-state/${encodeURIComponent(prefix)}/assign-licenses`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...creds, licenses: licNames, users, includeAdmins }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Failed');
+    const data = await postJsonWithServerConfirmation(
+      `${API}/hack-state/${encodeURIComponent(prefix)}/assign-licenses`,
+      { ...creds, licenses: licNames, users, includeAdmins },
+      { title: 'Confirm license assignment' },
+    );
     _showActionResult('License Assignment', data.results || [], 'licenses');
     toast(`Assigned licenses to ${data.updatedUsers} user(s)`, 'success');
     await loadHackState();
@@ -3997,7 +4543,7 @@ function _showActionResult(title, results, type) {
   body.innerHTML = '';
   for (const r of results) {
     const sCls = r.status === 'ok' ? 'color:var(--success)' : 'color:var(--danger)';
-    const detail = type === 'tap' ? (r.tap || '-') : (r.licenses || []).join(', ');
+    const detail = type === 'tap' ? (r.tap || '-') : formatLicenseList(r.licenses);
     body.innerHTML += `<tr>
       <td><code style="font-size:11px;">${esc(r.userPrincipalName)}</code></td>
       <td style="${sCls}">${esc(r.status)}</td>
@@ -4045,11 +4591,32 @@ function _todayIsoDate() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function _dateOnly(value) {
+  if (!value) return '';
+  const text = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
+  const d = new Date(text);
+  return Number.isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10);
+}
+
+function _reportDateRangeFromState(state) {
+  return {
+    start: _dateOnly(state.hackStartDate || state.hackDate || state.createdAt) || _todayIsoDate(),
+    end: _dateOnly(state.deleteDate || state.endDate || state.readonlyDate || state.archivedAt) || _todayIsoDate(),
+  };
+}
+
 function _prefillManagedReportInputs(state) {
   const start = document.getElementById('mh-costStart');
   const end = document.getElementById('mh-costEnd');
-  if (start && !start.value) start.value = (state.createdAt || '').slice(0, 10) || _todayIsoDate();
-  if (end && !end.value) end.value = _todayIsoDate();
+  const cleanPrefix = String(state.prefix || '').replace(/-$/, '');
+  const shouldRefreshDates = _managedReportDatePrefillPrefix !== cleanPrefix || !(start && start.value) || !(end && end.value);
+  if (shouldRefreshDates) {
+    const range = _reportDateRangeFromState(state);
+    if (start) start.value = range.start;
+    if (end) end.value = range.end;
+    _managedReportDatePrefillPrefix = cleanPrefix;
+  }
 
   const licBox = document.getElementById('mh-licenseCosts');
   if (licBox && !licBox.value.trim()) {
@@ -4176,7 +4743,7 @@ function _renderManagedHackReport(report) {
   ].map(([label, value]) => `<div class="stat-tile"><div class="stat-label">${esc(label)}</div><div class="stat-value" style="font-size:18px;">${esc(value)}</div></div>`).join('');
 
   const licenseRows = licenseItems.map(l => `<tr>
-    <td>${esc(l.name)}</td><td>${l.assignedUsers || 0}</td><td>${_money(l.unitCost, currency)}</td><td>${_money(l.estimatedMonthlyCost, currency)}</td>
+    <td title="${escAttr(l.name || '')}">${esc(licenseDisplayName(l.name))}</td><td>${l.assignedUsers || 0}</td><td>${_money(l.unitCost, currency)}</td><td>${_money(l.estimatedMonthlyCost, currency)}</td>
   </tr>`).join('') || '<tr><td colspan="4" class="empty">No licenses assigned</td></tr>';
 
   const subRows = subItems.map(s => `<tr>
@@ -4197,7 +4764,7 @@ function _renderManagedHackReport(report) {
     <td><code style="font-size:11px;">${esc(u.userPrincipalName)}</code></td>
     <td>${esc(u.isAdmin ? 'admin' : (u.team || 'participant'))}</td>
     <td>${esc(u.status || '')}</td>
-    <td>${(u.licenses || []).map(esc).join(', ') || '-'}</td>
+    <td>${esc(formatLicenseList(u.licenses)) || '-'}</td>
     <td>${_money(u.licenseCost, currency)}</td>
     <td>${_money(u.subscriptionCost, currency)}</td>
     <td>${_money(u.totalEstimatedCost, currency)}</td>
@@ -4246,7 +4813,7 @@ function downloadManagedHackReportCsv() {
   for (const [k, v] of Object.entries(c)) add('Costs', k, v);
   add('', '', '');
   add('Licenses', 'Name', 'Assigned Users', 'Unit Cost', 'Estimated Monthly Cost');
-  for (const l of ((_managedHackReport.licenses || {}).items || [])) add('Licenses', l.name, l.assignedUsers, l.unitCost, l.estimatedMonthlyCost);
+  for (const l of ((_managedHackReport.licenses || {}).items || [])) add('Licenses', licenseDisplayName(l.name), l.assignedUsers, l.unitCost, l.estimatedMonthlyCost);
   add('', '', '');
   add('Subscriptions', 'Subscription ID', 'Team', 'Source', 'Target Users', 'Cost', 'Cost Per User', 'Error');
   for (const sub of ((_managedHackReport.subscriptions || {}).items || [])) add('Subscriptions', sub.subscriptionId, sub.team || 'all participants', sub.source, sub.targetUsers, sub.cost, sub.costPerUser, sub.error || '');
@@ -4255,7 +4822,7 @@ function downloadManagedHackReportCsv() {
   for (const t of (_managedHackReport.teams || [])) add('Teams', t.team, t.users, t.licenseCost, t.subscriptionCost, t.totalEstimatedCost);
   add('', '', '');
   add('Users', 'UPN', 'Type/Team', 'Status', 'Licenses', 'License Cost', 'Subscription Cost', 'Total');
-  for (const u of (_managedHackReport.users || [])) add('Users', u.userPrincipalName, u.isAdmin ? 'admin' : (u.team || 'participant'), u.status, (u.licenses || []).join('|'), u.licenseCost, u.subscriptionCost, u.totalEstimatedCost);
+  for (const u of (_managedHackReport.users || [])) add('Users', u.userPrincipalName, u.isAdmin ? 'admin' : (u.team || 'participant'), u.status, formatLicenseList(u.licenses), u.licenseCost, u.subscriptionCost, u.totalEstimatedCost);
   const csv = '\ufeff' + rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\r\n');
   _downloadText(`hack_report_${_managedHackReport.prefix || 'export'}.csv`, csv, 'text/csv;charset=utf-8');
 }
@@ -4575,7 +5142,14 @@ function _formatDuration(startISO, endISO) {
 }
 
 async function cancelScheduledJob(jobId) {
-  if (!confirm('Cancel this scheduled job?')) return;
+  const confirmed = await uxConfirm({
+    title: 'Cancel scheduled job',
+    subtitle: 'The job will be removed from the scheduler queue.',
+    icon: '🛑',
+    confirmText: 'Cancel job',
+    html: `<div class="modal-kv"><span>Job ID</span><strong>${esc(jobId)}</strong></div>`,
+  });
+  if (!confirmed) return;
   try {
     const res = await fetch(`${API}/scheduled-hacks/${encodeURIComponent(jobId)}`, { method: 'DELETE' });
     const data = await res.json();
@@ -4589,7 +5163,14 @@ async function cancelScheduledJob(jobId) {
 }
 
 async function runJobNow(jobId) {
-  if (!confirm('Run this job immediately?')) return;
+  const confirmed = await uxConfirm({
+    title: 'Run scheduled job now',
+    subtitle: 'This executes the selected scheduled job immediately.',
+    icon: '▶️',
+    confirmText: 'Run now',
+    html: `<div class="modal-kv"><span>Job ID</span><strong>${esc(jobId)}</strong></div>`,
+  });
+  if (!confirmed) return;
   try {
     const res = await fetch(`${API}/scheduled-hacks/${encodeURIComponent(jobId)}/run`, { method: 'POST' });
     const data = await res.json();
@@ -4728,7 +5309,7 @@ function appendChatMessage(role, content) {
     border-radius: ${isUser ? '12px 12px 2px 12px' : '12px 12px 12px 2px'};
     font-size: 14px;
     line-height: 1.5;
-    white-space: pre-wrap;
+    white-space: ${isUser ? 'pre-wrap' : 'normal'};
     word-break: break-word;
   `;
   // Simple markdown rendering for assistant messages
@@ -4742,18 +5323,71 @@ function appendChatMessage(role, content) {
 }
 
 function simpleMarkdown(text) {
-  // Escape HTML first
-  let html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  // Code blocks
-  html = html.replace(/```([\s\S]*?)```/g, '<pre style="background:#1e1e1e;color:#d4d4d4;padding:8px;border-radius:4px;overflow-x:auto;font-size:12px;">$1</pre>');
-  // Inline code
+  const codeBlocks = [];
+  let raw = String(text || '').replace(/```([\s\S]*?)```/g, (_, code) => {
+    const idx = codeBlocks.push(`<pre style="background:#1e1e1e;color:#d4d4d4;padding:8px;border-radius:4px;overflow-x:auto;font-size:12px;white-space:pre-wrap;">${esc(code)}</pre>`) - 1;
+    return `\u0000CODE${idx}\u0000`;
+  });
+
+  const lines = raw.split(/\r?\n/);
+  const parts = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (_isMarkdownTableStart(lines, i)) {
+      const tableLines = [lines[i], lines[i + 1]];
+      i += 2;
+      while (i < lines.length && _looksLikeTableRow(lines[i])) {
+        tableLines.push(lines[i]);
+        i++;
+      }
+      i--;
+      parts.push(_renderMarkdownTable(tableLines));
+      continue;
+    }
+    parts.push(_renderInlineMarkdown(lines[i]));
+  }
+
+  let html = parts.join('\n').replace(/\n{2,}/g, '<br><br>').replace(/\n/g, '<br>');
+  html = html.replace(/\u0000CODE(\d+)\u0000/g, (_, idx) => codeBlocks[Number(idx)] || '');
+  return html;
+}
+
+function _looksLikeTableRow(line) {
+  const trimmed = String(line || '').trim();
+  return trimmed.includes('|') && trimmed.replace(/\|/g, '').trim().length > 0;
+}
+
+function _isMarkdownTableStart(lines, index) {
+  if (index + 1 >= lines.length) return false;
+  return _looksLikeTableRow(lines[index]) && /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(lines[index + 1]);
+}
+
+function _splitMarkdownTableRow(line) {
+  let value = String(line || '').trim();
+  if (value.startsWith('|')) value = value.slice(1);
+  if (value.endsWith('|')) value = value.slice(0, -1);
+  return value.split('|').map(cell => cell.trim());
+}
+
+function _renderMarkdownTable(lines) {
+  const header = _splitMarkdownTableRow(lines[0]);
+  const bodyRows = lines.slice(2).map(_splitMarkdownTableRow).filter(row => row.length);
+  const headHtml = header.map(h => `<th style="padding:7px 9px;text-align:left;border-bottom:1px solid #c8d8ea;background:#d8eafb;white-space:nowrap;">${_renderInlineMarkdown(h)}</th>`).join('');
+  const bodyHtml = bodyRows.map(row => `<tr>${header.map((_, idx) => `<td style="padding:7px 9px;border-top:1px solid #dbe6f2;vertical-align:top;">${_renderInlineMarkdown(row[idx] || '')}</td>`).join('')}</tr>`).join('');
+  return `<div style="max-width:100%;overflow-x:auto;margin:8px 0;"><table style="width:100%;border-collapse:collapse;background:#fff;border:1px solid #c8d8ea;border-radius:8px;overflow:hidden;font-size:12px;line-height:1.35;">` +
+    `<thead><tr>${headHtml}</tr></thead><tbody>${bodyHtml}</tbody></table></div>`;
+}
+
+function _renderInlineMarkdown(value) {
+  let html = esc(replaceKnownLicenseNames(value));
   html = html.replace(/`([^`]+)`/g, '<code style="background:#eef;padding:1px 4px;border-radius:3px;font-size:13px;">$1</code>');
-  // Bold
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, url) => {
+    const safeUrl = safeChatLinkUrl(url);
+    const safeLabel = esc(label);
+    if (!safeUrl) return `<span style="color:var(--muted);font-weight:600;">${safeLabel}</span>`;
+    return `<a href="${escAttr(safeUrl)}" target="_blank" rel="noopener" style="color:#0070C0;font-weight:600;text-decoration:none;">${safeLabel}</a>`;
+  });
   html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-  // Italic
   html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
-  // Line breaks
-  html = html.replace(/\n/g, '<br>');
   return html;
 }
 
@@ -4790,17 +5424,30 @@ async function sendChat() {
       if (data.provision_data && data.provision_data.users) {
         appendProvisionResults(data.provision_data);
       }
-      // Check if a doc was generated and offer download
+      // Render structured tool results from the backend instead of scraping model prose.
+      let hackSelectorShown = false;
+      const docUrlsShown = new Set();
       if (data.tools_called) {
         for (const tc of data.tools_called) {
+          const toolResult = tc.result || {};
           if (tc.name === 'generate_admin_guide') {
-            // Extract download URL from the reply text or parse it
-            const urlMatch = data.reply.match(/\/api\/generated-docs\/[a-f0-9-]+/);
-            if (urlMatch) {
-              appendDocDownloadButton(urlMatch[0]);
+            const url = extractGeneratedDocUrl(toolResult.download_url) || extractGeneratedDocUrl(data.reply);
+            if (url && !docUrlsShown.has(url)) {
+              appendDocDownloadButton(url, toolResult.filename);
+              docUrlsShown.add(url);
+            }
+          }
+          if (tc.name === 'list_saved_hacks') {
+            const hacks = normalizeHackList(toolResult);
+            if (hacks.length) {
+              appendHackSelection(hacks, { title: 'Select a saved hack', action: 'select' });
+              hackSelectorShown = true;
             }
           }
         }
+      }
+      if (!hackSelectorShown && _replyLooksLikeHackPrefixRequest(data.reply)) {
+        await appendAvailableHackSelection('guide');
       }
       // Show tool calls if any
       if (data.tools_called && data.tools_called.length > 0) {
@@ -4821,21 +5468,106 @@ async function sendChat() {
 }
 
 function chatQuickAction(msg) {
+  if (msg === 'Generate an admin guide document for the hack') {
+    appendAvailableHackSelection('guide');
+    return;
+  }
   document.getElementById('chat-input').value = msg;
   sendChat();
 }
 
 let _lastProvisionData = null;
 
-function appendDocDownloadButton(downloadUrl) {
+function extractGeneratedDocUrl(value) {
+  const match = String(value || '').match(/\/api\/generated-docs\/[a-f0-9-]+/i);
+  return match ? match[0] : '';
+}
+
+function normalizeHackList(result) {
+  if (Array.isArray(result)) return result;
+  if (result && Array.isArray(result.hacks)) return result.hacks;
+  if (result && Array.isArray(result.active)) return result.active;
+  return [];
+}
+
+function _replyLooksLikeHackPrefixRequest(reply) {
+  const text = String(reply || '').toLowerCase();
+  return /\b(prefix|hack prefix|which hack|select a hack|provide the hack)\b/.test(text);
+}
+
+async function appendAvailableHackSelection(action = 'select') {
+  try {
+    const res = await fetch(`${API}/hack-state`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to load hacks');
+    appendHackSelection(normalizeHackList(data), {
+      title: action === 'guide' ? 'Choose a hack to generate its Admin Guide' : 'Select a saved hack',
+      action,
+    });
+  } catch (e) {
+    appendChatMessage('assistant', `I could not load saved hacks: ${e.message}`);
+  }
+}
+
+function appendHackSelection(hacks, options = {}) {
+  const list = normalizeHackList(hacks).filter(h => h && h.prefix).slice(0, 20);
+  if (!list.length) return;
+  const action = options.action || 'select';
+  const container = document.getElementById('chat-messages');
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'align-self:flex-start;max-width:95%;width:100%;margin-top:4px;';
+  const box = document.createElement('div');
+  box.style.cssText = 'background:#f0f7ff;border:1px solid #c2d8f0;border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:8px;';
+  const title = document.createElement('div');
+  title.style.cssText = 'font-weight:700;color:#17324d;';
+  title.textContent = options.title || 'Select a saved hack';
+  box.appendChild(title);
+  const grid = document.createElement('div');
+  grid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;';
+  for (const hack of list) {
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'btn btn-secondary btn-sm';
+    card.style.cssText = 'text-align:left;display:block;padding:10px;border-radius:8px;background:#fff;border:1px solid #d6e5f5;color:inherit;';
+    const prefix = hack.prefix || '';
+    const dates = [hack.hackStartDate, hack.hackDate, hack.deleteDate].filter(Boolean).map(v => String(v).substring(0, 10)).join(' → ');
+    card.innerHTML = `
+      <div style="font-weight:700;color:#0f4c81;">${esc(prefix)}</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:2px;">${esc(hack.hackName || hack.domain || 'Saved hack')}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;">Users: ${esc(hack.totalUsers || 0)}${dates ? ' · ' + esc(dates) : ''}</div>
+      <div style="font-size:11px;color:#0070C0;margin-top:6px;font-weight:700;">${action === 'guide' ? 'Generate guide' : 'Use this prefix'}</div>`;
+    card.addEventListener('click', () => selectHackForChat(prefix, action));
+    grid.appendChild(card);
+  }
+  box.appendChild(grid);
+  wrap.appendChild(box);
+  container.appendChild(wrap);
+  container.scrollTop = container.scrollHeight;
+}
+
+function selectHackForChat(prefix, action = 'select') {
+  const input = document.getElementById('chat-input');
+  if (action === 'guide') {
+    input.value = `Generate an admin guide document for hack ${prefix}`;
+    sendChat();
+    return;
+  }
+  input.value = prefix;
+  input.focus();
+}
+
+function appendDocDownloadButton(downloadUrl, filename = '') {
+  const safeUrl = extractGeneratedDocUrl(downloadUrl);
+  if (!safeUrl) return;
   const container = document.getElementById('chat-messages');
   const wrap = document.createElement('div');
   wrap.style.cssText = 'align-self:flex-start;max-width:95%;margin-top:4px;';
+  const label = filename || 'Admin Guide.docx';
   wrap.innerHTML = `<div style="background:#f0f7ff;border:1px solid #c2d8f0;border-radius:8px;padding:12px;display:inline-flex;align-items:center;gap:10px;">
     <span style="font-size:24px;">📄</span>
     <div>
       <strong>Admin Guide Ready</strong><br>
-      <a href="${downloadUrl}" download style="color:#0070C0;font-weight:600;text-decoration:none;">⬇️ Download .docx</a>
+      <a href="${escAttr(safeUrl)}" download="${escAttr(label)}" style="color:#0070C0;font-weight:600;text-decoration:none;">⬇️ Download ${esc(label)}</a>
     </div>
   </div>`;
   container.appendChild(wrap);
@@ -4866,7 +5598,7 @@ function appendProvisionResults(pdata) {
     html += `<td style="padding:4px 6px;text-align:center;"><span style="background:${statusColor};color:#fff;padding:1px 6px;border-radius:4px;font-size:10px;">${u.status}</span></td>`;
     html += `<td style="padding:4px 6px;font-family:monospace;font-size:11px;">${esc(u.password || '-')}</td>`;
     html += `<td style="padding:4px 6px;font-family:monospace;font-size:11px;">${esc(u.tap || '-')}</td>`;
-    html += `<td style="padding:4px 6px;font-size:11px;">${(u.licenses||[]).join(', ') || '-'}</td>`;
+    html += `<td style="padding:4px 6px;font-size:11px;" title="${escAttr((u.licenses || []).join(', '))}">${esc(formatLicenseList(u.licenses)) || '-'}</td>`;
     html += `</tr>`;
   }
   html += `</tbody></table></div>`;
@@ -4889,7 +5621,7 @@ function downloadChatProvisionCsv() {
   const rows = [['UPN','Status','Password','TAP','TAP Expires','Licenses','Groups','Admin','User ID']];
   for (const u of users) {
     rows.push([u.userPrincipalName, u.status, u.password||'', u.tap||'', u.tapExpires||'',
-      (u.licenses||[]).join('|'), (u.groups||[]).join('|'), u.isAdmin?'yes':'no', u.userId||'']);
+      formatLicenseList(u.licenses), (u.groups||[]).join('|'), u.isAdmin?'yes':'no', u.userId||'']);
   }
   const csv = '\ufeff' + rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\r\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
@@ -4908,7 +5640,7 @@ function downloadChatProvisionExcel() {
   xml += '<Row>' + headers.map(h => `<Cell><Data ss:Type="String">${h}</Data></Cell>`).join('') + '</Row>';
   for (const u of users) {
     const vals = [u.userPrincipalName, u.status, u.password||'', u.tap||'', u.tapExpires||'',
-      (u.licenses||[]).join(', '), (u.groups||[]).join(', '), u.isAdmin?'yes':'no'];
+      formatLicenseList(u.licenses), (u.groups||[]).join(', '), u.isAdmin?'yes':'no'];
     xml += '<Row>' + vals.map(v => `<Cell><Data ss:Type="String">${esc(String(v))}</Data></Cell>`).join('') + '</Row>';
   }
   xml += '</Table></Worksheet></Workbook>';
@@ -4924,7 +5656,7 @@ function copyChatProvisionTable() {
   const users = _lastProvisionData.users || [];
   const lines = ['UPN\tStatus\tPassword\tTAP\tLicenses'];
   for (const u of users) {
-    lines.push(`${u.userPrincipalName}\t${u.status}\t${u.password||''}\t${u.tap||''}\t${(u.licenses||[]).join(', ')}`);
+    lines.push(`${u.userPrincipalName}\t${u.status}\t${u.password||''}\t${u.tap||''}\t${formatLicenseList(u.licenses)}`);
   }
   navigator.clipboard.writeText(lines.join('\n')).then(() => toast('Copied to clipboard!', 'success'));
 }

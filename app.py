@@ -41,12 +41,15 @@ from onedrive_provisioner.entra import (
     remove_rbac_for_principals, downgrade_principals_to_reader, ROLE_IDS,
     run_preflight,
 )
+from onedrive_provisioner.entra.rbac_service import subscription_from_assignment
 from onedrive_provisioner.storage import HackStateManager
 from onedrive_provisioner.storage.blob_client import BlobStateClient
 from onedrive_provisioner.chatbot import ChatbotAgent
 from onedrive_provisioner.chatbot.tool_executor import ToolExecutor
 from onedrive_provisioner.docgen import DocGenerator
 from onedrive_provisioner.scheduler import HackScheduler, ScheduledJob
+from onedrive_provisioner.security import DEFAULT_CONFIRMATION_STORE, OperationConfirmationError
+from onedrive_provisioner.security.scheduler_credentials import make_scheduler_credential_config
 
 FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "frontend")
 
@@ -219,6 +222,52 @@ def _extract_creds(data: dict):
     if not t or not c or not s:
         return None
     return t, c, s
+
+
+def _operator_from_request(data: dict) -> str:
+    return (
+        request.headers.get("X-Operator")
+        or request.headers.get("X-MS-CLIENT-PRINCIPAL-NAME")
+        or data.get("operator")
+        or data.get("createdBy")
+        or "unknown"
+    )
+
+
+def _confirmation_response(operation: str, expected: dict, data: dict):
+    confirmation = DEFAULT_CONFIRMATION_STORE.create(
+        operation,
+        expected,
+        operator=_operator_from_request(data),
+    )
+    return jsonify(confirmation), 409
+
+
+def _require_confirmation(operation: str, expected: dict, data: dict):
+    try:
+        DEFAULT_CONFIRMATION_STORE.validate(
+            operation,
+            expected,
+            data.get("confirmation"),
+            operator=_operator_from_request(data),
+        )
+        return None
+    except OperationConfirmationError:
+        return _confirmation_response(operation, expected, data)
+
+
+def _scheduler_creds_dict(creds, data: dict) -> dict:
+    t, c, s = creds
+    return {
+        "tenant_id": t,
+        "client_id": c,
+        "client_secret": s,
+        "client_secret_ref": (
+            data.get("client_secret_ref")
+            or data.get("credentialRef")
+            or data.get("schedulerClientSecretRef")
+        ),
+    }
 
 
 def _run_job(job_id, users, source_dir, destination, dry_run, concurrency,
@@ -851,6 +900,18 @@ def assign_permissions():
     role = data.get("role")
     if not subs or not principals or role not in ROLE_IDS:
         return jsonify({"error": "subscriptions[], principals[], role required"}), 400
+    hack_prefix = (data.get("hackPrefix") or data.get("prefix") or "").strip()
+    if not hack_prefix:
+        return jsonify({"error": "hackPrefix is required for privileged RBAC assignment confirmation"}), 400
+    confirmation_needed = _require_confirmation("assign_permissions", {
+        "prefix": hack_prefix,
+        "role": role,
+        "resourceCount": len(principals),
+        "principalCount": len(principals),
+        "subscriptionCount": len(subs),
+    }, data)
+    if confirmation_needed:
+        return confirmation_needed
     try:
         results = asyncio.run(_async_assign_permissions(
             *creds, subscriptions=subs, principals=principals, role=role,
@@ -864,6 +925,135 @@ async def _async_discover(t, c, s, prefix):
     tp = _make_token_provider(t, c, s)
     async with GraphClient(tp) as g:
         return await DiscoveryService(g).discover(prefix)
+
+
+def _readonly_principals(discovered: dict, mode: str) -> list[dict]:
+    if mode == "flat":
+        return [
+            {
+                "id": u.get("id"),
+                "type": "User",
+                "displayName": u.get("userPrincipalName") or u.get("displayName"),
+                "userPrincipalName": u.get("userPrincipalName"),
+            }
+            for u in discovered.get("users", [])
+            if u.get("id")
+        ]
+    return [
+        {"id": g.get("id"), "type": "Group", "displayName": g.get("displayName")}
+        for g in discovered.get("groups", [])
+        if g.get("id")
+    ]
+
+
+def _role_name_from_assignment(assignment: dict) -> str:
+    role_def_id = (assignment.get("properties", {}).get("roleDefinitionId") or "").lower()
+    role_guid = role_def_id.rsplit("/", 1)[-1]
+    role_names = {role_id.lower(): name for name, role_id in ROLE_IDS.items()}
+    return role_names.get(role_guid, role_guid or "unknown")
+
+
+async def _async_readonly_preview(t, c, s, *, prefix: str, mode: str, subscriptions: list[str]):
+    tp = _make_token_provider(t, c, s)
+    async with GraphClient(tp) as g:
+        discovered = await DiscoveryService(g).discover(prefix)
+
+    principals = _readonly_principals(discovered, mode)
+    requested_subs = []
+    seen_subs = set()
+    for sub in subscriptions or []:
+        sub_id = str(sub or "").strip()
+        if sub_id and sub_id.lower() not in seen_subs:
+            requested_subs.append(sub_id)
+            seen_subs.add(sub_id.lower())
+    requested_filter = {s.lower() for s in requested_subs}
+
+    async with RbacService(tp) as rbac:
+        visible_subs = await rbac.list_subscriptions()
+        sub_lookup = {
+            (s.get("subscriptionId") or "").lower(): s
+            for s in visible_subs
+            if s.get("subscriptionId")
+        }
+        sub_stats: dict[str, dict] = {}
+        principal_subscriptions = []
+        for principal in principals:
+            entry = {**principal, "subscriptions": [], "errors": []}
+            try:
+                assignments = await rbac.list_all_assignments_for_principal(principal["id"])
+            except Exception as exc:
+                entry["errors"].append(str(exc))
+                principal_subscriptions.append(entry)
+                continue
+
+            by_sub: dict[str, list] = {}
+            for assignment in assignments:
+                sub_id = subscription_from_assignment(assignment)
+                if not sub_id:
+                    continue
+                if requested_filter and sub_id.lower() not in requested_filter:
+                    continue
+                role_name = _role_name_from_assignment(assignment)
+                by_sub.setdefault(sub_id, []).append({
+                    "assignmentId": assignment.get("id", ""),
+                    "role": role_name,
+                })
+
+            for sub_id, sub_assignments in sorted(by_sub.items()):
+                meta = sub_lookup.get(sub_id.lower(), {})
+                roles = sorted({a.get("role", "") for a in sub_assignments if a.get("role")})
+                entry["subscriptions"].append({
+                    "subscriptionId": sub_id,
+                    "displayName": meta.get("displayName") or "",
+                    "state": meta.get("state") or "",
+                    "assignmentCount": len(sub_assignments),
+                    "roles": roles,
+                })
+                stats = sub_stats.setdefault(sub_id, {
+                    "subscriptionId": sub_id,
+                    "displayName": meta.get("displayName") or "",
+                    "state": meta.get("state") or "",
+                    "matchedPrincipalCount": 0,
+                    "assignmentCount": 0,
+                    "roles": set(),
+                })
+                stats["matchedPrincipalCount"] += 1
+                stats["assignmentCount"] += len(sub_assignments)
+                stats["roles"].update(roles)
+
+            if entry["subscriptions"] or entry["errors"]:
+                principal_subscriptions.append(entry)
+
+        target_sub_ids = requested_subs if requested_subs else sorted(
+            sub_stats,
+            key=lambda sid: ((sub_stats[sid].get("displayName") or "").lower(), sid.lower()),
+        )
+        subscription_details = []
+        for sub_id in target_sub_ids:
+            meta = sub_lookup.get(sub_id.lower(), {})
+            stats = sub_stats.get(sub_id, {})
+            roles = stats.get("roles") or set()
+            subscription_details.append({
+                "subscriptionId": sub_id,
+                "displayName": meta.get("displayName") or stats.get("displayName") or "",
+                "state": meta.get("state") or stats.get("state") or "",
+                "matchedPrincipalCount": stats.get("matchedPrincipalCount", 0),
+                "assignmentCount": stats.get("assignmentCount", 0),
+                "roles": sorted(roles) if not isinstance(roles, list) else sorted(roles),
+                "source": "specified" if requested_subs else "auto-detected",
+                "visibleToSpn": bool(meta),
+            })
+
+    return {
+        "prefix": prefix,
+        "mode": mode,
+        "autoDetectedSubscriptions": not bool(requested_subs),
+        "users": discovered.get("users", []),
+        "groups": discovered.get("groups", []),
+        "principals": principals,
+        "subscriptions": subscription_details,
+        "principalSubscriptions": principal_subscriptions,
+    }
 
 
 @app.route("/api/discover-hack", methods=["POST"])
@@ -881,6 +1071,30 @@ def discover_hack():
         return jsonify({"error": "prefix required"}), 400
     try:
         return jsonify(asyncio.run(_async_discover(*creds, prefix)))
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/readonly-preview", methods=["POST"])
+def readonly_preview():
+    """Preview users/groups and subscription names/IDs for read-only mode."""
+    data = request.get_json(silent=True) or {}
+    creds = _extract_creds(data)
+    if not creds:
+        return jsonify({"error": "Missing SPN credentials"}), 400
+    prefix = (data.get("prefix") or data.get("hackPrefix") or "").strip()
+    if not prefix:
+        return jsonify({"error": "prefix required"}), 400
+    mode = (data.get("mode") or "team").strip().lower()
+    if mode not in {"team", "flat"}:
+        return jsonify({"error": "mode must be team or flat"}), 400
+    try:
+        return jsonify(asyncio.run(_async_readonly_preview(
+            *creds,
+            prefix=prefix,
+            mode=mode,
+            subscriptions=data.get("subscriptions") or [],
+        )))
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
@@ -914,16 +1128,32 @@ def cleanup_hack():
     if not creds:
         return jsonify({"error": "Missing SPN credentials"}), 400
     try:
+        prefix = (data.get("hackPrefix") or "").strip()
+        if not prefix:
+            return jsonify({"error": "hackPrefix is required for cleanup confirmation"}), 400
+        user_ids = data.get("userIds") or []
+        group_ids = data.get("groupIds") or []
+        sub_ids = data.get("subscriptionIds") or []
+        principal_ids = data.get("principalIds") or []
+        confirmation_needed = _require_confirmation("cleanup_hack", {
+            "prefix": prefix,
+            "resourceCount": len(user_ids) + len(group_ids),
+            "userCount": len(user_ids),
+            "groupCount": len(group_ids),
+            "principalCount": len(principal_ids),
+            "subscriptionCount": len(sub_ids),
+        }, data)
+        if confirmation_needed:
+            return confirmation_needed
         result = asyncio.run(_async_cleanup(
             *creds,
-            user_ids=data.get("userIds") or [],
-            group_ids=data.get("groupIds") or [],
-            sub_ids=data.get("subscriptionIds") or [],
-            principal_ids=data.get("principalIds") or [],
+            user_ids=user_ids,
+            group_ids=group_ids,
+            sub_ids=sub_ids,
+            principal_ids=principal_ids,
         ))
         # Archive hack state from blob storage if prefix provided. Archived state
         # remains reportable while no longer appearing in active hack lists.
-        prefix = (data.get("hackPrefix") or "").strip()
         if prefix:
             try:
                 mgr = _get_state_manager()
@@ -963,6 +1193,17 @@ def readonly_mode():
     principals = data.get("principals") or []
     if not principals:
         return jsonify({"error": "principals[] required"}), 400
+    hack_prefix = (data.get("hackPrefix") or data.get("prefix") or "").strip()
+    if not hack_prefix:
+        return jsonify({"error": "hackPrefix is required for read-only confirmation"}), 400
+    confirmation_needed = _require_confirmation("readonly_mode", {
+        "prefix": hack_prefix,
+        "resourceCount": len(principals),
+        "principalCount": len(principals),
+        "subscriptionCount": len(subs),
+    }, data)
+    if confirmation_needed:
+        return confirmation_needed
     try:
         results = asyncio.run(_async_readonly(*creds,
                                               subscriptions=subs, principals=principals))
@@ -1047,6 +1288,18 @@ def regenerate_tap(prefix):
 
     target_upns = data.get("users")  # None = all
     tap_lifetime = int(data.get("tapLifetime", 120))
+    target_count = sum(
+        1 for user in state.get("users", [])
+        if user.get("userId") and (not target_upns or user.get("userPrincipalName") in target_upns)
+    )
+    confirmation_needed = _require_confirmation("regenerate_tap", {
+        "prefix": state.get("prefix") or prefix,
+        "resourceCount": target_count,
+        "targetUserCount": target_count,
+        "subscriptionCount": 0,
+    }, data)
+    if confirmation_needed:
+        return confirmation_needed
 
     try:
         results = asyncio.run(_async_regenerate_tap(
@@ -1109,6 +1362,21 @@ def assign_licenses_to_hack(prefix):
         return jsonify({"error": "licenses[] required"}), 400
     target_upns = data.get("users")
     include_admins = bool(data.get("includeAdmins", False))
+    target_count = sum(
+        1 for user in state.get("users", [])
+        if user.get("userId")
+        and (include_admins or not user.get("isAdmin"))
+        and (not target_upns or user.get("userPrincipalName") in target_upns)
+    )
+    confirmation_needed = _require_confirmation("assign_licenses", {
+        "prefix": state.get("prefix") or prefix,
+        "resourceCount": target_count,
+        "targetUserCount": target_count,
+        "licenseCount": len(licenses),
+        "subscriptionCount": 0,
+    }, data)
+    if confirmation_needed:
+        return confirmation_needed
 
     try:
         results = asyncio.run(_async_assign_licenses(
@@ -1186,6 +1454,25 @@ def _merge_subscription_cost_inputs(manual_costs, fetched_costs):
     return list(merged.values())
 
 
+def _state_report_date_range(state: dict) -> tuple[str, str]:
+    start_date = (
+        state.get("hackStartDate")
+        or state.get("hackDate")
+        or state.get("createdAt")
+        or ""
+    )[:10]
+    end_date = (
+        state.get("deleteDate")
+        or state.get("endDate")
+        or state.get("readonlyDate")
+        or state.get("archivedAt")
+        or datetime.now(timezone.utc).date().isoformat()
+    )[:10]
+    if not start_date:
+        start_date = datetime.now(timezone.utc).date().isoformat()
+    return start_date, end_date
+
+
 @app.route("/api/hack-state/<prefix>/report", methods=["POST"])
 def build_hack_report_api(prefix):
     """Build a management report for a saved hack.
@@ -1221,8 +1508,9 @@ def build_hack_report_api(prefix):
         subscription_ids = [str(s).strip() for s in subscription_ids if str(s or "").strip()]
         if not subscription_ids:
             return jsonify({"error": "subscriptionIds[] required to fetch Azure costs"}), 400
-        start_date = data.get("startDate") or (state.get("createdAt") or "")[:10]
-        end_date = data.get("endDate") or datetime.now(timezone.utc).date().isoformat()
+        default_start_date, default_end_date = _state_report_date_range(state)
+        start_date = data.get("startDate") or default_start_date
+        end_date = data.get("endDate") or default_end_date
         fetched_costs = asyncio.run(_async_fetch_subscription_costs(
             *creds,
             subscription_ids=subscription_ids,
@@ -1277,11 +1565,15 @@ def set_hack_end_date(prefix):
         return jsonify({"error": "Archived hacks are report-only. Schedule changes are disabled."}), 409
 
     try:
-        t, c, s = creds
-        jobs = scheduler.set_hack_end_date(prefix, end_date, {
-            "tenant_id": t, "client_id": c, "client_secret": s,
-        }, subscription_ids=sub_ids, readonly_date=readonly_date, mode=mode,
-           metadata=lifecycle_metadata)
+        jobs = scheduler.set_hack_end_date(
+            prefix,
+            end_date,
+            _scheduler_creds_dict(creds, data),
+            subscription_ids=sub_ids,
+            readonly_date=readonly_date,
+            mode=mode,
+            metadata=lifecycle_metadata,
+        )
         return jsonify({"message": f"End date set for '{prefix}'",
                         "endDate": end_date,
                         "deleteDate": lifecycle_metadata["deleteDate"],
@@ -1290,6 +1582,8 @@ def set_hack_end_date(prefix):
                         "readonlyDate": readonly_date,
                         "subscriptionIds": sub_ids,
                         "jobs": [j.to_dict() for j in jobs]})
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
@@ -1325,19 +1619,16 @@ def create_job():
     if not scheduler:
         return jsonify({"error": "Storage not configured"}), 503
 
-    t, c, s = creds
     sub_ids = data.get("subscriptionIds") or []
 
     try:
         if job_type == "provision":
             config = data.get("config") or {}
             config["prefix"] = hack_prefix
-            job = scheduler.schedule_provision(scheduled_at, config, {
-                "tenant_id": t, "client_id": c, "client_secret": s,
-            })
+            job = scheduler.schedule_provision(scheduled_at, config, _scheduler_creds_dict(creds, data))
         else:
             cfg = {
-                "tenant_id": t, "client_id": c, "client_secret": s,
+                **make_scheduler_credential_config(_scheduler_creds_dict(creds, data)),
                 "subscription_ids": sub_ids,
             }
             if job_type == "readonly":
@@ -1351,6 +1642,8 @@ def create_job():
             )
             job = scheduler.add_job(job)
         return jsonify({"message": f"{job_type} job scheduled", "job": job.to_dict()}), 201
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
@@ -1390,11 +1683,10 @@ def schedule_hack():
         return jsonify({"error": "Storage not configured"}), 503
 
     try:
-        t, c, s = creds
-        job = scheduler.schedule_provision(scheduled_at, config, {
-            "tenant_id": t, "client_id": c, "client_secret": s,
-        })
+        job = scheduler.schedule_provision(scheduled_at, config, _scheduler_creds_dict(creds, data))
         return jsonify({"message": "Hack scheduled", "job": job.to_dict()}), 201
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 

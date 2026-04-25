@@ -36,12 +36,15 @@ from onedrive_provisioner.entra import (
     remove_rbac_for_principals, downgrade_principals_to_reader, ROLE_IDS,
     run_preflight,
 )
+from onedrive_provisioner.entra.rbac_service import subscription_from_assignment
 from onedrive_provisioner.storage import HackStateManager
 from onedrive_provisioner.storage.blob_client import BlobStateClient
 from onedrive_provisioner.chatbot import ChatbotAgent
 from onedrive_provisioner.chatbot.tool_executor import ToolExecutor
 from onedrive_provisioner.docgen import DocGenerator
 from onedrive_provisioner.scheduler import HackScheduler, ScheduledJob
+from onedrive_provisioner.security import DEFAULT_CONFIRMATION_STORE, OperationConfirmationError
+from onedrive_provisioner.security.scheduler_credentials import make_scheduler_credential_config
 
 # ── Blob Storage state persistence ──
 _state_mgr: HackStateManager | None = None
@@ -102,6 +105,154 @@ def _get_scheduler() -> HackScheduler | None:
     )
     _hack_scheduler.start()
     return _hack_scheduler
+
+
+def _state_report_date_range(state: dict) -> tuple[str, str]:
+    start_date = (
+        state.get("hackStartDate")
+        or state.get("hackDate")
+        or state.get("createdAt")
+        or ""
+    )[:10]
+    end_date = (
+        state.get("deleteDate")
+        or state.get("endDate")
+        or state.get("readonlyDate")
+        or state.get("archivedAt")
+        or datetime.now(timezone.utc).date().isoformat()
+    )[:10]
+    if not start_date:
+        start_date = datetime.now(timezone.utc).date().isoformat()
+    return start_date, end_date
+
+
+def _readonly_principals(discovered: dict, mode: str) -> list[dict]:
+    if mode == "flat":
+        return [
+            {
+                "id": u.get("id"),
+                "type": "User",
+                "displayName": u.get("userPrincipalName") or u.get("displayName"),
+                "userPrincipalName": u.get("userPrincipalName"),
+            }
+            for u in discovered.get("users", [])
+            if u.get("id")
+        ]
+    return [
+        {"id": g.get("id"), "type": "Group", "displayName": g.get("displayName")}
+        for g in discovered.get("groups", [])
+        if g.get("id")
+    ]
+
+
+def _role_name_from_assignment(assignment: dict) -> str:
+    role_def_id = (assignment.get("properties", {}).get("roleDefinitionId") or "").lower()
+    role_guid = role_def_id.rsplit("/", 1)[-1]
+    role_names = {role_id.lower(): name for name, role_id in ROLE_IDS.items()}
+    return role_names.get(role_guid, role_guid or "unknown")
+
+
+async def _async_readonly_preview(t, c, s, *, prefix: str, mode: str, subscriptions: list[str]):
+    tp = MsalTokenProvider(AzureConfig(tenant_id=t, client_id=c, client_secret=s))
+    async with GraphClient(tp) as g:
+        discovered = await DiscoveryService(g).discover(prefix)
+
+    principals = _readonly_principals(discovered, mode)
+    requested_subs = []
+    seen_subs = set()
+    for sub in subscriptions or []:
+        sub_id = str(sub or "").strip()
+        if sub_id and sub_id.lower() not in seen_subs:
+            requested_subs.append(sub_id)
+            seen_subs.add(sub_id.lower())
+    requested_filter = {s.lower() for s in requested_subs}
+
+    async with RbacService(tp) as rbac:
+        visible_subs = await rbac.list_subscriptions()
+        sub_lookup = {
+            (sub.get("subscriptionId") or "").lower(): sub
+            for sub in visible_subs
+            if sub.get("subscriptionId")
+        }
+        sub_stats: dict[str, dict] = {}
+        principal_subscriptions = []
+        for principal in principals:
+            entry = {**principal, "subscriptions": [], "errors": []}
+            try:
+                assignments = await rbac.list_all_assignments_for_principal(principal["id"])
+            except Exception as exc:
+                entry["errors"].append(str(exc))
+                principal_subscriptions.append(entry)
+                continue
+
+            by_sub: dict[str, list] = {}
+            for assignment in assignments:
+                sub_id = subscription_from_assignment(assignment)
+                if not sub_id:
+                    continue
+                if requested_filter and sub_id.lower() not in requested_filter:
+                    continue
+                role_name = _role_name_from_assignment(assignment)
+                by_sub.setdefault(sub_id, []).append({
+                    "assignmentId": assignment.get("id", ""),
+                    "role": role_name,
+                })
+
+            for sub_id, sub_assignments in sorted(by_sub.items()):
+                meta = sub_lookup.get(sub_id.lower(), {})
+                roles = sorted({a.get("role", "") for a in sub_assignments if a.get("role")})
+                entry["subscriptions"].append({
+                    "subscriptionId": sub_id,
+                    "displayName": meta.get("displayName") or "",
+                    "state": meta.get("state") or "",
+                    "assignmentCount": len(sub_assignments),
+                    "roles": roles,
+                })
+                stats = sub_stats.setdefault(sub_id, {
+                    "subscriptionId": sub_id,
+                    "displayName": meta.get("displayName") or "",
+                    "state": meta.get("state") or "",
+                    "matchedPrincipalCount": 0,
+                    "assignmentCount": 0,
+                    "roles": set(),
+                })
+                stats["matchedPrincipalCount"] += 1
+                stats["assignmentCount"] += len(sub_assignments)
+                stats["roles"].update(roles)
+
+            if entry["subscriptions"] or entry["errors"]:
+                principal_subscriptions.append(entry)
+
+        target_sub_ids = requested_subs if requested_subs else sorted(
+            sub_stats,
+            key=lambda sid: ((sub_stats[sid].get("displayName") or "").lower(), sid.lower()),
+        )
+        subscription_details = []
+        for sub_id in target_sub_ids:
+            meta = sub_lookup.get(sub_id.lower(), {})
+            stats = sub_stats.get(sub_id, {})
+            roles = stats.get("roles") or set()
+            subscription_details.append({
+                "subscriptionId": sub_id,
+                "displayName": meta.get("displayName") or stats.get("displayName") or "",
+                "state": meta.get("state") or stats.get("state") or "",
+                "matchedPrincipalCount": stats.get("matchedPrincipalCount", 0),
+                "assignmentCount": stats.get("assignmentCount", 0),
+                "roles": sorted(roles) if not isinstance(roles, list) else sorted(roles),
+                "source": "specified" if requested_subs else "auto-detected",
+                "visibleToSpn": bool(meta),
+            })
+
+    return {
+        "prefix": prefix,
+        "mode": mode,
+        "autoDetectedSubscriptions": not bool(requested_subs),
+        "users": discovered.get("users", []),
+        "groups": discovered.get("groups", []),
+        "principals": principals,
+        "subscriptions": subscription_details,
+        "principalSubscriptions": principal_subscriptions,
+    }
 
 
 def _scheduler_provision(cfg_dict, tenant_id, client_id, client_secret):
@@ -318,6 +469,8 @@ class DevHandler(SimpleHTTPRequestHandler):
             self._handle_assign_permissions()
         elif self.path == "/api/discover-hack":
             self._handle_discover_hack()
+        elif self.path == "/api/readonly-preview":
+            self._handle_readonly_preview()
         elif self.path == "/api/cleanup-hack":
             self._handle_cleanup_hack()
         elif self.path == "/api/readonly-mode":
@@ -795,6 +948,17 @@ class DevHandler(SimpleHTTPRequestHandler):
             self._send_json({"error": "Archived hacks are report-only. Use the Report tab to generate historical reports."}, 409); return
         target_upns = data.get("users")
         tap_lifetime = int(data.get("tapLifetime", 120))
+        target_count = sum(
+            1 for user in state.get("users", [])
+            if user.get("userId") and (not target_upns or user.get("userPrincipalName") in target_upns)
+        )
+        if self._confirmation_required("regenerate_tap", {
+            "prefix": state.get("prefix") or prefix,
+            "resourceCount": target_count,
+            "targetUserCount": target_count,
+            "subscriptionCount": 0,
+        }, data):
+            return
         t, c, s = creds
         try:
             from onedrive_provisioner.entra.tap_service import TapService
@@ -840,6 +1004,20 @@ class DevHandler(SimpleHTTPRequestHandler):
             self._send_json({"error": "licenses[] required"}, 400); return
         target_upns = data.get("users")
         include_admins = bool(data.get("includeAdmins", False))
+        target_count = sum(
+            1 for user in state.get("users", [])
+            if user.get("userId")
+            and (include_admins or not user.get("isAdmin"))
+            and (not target_upns or user.get("userPrincipalName") in target_upns)
+        )
+        if self._confirmation_required("assign_licenses", {
+            "prefix": state.get("prefix") or prefix,
+            "resourceCount": target_count,
+            "targetUserCount": target_count,
+            "licenseCount": len(licenses),
+            "subscriptionCount": 0,
+        }, data):
+            return
         t, c, s = creds
         try:
             from onedrive_provisioner.entra.license_service import LicenseService
@@ -894,8 +1072,9 @@ class DevHandler(SimpleHTTPRequestHandler):
             subscription_ids = [str(s).strip() for s in subscription_ids if str(s or "").strip()]
             if not subscription_ids:
                 self._send_json({"error": "subscriptionIds[] required to fetch Azure costs"}, 400); return
-            start_date = data.get("startDate") or (state.get("createdAt") or "")[:10]
-            end_date = data.get("endDate") or datetime.now(timezone.utc).date().isoformat()
+            default_start_date, default_end_date = _state_report_date_range(state)
+            start_date = data.get("startDate") or default_start_date
+            end_date = data.get("endDate") or default_end_date
             t, c, s = creds
             try:
                 from onedrive_provisioner.entra.cost_service import CostManagementService
@@ -961,6 +1140,46 @@ class DevHandler(SimpleHTTPRequestHandler):
         s = (data.get("client_secret") or "").strip()
         return (t, c, s) if t and c and s else None
 
+    def _operator(self, data):
+        return (
+            self.headers.get("X-Operator")
+            or self.headers.get("X-MS-CLIENT-PRINCIPAL-NAME")
+            or (data or {}).get("operator")
+            or (data or {}).get("createdBy")
+            or "unknown"
+        )
+
+    def _confirmation_required(self, operation, expected, data):
+        try:
+            DEFAULT_CONFIRMATION_STORE.validate(
+                operation,
+                expected,
+                (data or {}).get("confirmation"),
+                operator=self._operator(data),
+            )
+            return False
+        except OperationConfirmationError:
+            challenge = DEFAULT_CONFIRMATION_STORE.create(
+                operation,
+                expected,
+                operator=self._operator(data),
+            )
+            self._send_json(challenge, 409)
+            return True
+
+    def _scheduler_creds_dict(self, creds, data):
+        t, c, s = creds
+        return {
+            "tenant_id": t,
+            "client_id": c,
+            "client_secret": s,
+            "client_secret_ref": (
+                (data or {}).get("client_secret_ref")
+                or (data or {}).get("credentialRef")
+                or (data or {}).get("schedulerClientSecretRef")
+            ),
+        }
+
     def _handle_set_end_date(self, prefix):
         data = self._read_json()
         creds = self._creds(data)
@@ -985,11 +1204,15 @@ class DevHandler(SimpleHTTPRequestHandler):
         if state and _is_archived_state(state):
             self._send_json({"error": "Archived hacks are report-only. Schedule changes are disabled."}, 409); return
         try:
-            t, c, s = creds
-            jobs = scheduler.set_hack_end_date(prefix, end_date, {
-                "tenant_id": t, "client_id": c, "client_secret": s,
-            }, subscription_ids=sub_ids, readonly_date=readonly_date, mode=mode,
-               metadata=lifecycle_metadata)
+            jobs = scheduler.set_hack_end_date(
+                prefix,
+                end_date,
+                self._scheduler_creds_dict(creds, data),
+                subscription_ids=sub_ids,
+                readonly_date=readonly_date,
+                mode=mode,
+                metadata=lifecycle_metadata,
+            )
             self._send_json({"message": f"End date set for '{prefix}'",
                              "endDate": end_date,
                              "deleteDate": lifecycle_metadata["deleteDate"],
@@ -998,6 +1221,8 @@ class DevHandler(SimpleHTTPRequestHandler):
                              "readonlyDate": readonly_date,
                              "subscriptionIds": sub_ids,
                              "jobs": [j.to_dict() for j in jobs]})
+        except ValueError as exc:
+            self._send_json({"error": str(exc)}, 400)
         except Exception as exc:
             self._send_json({"error": str(exc)}, 500)
 
@@ -1029,11 +1254,10 @@ class DevHandler(SimpleHTTPRequestHandler):
         if not scheduler:
             self._send_json({"error": "Storage not configured"}, 503); return
         try:
-            t, c, s = creds
-            job = scheduler.schedule_provision(scheduled_at, config, {
-                "tenant_id": t, "client_id": c, "client_secret": s,
-            })
+            job = scheduler.schedule_provision(scheduled_at, config, self._scheduler_creds_dict(creds, data))
             self._send_json({"message": "Hack scheduled", "job": job.to_dict()}, 201)
+        except ValueError as exc:
+            self._send_json({"error": str(exc)}, 400)
         except Exception as exc:
             self._send_json({"error": str(exc)}, 500)
 
@@ -1075,18 +1299,15 @@ class DevHandler(SimpleHTTPRequestHandler):
         scheduler = _get_scheduler()
         if not scheduler:
             self._send_json({"error": "Storage not configured"}, 503); return
-        t, c, s = creds
         sub_ids = data.get("subscriptionIds") or []
         try:
             if job_type == "provision":
                 config = data.get("config") or {}
                 config["prefix"] = hack_prefix
-                job = scheduler.schedule_provision(scheduled_at, config, {
-                    "tenant_id": t, "client_id": c, "client_secret": s,
-                })
+                job = scheduler.schedule_provision(scheduled_at, config, self._scheduler_creds_dict(creds, data))
             else:
                 cfg = {
-                    "tenant_id": t, "client_id": c, "client_secret": s,
+                    **make_scheduler_credential_config(self._scheduler_creds_dict(creds, data)),
                     "subscription_ids": sub_ids,
                 }
                 if job_type == "readonly":
@@ -1100,6 +1321,8 @@ class DevHandler(SimpleHTTPRequestHandler):
                 )
                 job = scheduler.add_job(job)
             self._send_json({"message": f"{job_type} job scheduled", "job": job.to_dict()}, 201)
+        except ValueError as exc:
+            self._send_json({"error": str(exc)}, 400)
         except Exception as exc:
             self._send_json({"error": str(exc)}, 500)
 
@@ -1149,6 +1372,17 @@ class DevHandler(SimpleHTTPRequestHandler):
         role = data.get("role")
         if not subs or not principals or role not in ROLE_IDS:
             self._send_json({"error": "subscriptions[], principals[], role required"}, 400); return
+        hack_prefix = (data.get("hackPrefix") or data.get("prefix") or "").strip()
+        if not hack_prefix:
+            self._send_json({"error": "hackPrefix is required for privileged RBAC assignment confirmation"}, 400); return
+        if self._confirmation_required("assign_permissions", {
+            "prefix": hack_prefix,
+            "role": role,
+            "resourceCount": len(principals),
+            "principalCount": len(principals),
+            "subscriptionCount": len(subs),
+        }, data):
+            return
         t, c, s = creds
         try:
             tp = MsalTokenProvider(AzureConfig(tenant_id=t, client_id=c, client_secret=s))
@@ -1222,6 +1456,27 @@ class DevHandler(SimpleHTTPRequestHandler):
         except Exception as exc:
             self._send_json({"error": str(exc)}, 500)
 
+    def _handle_readonly_preview(self):
+        data = self._read_json()
+        creds = self._creds(data)
+        if not creds:
+            self._send_json({"error": "Missing SPN credentials"}, 400); return
+        prefix = (data.get("prefix") or data.get("hackPrefix") or "").strip()
+        if not prefix:
+            self._send_json({"error": "prefix required"}, 400); return
+        mode = (data.get("mode") or "team").strip().lower()
+        if mode not in {"team", "flat"}:
+            self._send_json({"error": "mode must be team or flat"}, 400); return
+        try:
+            self._send_json(asyncio.run(_async_readonly_preview(
+                *creds,
+                prefix=prefix,
+                mode=mode,
+                subscriptions=data.get("subscriptions") or [],
+            )))
+        except Exception as exc:
+            self._send_json({"error": str(exc)}, 500)
+
     def _handle_cleanup_hack(self):
         data = self._read_json()
         creds = self._creds(data)
@@ -1232,6 +1487,18 @@ class DevHandler(SimpleHTTPRequestHandler):
         group_ids = data.get("groupIds") or []
         sub_ids = data.get("subscriptionIds") or []
         principal_ids = data.get("principalIds") or []
+        prefix = (data.get("hackPrefix") or "").strip()
+        if not prefix:
+            self._send_json({"error": "hackPrefix is required for cleanup confirmation"}, 400); return
+        if self._confirmation_required("cleanup_hack", {
+            "prefix": prefix,
+            "resourceCount": len(user_ids) + len(group_ids),
+            "userCount": len(user_ids),
+            "groupCount": len(group_ids),
+            "principalCount": len(principal_ids),
+            "subscriptionCount": len(sub_ids),
+        }, data):
+            return
         try:
             tp = MsalTokenProvider(AzureConfig(tenant_id=t, client_id=c, client_secret=s))
             async def _run():
@@ -1250,7 +1517,6 @@ class DevHandler(SimpleHTTPRequestHandler):
             result = asyncio.run(_run())
             # Archive hack state from blob storage if prefix provided. Archived
             # state remains available for later reporting.
-            prefix = (data.get("hackPrefix") or "").strip()
             if prefix:
                 try:
                     mgr = _get_state_manager()
@@ -1277,6 +1543,16 @@ class DevHandler(SimpleHTTPRequestHandler):
         principals = data.get("principals") or []
         if not principals:
             self._send_json({"error": "principals[] required"}, 400); return
+        hack_prefix = (data.get("hackPrefix") or data.get("prefix") or "").strip()
+        if not hack_prefix:
+            self._send_json({"error": "hackPrefix is required for read-only confirmation"}, 400); return
+        if self._confirmation_required("readonly_mode", {
+            "prefix": hack_prefix,
+            "resourceCount": len(principals),
+            "principalCount": len(principals),
+            "subscriptionCount": len(subs),
+        }, data):
+            return
         t, c, s = creds
         try:
             tp = MsalTokenProvider(AzureConfig(tenant_id=t, client_id=c, client_secret=s))

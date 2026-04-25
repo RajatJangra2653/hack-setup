@@ -17,6 +17,12 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
 
+from onedrive_provisioner.security.scheduler_credentials import (
+    make_scheduler_credential_config,
+    redact_scheduler_config,
+    resolve_scheduler_credentials,
+)
+
 logger = logging.getLogger(__name__)
 
 JOBS_BLOB = "_scheduler/jobs.json"
@@ -37,10 +43,19 @@ class ScheduledJob:
     result: Dict[str, Any] = field(default_factory=dict)  # execution results / details
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        data = asdict(self)
+        data["config"] = redact_scheduler_config(data.get("config") or {})
+        data["result"] = redact_scheduler_config(data.get("result") or {})
+        return data
 
     @classmethod
     def from_dict(cls, d: dict) -> "ScheduledJob":
+        config = d.get("config", {}) or {}
+        if "client_secret" in config:
+            config = dict(config)
+            config.pop("client_secret", None)
+            config["legacy_secret_removed"] = True
+            config["requiresCredentialReference"] = True
         return cls(
             id=d.get("id", str(uuid.uuid4())),
             job_type=d.get("job_type", ""),
@@ -50,8 +65,8 @@ class ScheduledJob:
             created_at=d.get("created_at", ""),
             completed_at=d.get("completed_at", ""),
             error=d.get("error", ""),
-            config=d.get("config", {}),
-            result=d.get("result", {}),
+            config=config,
+            result=redact_scheduler_config(d.get("result", {})),
         )
 
 
@@ -189,6 +204,8 @@ class HackScheduler:
         subscription_ids: Azure subscription IDs for RBAC changes.
         Returns list of created jobs.
         """
+        credential_cfg = make_scheduler_credential_config(creds)
+
         # Update hack state
         mgr = self._get_mgr()
         metadata = metadata or {}
@@ -220,9 +237,7 @@ class HackScheduler:
 
         created_jobs = []
         base_cfg = {
-            "tenant_id": creds["tenant_id"],
-            "client_id": creds["client_id"],
-            "client_secret": creds["client_secret"],
+            **credential_cfg,
             "subscription_ids": subscription_ids or [],
             "hackStartDate": metadata.get("hackStartDate", ""),
             "hackDate": metadata.get("hackDate", ""),
@@ -261,10 +276,7 @@ class HackScheduler:
             job_type="provision",
             hack_prefix=prefix,
             scheduled_at=scheduled_at,
-            config={**config,
-                    "tenant_id": creds["tenant_id"],
-                    "client_id": creds["client_id"],
-                    "client_secret": creds["client_secret"]},
+            config={**config, **make_scheduler_credential_config(creds)},
         )
         return self.add_job(job)
 
@@ -333,11 +345,7 @@ class HackScheduler:
     def _execute_cleanup(self, job: ScheduledJob) -> None:
         """Run cleanup for an expired hack."""
         cfg = job.config
-        t = cfg.get("tenant_id", "")
-        c = cfg.get("client_id", "")
-        s = cfg.get("client_secret", "")
-        if not all([t, c, s]):
-            raise ValueError("Missing SPN credentials in scheduled cleanup job")
+        t, c, s = resolve_scheduler_credentials(cfg)
         sub_ids = cfg.get("subscription_ids", [])
         result = self._run_cleanup(job.hack_prefix, t, c, s, subscription_ids=sub_ids)
         if isinstance(result, dict):
@@ -346,11 +354,7 @@ class HackScheduler:
     def _execute_readonly(self, job: ScheduledJob) -> None:
         """Switch a hack to read-only mode."""
         cfg = job.config
-        t = cfg.get("tenant_id", "")
-        c = cfg.get("client_id", "")
-        s = cfg.get("client_secret", "")
-        if not all([t, c, s]):
-            raise ValueError("Missing SPN credentials in scheduled readonly job")
+        t, c, s = resolve_scheduler_credentials(cfg)
         if not self._run_readonly:
             raise ValueError("No readonly handler configured")
         sub_ids = cfg.get("subscription_ids", [])
@@ -363,9 +367,9 @@ class HackScheduler:
     def _execute_provision(self, job: ScheduledJob) -> None:
         """Run provisioning for a scheduled hack."""
         cfg = dict(job.config)
-        t = cfg.pop("tenant_id", "")
-        c = cfg.pop("client_id", "")
-        s = cfg.pop("client_secret", "")
-        if not all([t, c, s]):
-            raise ValueError("Missing SPN credentials in scheduled provision job")
+        t, c, s = resolve_scheduler_credentials(cfg)
+        cfg.pop("tenant_id", None)
+        cfg.pop("client_id", None)
+        cfg.pop("client_secret_ref", None)
+        cfg.pop("credentialRef", None)
         self._run_provision(cfg, t, c, s)

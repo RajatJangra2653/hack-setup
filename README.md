@@ -53,6 +53,18 @@ See [src/onedrive_provisioner/](src/onedrive_provisioner/) for the modular layou
 
 > ⚠️ Least privilege: these permissions allow tenant-wide access. Restrict who can use the service principal and store credentials in Key Vault / GitHub secrets.
 
+### Security hardening notes
+
+- Scheduled jobs do **not** persist `client_secret` values in Blob Storage. Job records store only `tenant_id`, `client_id`, and a `client_secret_ref`.
+- No new Azure resources are required for this behavior. By default, when a schedule is created from the UI, the app stores the submitted secret only in the running process and persists an ephemeral `connection_id` reference. This protects Blob Storage from exposing long-lived secrets, but those ephemeral scheduled jobs must be recreated after an App Service restart.
+- For durable scheduled jobs without adding resources, set an App Service/local environment variable and reference it with `SCHEDULER_CLIENT_SECRET_ENV`, for example:
+  - `SCHEDULER_CLIENT_SECRET_ENV=HACKOPS_SCHEDULER_CLIENT_SECRET`
+  - `HACKOPS_SCHEDULER_CLIENT_SECRET=<secret value>`
+- If you already have Key Vault, you can optionally use an existing secret URI via `SCHEDULER_CLIENT_SECRET_URI`; the app will resolve it at runtime with managed identity. This is optional and does not create a new Key Vault.
+- Server-side confirmation is enforced for privileged operations: cleanup, read-only downgrade, RBAC assignment, TAP regeneration, and license assignment. Direct API calls must first receive a server-generated operation token, then replay the exact prefix/resource/subscription counts.
+- The AI assistant is read-only by default. Mutation tools are hidden/blocked unless `CHATBOT_ENABLE_MUTATION_TOOLS=true`, and tool responses redact passwords, TAPs, secrets, and tokens.
+- Rotate any service principal secrets that were previously persisted in `_scheduler/jobs.json` before this hardening.
+
 ### 2. Install
 
 ```powershell

@@ -12,11 +12,53 @@ from onedrive_provisioner.entra import (
     TenantService, DiscoveryService,
     run_preflight, EntraConfig,
 )
+from onedrive_provisioner.entra.models import license_display_name
 
 
 def _make_tp(creds: Tuple[str, str, str]) -> MsalTokenProvider:
     t, c, s = creds
     return MsalTokenProvider(AzureConfig(tenant_id=t, client_id=c, client_secret=s))
+
+
+MUTATION_TOOLS = {
+    "provision_users",
+    "regenerate_tap",
+    "assign_licenses",
+    "cleanup_hack",
+    "delete_hack_state",
+    "set_hack_end_date",
+    "schedule_hack_provision",
+    "cancel_scheduled_job",
+}
+
+SECRET_KEYS = {
+    "password",
+    "tap",
+    "temporaryaccesspass",
+    "client_secret",
+    "secret",
+    "token",
+    "access_token",
+    "refresh_token",
+}
+
+
+def _mutations_enabled() -> bool:
+    return os.environ.get("CHATBOT_ENABLE_MUTATION_TOOLS", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _redact(value: Any) -> Any:
+    if isinstance(value, dict):
+        redacted: Dict[str, Any] = {}
+        for key, item in value.items():
+            if str(key).lower() in SECRET_KEYS:
+                redacted[key] = "[REDACTED]"
+            else:
+                redacted[key] = _redact(item)
+        return redacted
+    if isinstance(value, list):
+        return [_redact(item) for item in value]
+    return value
 
 
 class ToolExecutor:
@@ -41,10 +83,17 @@ class ToolExecutor:
         self._docs_store = docs_store
 
     def __call__(self, tool_name: str, args: Dict[str, Any]) -> Any:
+        if tool_name in MUTATION_TOOLS and not _mutations_enabled():
+            return {
+                "error": (
+                    "AI assistant is read-only by default. Use the UI/API workflow with server-side "
+                    "confirmation for privileged operations, or explicitly enable CHATBOT_ENABLE_MUTATION_TOOLS."
+                )
+            }
         handler = getattr(self, f"_tool_{tool_name}", None)
         if not handler:
             return {"error": f"Unknown tool: {tool_name}"}
-        return handler(**args)
+        return _redact(handler(**args))
 
     # ── Tools ──
 
@@ -61,7 +110,7 @@ class ToolExecutor:
         state = mgr.get_state(prefix)
         if not state:
             return {"error": f"No state found for prefix '{prefix}'"}
-        return state
+        return _redact(state)
 
     def _tool_get_hack_users_summary(self, prefix: str) -> Any:
         mgr = self._get_mgr()
@@ -119,7 +168,7 @@ class ToolExecutor:
             s = self._entra_sessions.get(session_id)
             if not s:
                 return {"error": "Session not found"}
-            return s
+            return _redact(s)
 
     def _tool_detect_tenant_info(self) -> Any:
         tp = _make_tp(self._creds)
@@ -142,6 +191,7 @@ class ToolExecutor:
             "subscribedSkus": [
                 {
                     "skuPartNumber": s.get("skuPartNumber", ""),
+                    "displayName": license_display_name(s.get("skuPartNumber", "")),
                     "consumedUnits": s.get("consumedUnits", 0),
                     "prepaidUnits": s.get("prepaidUnits", {}),
                 }
@@ -305,7 +355,7 @@ class ToolExecutor:
             ]
 
     def _tool_cleanup_hack(self, prefix: str) -> Any:
-        """Discover and delete all users + groups for a hack, then remove blob state."""
+        """Discover and delete all users + groups for a hack, then archive blob state."""
         tp = _make_tp(self._creds)
 
         async def _run():
@@ -330,12 +380,13 @@ class ToolExecutor:
 
         results = asyncio.run(_run())
 
-        # Also delete blob state
+        # Archive blob state for historical reporting.
         try:
             mgr = self._get_mgr()
             if mgr:
-                deleted = mgr.delete_state(prefix)
-                results["blob_state_deleted"] = deleted
+                archived = mgr.archive_state(prefix, cleanup_result=results)
+                results["blob_state_archived"] = archived
+                results["blob_state_deleted"] = False
         except Exception as exc:
             results["blob_state_error"] = str(exc)
 

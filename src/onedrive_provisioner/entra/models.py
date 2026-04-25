@@ -29,6 +29,81 @@ LICENSE_CATALOG: Dict[str, List[str]] = {
 }
 
 
+LICENSE_DISPLAY_NAMES: Dict[str, str] = {
+    "SPE_E3": "Microsoft 365 E3",
+    "SPE_E5": "Microsoft 365 E5",
+    "SPE_F1": "Microsoft 365 F1",
+    "SPE_F3": "Microsoft 365 F3",
+    "ENTERPRISEPACK": "Office 365 E3",
+    "ENTERPRISEPREMIUM": "Office 365 E5",
+    "DEVELOPERPACK_E5": "Microsoft 365 E5 Developer",
+    "M365_G3_GOV": "Microsoft 365 G3 GCC",
+    "M365_G5_GOV": "Microsoft 365 G5 GCC",
+    "M365_G3_GOVERNMENT": "Microsoft 365 G3 GCC",
+    "M365_G5_GOVERNMENT": "Microsoft 365 G5 GCC",
+    "EMSPREMIUM": "Enterprise Mobility + Security E5",
+    "EMS": "Enterprise Mobility + Security E3",
+    "SPB": "Microsoft 365 Business Premium",
+    "O365_BUSINESS_PREMIUM": "Microsoft 365 Business Standard",
+    "O365_BUSINESS_ESSENTIALS": "Microsoft 365 Business Basic",
+    "TEAMS_ESSENTIALS": "Microsoft Teams Essentials",
+    "Teams_Ess": "Microsoft Teams Essentials",
+    "TEAMS_PREMIUM": "Microsoft Teams Premium",
+    "Teams_Premium": "Microsoft Teams Premium",
+    "POWER_BI_PRO": "Power BI Pro",
+    "PBI_PREMIUM_PER_USER": "Power BI Premium Per User",
+    "POWERAPPS_PER_USER": "Power Apps Premium",
+    "POWER_APPS_PER_USER": "Power Apps Premium",
+    "FLOW_FREE": "Power Automate Free",
+    "Microsoft_365_Copilot": "Microsoft 365 Copilot",
+    "COPILOT_FOR_MICROSOFT_365": "Microsoft 365 Copilot",
+    "M365_COPILOT": "Microsoft 365 Copilot",
+    "Microsoft_Copilot_Studio_User": "Microsoft Copilot Studio User",
+    "CCIBOTS_PRIVPREV_VIRAL": "Microsoft Copilot Studio",
+    "COPILOT_STUDIO": "Microsoft Copilot Studio",
+}
+
+
+def license_display_name(sku: str, *, include_sku: bool = False) -> str:
+    """Return a friendly product name for a Microsoft license SKU when known."""
+    raw = (sku or "").strip()
+    if not raw:
+        return ""
+    friendly = ""
+    for key, value in LICENSE_DISPLAY_NAMES.items():
+        if key.upper() == raw.upper():
+            friendly = value
+            break
+    if not friendly:
+        upper = raw.upper()
+        if "SPE_E5" in upper:
+            friendly = "Microsoft 365 E5"
+        elif "SPE_E3" in upper:
+            friendly = "Microsoft 365 E3"
+        elif "SPE_F3" in upper:
+            friendly = "Microsoft 365 F3"
+        elif "SPE_F1" in upper:
+            friendly = "Microsoft 365 F1"
+        elif "ENTERPRISEPREMIUM" in upper:
+            friendly = "Office 365 E5"
+        elif "ENTERPRISEPACK" in upper:
+            friendly = "Office 365 E3"
+        elif "POWER_BI" in upper or "PBI_" in upper:
+            friendly = "Power BI Premium Per User" if "PREMIUM" in upper else "Power BI Pro"
+        elif "COPILOT" in upper and "STUDIO" in upper:
+            friendly = "Microsoft Copilot Studio"
+        elif "COPILOT" in upper:
+            friendly = "Microsoft 365 Copilot"
+        elif "TEAMS" in upper and "PREMIUM" in upper:
+            friendly = "Microsoft Teams Premium"
+        elif "TEAMS" in upper:
+            friendly = "Microsoft Teams"
+        elif "POWERAPPS" in upper or "POWER_APPS" in upper:
+            friendly = "Power Apps"
+    friendly = friendly or raw
+    return f"{friendly} ({raw})" if include_sku and friendly != raw else friendly
+
+
 @dataclass
 class EntraConfig:
     prefix: str = "nyc-esri-gcc-"

@@ -21,6 +21,8 @@ from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
+from onedrive_provisioner.entra.models import license_display_name
+
 from .templates import get_sections_for_licenses
 
 # Default screenshots directory (relative to project root)
@@ -197,7 +199,7 @@ class DocGenerator:
 
         for lic, count in sorted(license_counts.items()):
             row = table.add_row()
-            row.cells[0].text = lic
+            row.cells[0].text = license_display_name(lic)
             row.cells[1].text = str(count)
 
     # ──────────── Trainer Note ────────────

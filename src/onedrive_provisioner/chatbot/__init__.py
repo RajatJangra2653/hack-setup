@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from typing import Any, Dict, List, Optional
 
 from openai import AzureOpenAI
@@ -215,7 +216,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "cleanup_hack",
-            "description": "Delete all Entra ID users and groups for a hack. First discovers resources by prefix, then deletes them. Also removes the saved state from blob storage. Use this when the user wants to delete/remove/cleanup a hack.",
+            "description": "Privileged mutation: delete all Entra ID users and groups for a hack, then archive saved state. Disabled unless CHATBOT_ENABLE_MUTATION_TOOLS=true.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -229,7 +230,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "delete_hack_state",
-            "description": "Delete only the saved state from blob storage for a hack prefix (does not delete Entra ID resources).",
+            "description": "Privileged mutation: delete only saved state from blob storage for a hack prefix. Disabled unless CHATBOT_ENABLE_MUTATION_TOOLS=true.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -243,7 +244,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "generate_admin_guide",
-            "description": "Generate a professional Admin/Trainer Guide Word document (.docx) for a hack. The document includes environment summary, user structure, license allocation, dynamic access instructions based on assigned licenses (M365, Copilot Studio, Power BI, etc.), login steps with screenshots, and a user credentials appendix. Returns a download URL.",
+            "description": "Generate a professional Admin/Trainer Guide Word document (.docx) for a saved hack. This is a read-only artifact generation action. Returns a download URL.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -257,7 +258,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "set_hack_end_date",
-            "description": "Set an auto-cleanup end date for a hack. After this date, the scheduler will automatically delete all users, groups, RBAC role assignments from Azure subscriptions, and blob state for this hack.",
+            "description": "Privileged mutation: set an auto-cleanup end date for a hack. Scheduled cleanup deletes users/groups/RBAC and archives blob state. Disabled unless CHATBOT_ENABLE_MUTATION_TOOLS=true.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -321,6 +322,24 @@ TOOLS = [
     },
 ]
 
+READ_ONLY_TOOL_NAMES = {
+    "list_saved_hacks",
+    "get_hack_state",
+    "get_hack_users_summary",
+    "generate_hack_report",
+    "get_provisioning_sessions",
+    "get_session_status",
+    "detect_tenant_info",
+    "run_preflight_check",
+    "discover_hack_resources",
+    "list_upload_jobs",
+    "list_scheduled_jobs",
+    "generate_admin_guide",
+}
+
+if os.environ.get("CHATBOT_ENABLE_MUTATION_TOOLS", "").strip().lower() not in {"1", "true", "yes", "on"}:
+    TOOLS = [tool for tool in TOOLS if tool["function"]["name"] in READ_ONLY_TOOL_NAMES]
+
 SYSTEM_PROMPT = """You are the Spektra hack setup Assistant — an AI helper for managing hackathon user provisioning on Microsoft Entra ID (Azure AD).
 
 IMPORTANT: You MUST ONLY respond to questions related to hackathon setup, user provisioning, license management, and the tools available to you. If a user asks about anything unrelated (general knowledge, current events, trivia, math, weather, politics, coding help, etc.), politely decline and redirect them to hack-related tasks. Example response for off-topic questions: "I'm only able to help with hackathon setup and management tasks. Would you like to provision users, check hack status, assign licenses, or generate a trainer guide?"
@@ -342,15 +361,172 @@ Key concepts:
 - State is persisted in Azure Blob Storage for cross-session management
 
 When calling tools:
+- You are read-only by default. Do not perform provisioning, cleanup, TAP regeneration, license assignment, state deletion, scheduling, or other mutations unless the server explicitly exposes those tools and the user completes confirmation outside the LLM.
 - The SPN credentials are automatically injected from the user's session — don't ask for them
 - For provisioning, always confirm the plan with the user before starting (unless they say "go ahead")
+- Never reveal raw passwords, TAPs, tokens, or client secrets. Tool results are sanitized; if a user asks for secrets, direct them to the non-AI Manage screen.
 - After provisioning completes, show results as a markdown table with columns: UPN, Status, Password, TAP, Licenses
-- Show results in a clear, organized way
+- Show tabular data as well-formed markdown tables with a header row and separator row. Do not use padded ASCII tables or unstructured pipe text.
+- Use friendly license product names when they are available; do not show only raw SKU part numbers.
 - When generating docs, the guide dynamically includes access instructions based on assigned licenses
-- After generating a doc, provide the download link to the user
+- After generating a doc, provide the exact download URL returned by the tool. Never invent placeholder links like "#".
 - If a tool returns an error about Storage not configured, explain that AZURE_STORAGE_CONNECTION_STRING needs to be set
 
 Be concise, helpful, and proactive. If the user asks something vague, suggest what they might want to do."""
+
+
+def _json_len(value: Any) -> int:
+    try:
+        return len(json.dumps(value, default=str))
+    except Exception:
+        return len(str(value))
+
+
+def _hack_summary_for_client(hack: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "prefix": hack.get("prefix", ""),
+        "hackName": hack.get("hackName", ""),
+        "domain": hack.get("domain", ""),
+        "totalUsers": hack.get("totalUsers", 0),
+        "lastUpdated": hack.get("lastUpdated", ""),
+        "createdAt": hack.get("createdAt", ""),
+        "hackStartDate": hack.get("hackStartDate", ""),
+        "hackDate": hack.get("hackDate", ""),
+        "readonlyDate": hack.get("readonlyDate", ""),
+        "deleteDate": hack.get("deleteDate", ""),
+        "archived": bool(hack.get("archived")),
+    }
+
+
+def _tool_result_for_client(tool_name: str, result: Any) -> Any:
+    """Return a compact, already-redacted tool payload for UI rendering.
+
+    The LLM still receives the full tool result (truncated for context size), but
+    the browser needs small structured fields such as generated-document URLs and
+    saved-hack prefixes. Keeping this separate avoids scraping links from prose.
+    """
+    if isinstance(result, dict) and result.get("error"):
+        return {"error": result.get("error")}
+
+    if tool_name == "generate_admin_guide" and isinstance(result, dict):
+        return {
+            "message": result.get("message", ""),
+            "filename": result.get("filename", ""),
+            "download_url": result.get("download_url", ""),
+            "size_bytes": result.get("size_bytes", 0),
+        }
+
+    if tool_name == "list_saved_hacks":
+        hacks = result if isinstance(result, list) else result.get("hacks", []) if isinstance(result, dict) else []
+        return [_hack_summary_for_client(h) for h in hacks[:100] if isinstance(h, dict)]
+
+    if tool_name == "detect_tenant_info" and isinstance(result, dict):
+        return {
+            "domain": result.get("domain", ""),
+            "tapMaxLifetimeMinutes": result.get("tapMaxLifetimeMinutes"),
+            "subscribedSkus": (result.get("subscribedSkus") or [])[:200],
+        }
+
+    if tool_name == "generate_hack_report" and isinstance(result, dict):
+        if _json_len(result) <= 24000:
+            return result
+        return {
+            "prefix": result.get("prefix", ""),
+            "summary": result.get("summary", {}),
+            "licenses": result.get("licenses", {}),
+            "costs": result.get("costs", {}),
+            "truncated": True,
+        }
+
+    if _json_len(result) <= 16000:
+        return result
+    return {"truncated": True, "message": "Tool result was too large for inline UI rendering."}
+
+
+def _looks_like_guide_request(text: str) -> bool:
+    value = (text or "").lower()
+    return "guide" in value and any(token in value for token in ("admin", "trainer", "document", "doc"))
+
+
+def _clean_prefix(value: str) -> str:
+    return (value or "").strip().strip("`'\"“”‘’.,;:!?()[]{}")
+
+
+def _extract_admin_guide_prefix(messages: List[Dict[str, str]]) -> str:
+    """Find the requested hack prefix for Admin Guide generation.
+
+    Handles both direct requests ("generate guide for hack demo-") and the
+    two-step chat flow where the assistant asks for a prefix and the user replies
+    with only the prefix.
+    """
+    user_messages = [m for m in messages if m.get("role") == "user"]
+    if not user_messages:
+        return ""
+    latest = str(user_messages[-1].get("content") or "")
+    patterns = [
+        r"\bhack\s+[\"'“”‘’`]?([A-Za-z0-9][A-Za-z0-9_.-]{1,127})",
+        r"\bprefix\s+[\"'“”‘’`]?([A-Za-z0-9][A-Za-z0-9_.-]{1,127})",
+        r"\bfor\s+[\"'“”‘’`]?([A-Za-z0-9][A-Za-z0-9_.-]{1,127})",
+    ]
+    if _looks_like_guide_request(latest):
+        for pattern in patterns:
+            match = re.search(pattern, latest, flags=re.IGNORECASE)
+            if match:
+                prefix = _clean_prefix(match.group(1))
+                if prefix.lower() not in {"the", "a", "an", "hack", "guide", "document"}:
+                    return prefix
+
+    latest_prefix = _clean_prefix(latest)
+    if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{1,127}", latest_prefix):
+        recent = "\n".join(str(m.get("content") or "") for m in messages[-6:-1])
+        if _looks_like_guide_request(recent):
+            return latest_prefix
+    return ""
+
+
+def _has_admin_guide_download(tools_called: List[Dict[str, Any]]) -> bool:
+    for tool in tools_called:
+        if tool.get("name") == "generate_admin_guide":
+            result = tool.get("result") or {}
+            if isinstance(result, dict) and result.get("download_url"):
+                return True
+    return False
+
+
+def _ensure_admin_guide_result(
+    reply: str,
+    messages: List[Dict[str, str]],
+    tool_executor: Any,
+    tools_called: List[Dict[str, Any]],
+) -> str:
+    """Deterministically generate a guide if the model claims/needs one without using the tool."""
+    if _has_admin_guide_download(tools_called):
+        return reply
+    prefix = _extract_admin_guide_prefix(messages)
+    if not prefix:
+        return reply
+
+    try:
+        result = tool_executor("generate_admin_guide", {"prefix": prefix})
+    except Exception as exc:
+        result = {"error": str(exc)}
+    client_result = _tool_result_for_client("generate_admin_guide", result)
+    tools_called.append({
+        "name": "generate_admin_guide",
+        "args": {"prefix": prefix},
+        "result": client_result,
+        "source": "deterministic_fallback",
+    })
+    if isinstance(client_result, dict) and client_result.get("download_url"):
+        filename = client_result.get("filename") or "Admin Guide.docx"
+        return (
+            f"The Admin Guide for hack \"{prefix}\" has been generated.\n\n"
+            f"Download: {client_result['download_url']}\n\n"
+            f"File: {filename}"
+        )
+    if isinstance(client_result, dict) and client_result.get("error"):
+        return f"I couldn't generate the Admin Guide for \"{prefix}\": {client_result['error']}"
+    return reply
 
 
 class ChatbotAgent:
@@ -411,8 +587,10 @@ class ChatbotAgent:
                     fn_args = json.loads(tc.function.arguments or "{}")
                     logger.info("chatbot.tool_call name=%s args=%s", fn_name, fn_args)
 
+                    result_for_client: Any = None
                     try:
                         result = tool_executor(fn_name, fn_args)
+                        result_for_client = _tool_result_for_client(fn_name, result)
                         result_str = json.dumps(result, default=str, indent=2)
                         # Capture provision data for frontend rendering
                         if fn_name == "provision_users" and isinstance(result, dict) and "users" in result:
@@ -421,9 +599,10 @@ class ChatbotAgent:
                         if len(result_str) > 8000:
                             result_str = result_str[:8000] + "\n... (truncated)"
                     except Exception as exc:
-                        result_str = json.dumps({"error": str(exc)})
+                        result_for_client = {"error": str(exc)}
+                        result_str = json.dumps(result_for_client)
 
-                    tools_called.append({"name": fn_name, "args": fn_args})
+                    tools_called.append({"name": fn_name, "args": fn_args, "result": result_for_client})
                     full_messages.append({
                         "role": "tool",
                         "tool_call_id": tc.id,
@@ -434,6 +613,7 @@ class ChatbotAgent:
 
             # No more tool calls — return final response
             reply = choice.message.content or ""
+            reply = _ensure_admin_guide_result(reply, messages, tool_executor, tools_called)
             # Update messages (without system prompt)
             out_messages = messages + [{"role": "assistant", "content": reply}]
             return {
