@@ -61,6 +61,10 @@ def _get_state_manager() -> HackStateManager | None:
         print(f"[WARN] Could not init blob state manager: {exc}")
         return None
 
+
+def _is_archived_state(state: dict) -> bool:
+    return bool(state.get("isArchived") or state.get("archivedAt") or state.get("lifecycleStatus") == "archived")
+
 # ── In-memory job store ──
 _jobs: Dict[str, Dict[str, Any]] = {}
 _jobs_lock = threading.Lock()
@@ -787,6 +791,8 @@ class DevHandler(SimpleHTTPRequestHandler):
         state = mgr.get_state(prefix)
         if not state:
             self._send_json({"error": f"No state found for prefix '{prefix}'"}, 404); return
+        if _is_archived_state(state):
+            self._send_json({"error": "Archived hacks are report-only. Use the Report tab to generate historical reports."}, 409); return
         target_upns = data.get("users")
         tap_lifetime = int(data.get("tapLifetime", 120))
         t, c, s = creds
@@ -827,6 +833,8 @@ class DevHandler(SimpleHTTPRequestHandler):
         state = mgr.get_state(prefix)
         if not state:
             self._send_json({"error": f"No state found for prefix '{prefix}'"}, 404); return
+        if _is_archived_state(state):
+            self._send_json({"error": "Archived hacks are report-only. Use the Report tab to generate historical reports."}, 409); return
         licenses = data.get("licenses", [])
         if not licenses:
             self._send_json({"error": "licenses[] required"}, 400); return
@@ -972,6 +980,10 @@ class DevHandler(SimpleHTTPRequestHandler):
         scheduler = _get_scheduler()
         if not scheduler:
             self._send_json({"error": "Storage not configured"}, 503); return
+        mgr = _get_state_manager()
+        state = mgr.get_state(prefix) if mgr else None
+        if state and _is_archived_state(state):
+            self._send_json({"error": "Archived hacks are report-only. Schedule changes are disabled."}, 409); return
         try:
             t, c, s = creds
             jobs = scheduler.set_hack_end_date(prefix, end_date, {

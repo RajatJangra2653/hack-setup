@@ -2687,6 +2687,8 @@ async function pollProvision() {
         toast('Provisioning failed: ' + (s.error || 'Unknown'), 'danger');
       } else {
         toast(`Done: ${(_entraReport && _entraReport.created) || 0} created`, 'success');
+        _savedHackCache = { active: null, archived: null, loadedAt: 0 };
+        refreshHackPrefixPickers(true);
         _autoAssignRbac();
         _autoScheduleLifecycle();
       }

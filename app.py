@@ -1009,6 +1009,10 @@ def get_hack_state(prefix):
     return jsonify(state)
 
 
+def _is_archived_state(state: dict) -> bool:
+    return bool(state.get("isArchived") or state.get("archivedAt") or state.get("lifecycleStatus") == "archived")
+
+
 @app.route("/api/hack-state/<prefix>/versions", methods=["GET"])
 def get_hack_versions(prefix):
     """List version history for a hack prefix."""
@@ -1038,6 +1042,8 @@ def regenerate_tap(prefix):
     state = mgr.get_state(prefix)
     if not state:
         return jsonify({"error": f"No state found for prefix '{prefix}'"}), 404
+    if _is_archived_state(state):
+        return jsonify({"error": "Archived hacks are report-only. Use the Report tab to generate historical reports."}), 409
 
     target_upns = data.get("users")  # None = all
     tap_lifetime = int(data.get("tapLifetime", 120))
@@ -1095,6 +1101,8 @@ def assign_licenses_to_hack(prefix):
     state = mgr.get_state(prefix)
     if not state:
         return jsonify({"error": f"No state found for prefix '{prefix}'"}), 404
+    if _is_archived_state(state):
+        return jsonify({"error": "Archived hacks are report-only. Use the Report tab to generate historical reports."}), 409
 
     licenses = data.get("licenses", [])
     if not licenses:
@@ -1263,6 +1271,10 @@ def set_hack_end_date(prefix):
     scheduler = _get_scheduler()
     if not scheduler:
         return jsonify({"error": "Storage not configured"}), 503
+    mgr = _get_state_manager()
+    state = mgr.get_state(prefix) if mgr else None
+    if state and _is_archived_state(state):
+        return jsonify({"error": "Archived hacks are report-only. Schedule changes are disabled."}), 409
 
     try:
         t, c, s = creds
