@@ -107,10 +107,13 @@ async def run_preflight(
 
     # 3) License availability
     if cfg.licenses:
-        non_admin_seats = sum(1 for p in plans if not p.is_admin)
+        required_seats = sum(
+            1 for p in plans
+            if not p.is_admin or cfg.assign_licenses_to_admins
+        )
         try:
             lic_report = await LicenseService(graph).check_availability(
-                cfg.licenses, non_admin_seats,
+                cfg.licenses, required_seats,
             )
             for row in lic_report:
                 if not row["matched"]:

@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
-from http.server import HTTPServer, SimpleHTTPRequestHandler
+from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 import io
 
 # ── Add src to path ──
@@ -152,7 +152,7 @@ def _scheduler_cleanup(prefix, tenant_id, client_id, client_secret, subscription
     asyncio.run(_do())
     mgr = _get_state_manager()
     if mgr:
-        mgr.delete_state(prefix)
+        mgr.archive_state(prefix, reason="scheduled_cleanup")
 
 
 def _run_entra_provision(session_id, cfg_dict, tenant_id, client_id, client_secret):
@@ -279,6 +279,8 @@ class DevHandler(SimpleHTTPRequestHandler):
             self._handle_entra_status(self.path.split("/api/provision-users/")[1])
         elif self.path == "/api/hack-state":
             self._handle_hack_list()
+        elif self.path == "/api/hack-state/archive":
+            self._handle_hack_archive_list()
         elif self.path.startswith("/api/hack-state/") and self.path.endswith("/versions"):
             prefix = self.path.replace("/api/hack-state/", "").replace("/versions", "")
             self._handle_hack_versions(prefix)
@@ -306,6 +308,8 @@ class DevHandler(SimpleHTTPRequestHandler):
             self._handle_entra_start()
         elif self.path == "/api/tenant-info":
             self._handle_tenant_info()
+        elif self.path == "/api/subscriptions":
+            self._handle_list_subscriptions()
         elif self.path == "/api/assign-permissions":
             self._handle_assign_permissions()
         elif self.path == "/api/discover-hack":
@@ -322,6 +326,9 @@ class DevHandler(SimpleHTTPRequestHandler):
         elif self.path.startswith("/api/hack-state/") and self.path.endswith("/assign-licenses"):
             prefix = self.path.replace("/api/hack-state/", "").replace("/assign-licenses", "")
             self._handle_hack_assign_licenses(prefix)
+        elif self.path.startswith("/api/hack-state/") and self.path.endswith("/report"):
+            prefix = self.path.replace("/api/hack-state/", "").replace("/report", "")
+            self._handle_hack_report(prefix)
         elif self.path.startswith("/api/hack-state/") and self.path.endswith("/set-end-date"):
             prefix = self.path.replace("/api/hack-state/", "").replace("/set-end-date", "")
             self._handle_set_end_date(prefix)
@@ -745,6 +752,15 @@ class DevHandler(SimpleHTTPRequestHandler):
         except Exception as exc:
             self._send_json({"error": str(exc)}, 500)
 
+    def _handle_hack_archive_list(self):
+        mgr = _get_state_manager()
+        if not mgr:
+            self._send_json({"error": "Storage not configured (set AZURE_STORAGE_CONNECTION_STRING)"}, 503); return
+        try:
+            self._send_json(mgr.list_archived_hacks())
+        except Exception as exc:
+            self._send_json({"error": str(exc)}, 500)
+
     def _handle_hack_get(self, prefix):
         mgr = _get_state_manager()
         if not mgr:
@@ -815,6 +831,7 @@ class DevHandler(SimpleHTTPRequestHandler):
         if not licenses:
             self._send_json({"error": "licenses[] required"}, 400); return
         target_upns = data.get("users")
+        include_admins = bool(data.get("includeAdmins", False))
         t, c, s = creds
         try:
             from onedrive_provisioner.entra.license_service import LicenseService
@@ -829,7 +846,7 @@ class DevHandler(SimpleHTTPRequestHandler):
                     for u in state.get("users", []):
                         upn = u.get("userPrincipalName", "")
                         uid = u.get("userId", "")
-                        if not uid or u.get("isAdmin"): continue
+                        if not uid or (u.get("isAdmin") and not include_admins): continue
                         if target_upns and upn not in target_upns: continue
                         assigned = await lic_svc.assign(uid, sku_ids)
                         existing = u.get("licenses", [])
@@ -844,6 +861,83 @@ class DevHandler(SimpleHTTPRequestHandler):
             self._send_json({"results": results, "updatedUsers": len(results)})
         except Exception as exc:
             self._send_json({"error": str(exc)}, 500)
+
+    def _handle_hack_report(self, prefix):
+        from onedrive_provisioner.hack_report import build_hack_report
+
+        data = self._read_json() or {}
+        mgr = _get_state_manager()
+        if not mgr:
+            self._send_json({"error": "Storage not configured"}, 503); return
+        state = mgr.get_state(prefix)
+        if not state:
+            self._send_json({"error": f"No state found for prefix '{prefix}'"}, 404); return
+
+        subscription_costs = data.get("subscriptionCosts") or []
+        fetched_costs = []
+        if data.get("fetchSubscriptionCosts"):
+            creds = self._creds(data)
+            if not creds:
+                self._send_json({"error": "SPN credentials required to fetch Azure costs"}, 400); return
+            subscription_ids = data.get("subscriptionIds") or [
+                sc.get("subscriptionId") or sc.get("subscription") or sc.get("id")
+                for sc in subscription_costs if isinstance(sc, dict)
+            ]
+            subscription_ids = [str(s).strip() for s in subscription_ids if str(s or "").strip()]
+            if not subscription_ids:
+                self._send_json({"error": "subscriptionIds[] required to fetch Azure costs"}, 400); return
+            start_date = data.get("startDate") or (state.get("createdAt") or "")[:10]
+            end_date = data.get("endDate") or datetime.now(timezone.utc).date().isoformat()
+            t, c, s = creds
+            try:
+                from onedrive_provisioner.entra.cost_service import CostManagementService
+                tp = MsalTokenProvider(AzureConfig(tenant_id=t, client_id=c, client_secret=s))
+
+                async def _run():
+                    async with CostManagementService(tp) as cost_svc:
+                        return await cost_svc.query_subscription_costs(
+                            subscription_ids,
+                            start_date=start_date,
+                            end_date=end_date,
+                        )
+
+                fetched_costs = asyncio.run(_run())
+                merged = {}
+                for item in subscription_costs:
+                    if not isinstance(item, dict):
+                        continue
+                    sub_id = (item.get("subscriptionId") or item.get("subscription") or item.get("id") or "").strip()
+                    if sub_id:
+                        merged[sub_id] = dict(item)
+                        merged[sub_id]["subscriptionId"] = sub_id
+                for item in fetched_costs:
+                    sub_id = item.get("subscriptionId", "")
+                    if not sub_id:
+                        continue
+                    existing = merged.get(sub_id, {"subscriptionId": sub_id})
+                    existing.update({
+                        "cost": item.get("cost"),
+                        "currency": item.get("currency") or existing.get("currency", ""),
+                        "source": item.get("source", "azure_cost_management"),
+                        "periodStart": item.get("periodStart", ""),
+                        "periodEnd": item.get("periodEnd", ""),
+                        "error": item.get("error", ""),
+                    })
+                    merged[sub_id] = existing
+                subscription_costs = list(merged.values())
+            except Exception as exc:
+                self._send_json({"error": str(exc)}, 500); return
+
+        report = build_hack_report(
+            state,
+            subscription_costs=subscription_costs,
+            license_unit_costs=data.get("licenseUnitCosts") or {},
+            currency=data.get("currency") or "USD",
+        )
+        if fetched_costs:
+            report["costFetch"] = {"subscriptionsQueried": len(fetched_costs)}
+        self._send_json(report)
+
     def _read_json(self):
         try:
             length = int(self.headers.get("Content-Length", "0"))
@@ -870,6 +964,11 @@ class DevHandler(SimpleHTTPRequestHandler):
         readonly_date = (data.get("readonlyDate") or "").strip() or None
         mode = data.get("mode") or "team"
         sub_ids = data.get("subscriptionIds") or []
+        lifecycle_metadata = {
+            "hackStartDate": (data.get("hackStartDate") or "").strip(),
+            "hackDate": (data.get("hackDate") or "").strip(),
+            "deleteDate": (data.get("deleteDate") or end_date).strip(),
+        }
         scheduler = _get_scheduler()
         if not scheduler:
             self._send_json({"error": "Storage not configured"}, 503); return
@@ -877,9 +976,13 @@ class DevHandler(SimpleHTTPRequestHandler):
             t, c, s = creds
             jobs = scheduler.set_hack_end_date(prefix, end_date, {
                 "tenant_id": t, "client_id": c, "client_secret": s,
-            }, subscription_ids=sub_ids, readonly_date=readonly_date, mode=mode)
+            }, subscription_ids=sub_ids, readonly_date=readonly_date, mode=mode,
+               metadata=lifecycle_metadata)
             self._send_json({"message": f"End date set for '{prefix}'",
                              "endDate": end_date,
+                             "deleteDate": lifecycle_metadata["deleteDate"],
+                             "hackStartDate": lifecycle_metadata["hackStartDate"],
+                             "hackDate": lifecycle_metadata["hackDate"],
                              "readonlyDate": readonly_date,
                              "subscriptionIds": sub_ids,
                              "jobs": [j.to_dict() for j in jobs]})
@@ -1060,6 +1163,35 @@ class DevHandler(SimpleHTTPRequestHandler):
         except Exception as exc:
             self._send_json({"error": str(exc)}, 500)
 
+    def _handle_list_subscriptions(self):
+        data = self._read_json()
+        creds = self._creds(data)
+        if not creds:
+            self._send_json({"error": "Missing SPN credentials"}, 400); return
+        t, c, s = creds
+        try:
+            tp = MsalTokenProvider(AzureConfig(tenant_id=t, client_id=c, client_secret=s))
+            query = (data.get("query") or "").strip().lower()
+
+            async def _run():
+                async with RbacService(tp) as rbac:
+                    return await rbac.list_subscriptions()
+
+            subscriptions = asyncio.run(_run())
+            if query:
+                subscriptions = [
+                    sub for sub in subscriptions
+                    if query in (sub.get("subscriptionId") or "").lower()
+                    or query in (sub.get("displayName") or "").lower()
+                ]
+            subscriptions = sorted(
+                subscriptions,
+                key=lambda sub: ((sub.get("displayName") or "").lower(), sub.get("subscriptionId") or ""),
+            )
+            self._send_json({"subscriptions": subscriptions, "count": len(subscriptions)})
+        except Exception as exc:
+            self._send_json({"error": str(exc)}, 500)
+
     def _handle_discover_hack(self):
         data = self._read_json()
         creds = self._creds(data)
@@ -1104,15 +1236,18 @@ class DevHandler(SimpleHTTPRequestHandler):
                         out["groups"] = await cleaner.delete_groups(group_ids)
                 return out
             result = asyncio.run(_run())
-            # Delete hack state from blob storage if prefix provided
+            # Archive hack state from blob storage if prefix provided. Archived
+            # state remains available for later reporting.
             prefix = (data.get("hackPrefix") or "").strip()
             if prefix:
                 try:
                     mgr = _get_state_manager()
                     if mgr:
-                        deleted = mgr.delete_state(prefix)
-                        result["blob_state_deleted"] = deleted
+                        archived = mgr.archive_state(prefix, cleanup_result=result)
+                        result["blob_state_archived"] = archived
+                        result["blob_state_deleted"] = False
                     else:
+                        result["blob_state_archived"] = False
                         result["blob_state_deleted"] = False
                         result["blob_state_note"] = "Storage not configured"
                 except Exception as exc:
@@ -1410,7 +1545,8 @@ class DevHandler(SimpleHTTPRequestHandler):
 
 if __name__ == "__main__":
     port = 4280
-    server = HTTPServer(("0.0.0.0", port), DevHandler)
+    server = ThreadingHTTPServer(("0.0.0.0", port), DevHandler)
+    server.daemon_threads = True
     print(f"Dev server running at http://localhost:{port}")
     print(f"Frontend: {FRONTEND_DIR}")
     print("Press Ctrl+C to stop")

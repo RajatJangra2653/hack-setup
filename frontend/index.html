@@ -127,35 +127,259 @@
     footer { text-align: center; padding: 24px; color: var(--muted); font-size: 12px; }
     .section-divider { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
     .section-label { font-size: 13px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 12px; }
+
+    /* ────────── Lifecycle UX refresh ────────── */
+    :root {
+      --primary: #2563eb;
+      --primary-dark: #1d4ed8;
+      --primary-soft: #dbeafe;
+      --success: #16a34a;
+      --danger: #dc2626;
+      --warn: #f59e0b;
+      --bg: #eef4ff;
+      --card: rgba(255,255,255,.94);
+      --text: #0f172a;
+      --muted: #64748b;
+      --border: #dbe3ef;
+      --radius: 18px;
+      --shadow-sm: 0 8px 24px rgba(15, 23, 42, .08);
+      --shadow-md: 0 18px 50px rgba(15, 23, 42, .14);
+      --gradient: linear-gradient(135deg, #0f172a 0%, #1d4ed8 48%, #06b6d4 100%);
+    }
+    body {
+      background:
+        radial-gradient(circle at 10% 0%, rgba(37,99,235,.18), transparent 32%),
+        radial-gradient(circle at 90% 10%, rgba(6,182,212,.20), transparent 30%),
+        linear-gradient(180deg, #f8fbff 0%, #eef4ff 100%);
+      min-height: 100vh;
+    }
+    .container { max-width: 1240px; padding: 22px 18px; }
+    header {
+      background: var(--gradient);
+      margin-bottom: 0;
+      padding: 30px 0 36px;
+      border-bottom: 1px solid rgba(255,255,255,.18);
+      box-shadow: var(--shadow-md);
+      position: relative;
+      overflow: hidden;
+    }
+    header::after {
+      content: '';
+      position: absolute;
+      inset: auto -10% -45% 35%;
+      height: 220px;
+      background: radial-gradient(circle, rgba(255,255,255,.22), transparent 66%);
+      pointer-events: none;
+    }
+    header .container { position: relative; z-index: 1; }
+    .hero-shell { display: flex; align-items: center; gap: 20px; }
+    .hero-mark {
+      width: 64px; height: 64px; border-radius: 22px;
+      display: grid; place-items: center; font-size: 32px;
+      background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.28);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.25);
+    }
+    .hero-copy { flex: 1; min-width: 220px; }
+    .hero-copy .eyebrow { color: #bfdbfe; font-size: 12px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; margin-bottom: 4px; }
+    .hero-copy h1 { font-size: clamp(28px, 4vw, 44px); line-height: 1; margin: 0; letter-spacing: -.04em; }
+    .hero-copy p { color: #dbeafe; max-width: 720px; margin-top: 10px; font-size: 15px; }
+    .hero-status {
+      padding: 12px 16px; border-radius: 16px; background: rgba(255,255,255,.14);
+      border: 1px solid rgba(255,255,255,.24); min-width: 190px;
+    }
+    .hero-status span { display: block; color: #bfdbfe; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; }
+    .hero-status strong { display: block; color: #fff; margin-top: 3px; font-size: 13px; word-break: break-all; }
+    .app-stage { margin-top: -20px; position: relative; z-index: 2; }
+    .lifecycle-overview {
+      background: rgba(255,255,255,.92); backdrop-filter: blur(12px);
+      border: 1px solid rgba(219,227,239,.85); border-radius: 24px;
+      padding: 22px; box-shadow: var(--shadow-md); margin-bottom: 14px;
+      display: grid; grid-template-columns: minmax(0,1.6fr) minmax(250px,.8fr); gap: 18px; align-items: center;
+    }
+    .lifecycle-overview h2 { font-size: 24px; margin: 0 0 8px; letter-spacing: -.03em; }
+    .lifecycle-overview p { color: var(--muted); font-size: 14px; max-width: 760px; }
+    .overview-actions { display: flex; flex-wrap: wrap; gap: 10px; align-content: center; justify-content: flex-end; }
+    .quick-metric-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+    .quick-metric { padding: 8px 12px; border-radius: 999px; background: #f8fbff; border: 1px solid var(--border); display: inline-flex; align-items: center; gap: 8px; }
+    .quick-metric strong { display: inline; font-size: 12px; color: var(--primary); }
+    .quick-metric span { color: var(--muted); font-size: 12px; }
+    .lifecycle-hub {
+      background: rgba(255,255,255,.90); backdrop-filter: blur(12px);
+      border: 1px solid rgba(219,227,239,.9); border-radius: 24px;
+      box-shadow: var(--shadow-sm); padding: 12px; margin-bottom: 20px;
+    }
+    .lifecycle-hub-head {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: 4px 8px 12px;
+    }
+    .lifecycle-hub-head h3 { margin: 0; font-size: 16px; letter-spacing: -.02em; }
+    .lifecycle-hub-head p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+    .lifecycle-badge { border-radius: 999px; background: #ecfeff; border: 1px solid #bae6fd; color: #075985; padding: 7px 10px; font-size: 11px; font-weight: 800; white-space: nowrap; }
+    .lifecycle-nav {
+      display: grid !important; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: 8px !important;
+      border: 0 !important; margin: 0 !important; padding: 0;
+      background: transparent; box-shadow: none; overflow: visible;
+    }
+    .lifecycle-nav .tab {
+      margin: 0 !important; border: 1px solid var(--border) !important; border-radius: 16px !important;
+      padding: 10px 12px !important; min-height: 60px; color: var(--muted) !important;
+      background: #f8fbff !important; display: flex; flex-direction: column; gap: 2px; justify-content: center;
+      white-space: normal; line-height: 1.15;
+    }
+    .lifecycle-nav .tab small { display: block; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: #94a3b8; }
+    .lifecycle-nav .tab:hover { background: #f8fbff !important; color: var(--primary) !important; }
+    .lifecycle-nav .tab.active {
+      background: linear-gradient(135deg, #eff6ff, #e0f2fe) !important;
+      border-color: #bfdbfe !important; color: var(--primary-dark) !important;
+      box-shadow: 0 10px 24px rgba(37,99,235,.12);
+    }
+    .active-step-panel {
+      margin-top: 12px; padding: 14px 16px; border-radius: 18px;
+      background: linear-gradient(135deg, #eff6ff, #ecfeff);
+      border: 1px solid #bfdbfe; display: flex; align-items: center; justify-content: space-between; gap: 14px;
+    }
+    .active-step-panel span { color: var(--primary); font-size: 11px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
+    .active-step-panel h3 { margin: 3px 0 4px; font-size: 18px; }
+    .active-step-panel p { margin: 0; color: var(--muted); font-size: 13px; }
+    .subscription-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+    .subscription-toolbar input[type="text"] { flex: 1; min-width: 220px; }
+    .subscription-picker {
+      margin-top: 10px; border: 1px solid var(--border); border-radius: 16px;
+      background: #f8fbff; max-height: 260px; overflow: auto; padding: 8px;
+    }
+    .subscription-row {
+      display: grid; grid-template-columns: 28px minmax(0,1fr) auto; gap: 10px; align-items: center;
+      padding: 10px; border-radius: 12px; border: 1px solid transparent;
+    }
+    .subscription-row:hover { background: #fff; border-color: #bfdbfe; }
+    .subscription-row input { width: auto; }
+    .subscription-name { font-weight: 800; color: var(--text); }
+    .subscription-id { font-family: var(--font-mono); font-size: 11px; color: var(--muted); word-break: break-all; }
+    .subscription-state { border-radius: 999px; padding: 4px 8px; background: #dcfce7; color: #166534; font-size: 11px; font-weight: 800; }
+    .hack-picker-row { display: flex; gap: 6px; margin-top: 6px; align-items: center; }
+    .hack-picker-row select { min-width: 0; flex: 1; font-size: 12px; }
+    .badge-archived { background: #f3e8ff; color: #6b21a8; }
+    .archive-notice { margin-top: 12px; padding: 10px 12px; background: #faf5ff; border: 1px solid #e9d5ff; border-left: 4px solid #9333ea; border-radius: 10px; color: #581c87; font-size: 13px; }
+    .assignment-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px,1fr)); gap: 12px; margin-top: 12px; }
+    .assignment-preview {
+      margin-top: 12px; padding: 12px; background: #fff8e1; border: 1px solid #fde68a;
+      border-radius: 14px; font-size: 13px;
+    }
+    .assignment-preview table { background: #fff; margin-top: 8px; }
+    .lifecycle-steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(185px,1fr)); gap: 12px; margin-bottom: 20px; }
+    .lifecycle-card {
+      border-radius: 18px; padding: 14px; background: rgba(255,255,255,.88); border: 1px solid var(--border);
+      box-shadow: var(--shadow-sm); cursor: pointer; transition: transform .16s ease, box-shadow .16s ease, border .16s ease;
+    }
+    .lifecycle-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); border-color: #bfdbfe; }
+    .lifecycle-card.is-active { border-color: var(--primary); box-shadow: 0 12px 30px rgba(37,99,235,.16); }
+    .lifecycle-card .step { color: var(--primary); font-size: 11px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
+    .lifecycle-card h3 { font-size: 15px; margin: 6px 0 4px; }
+    .lifecycle-card p { color: var(--muted); font-size: 12px; }
+    .card {
+      border: 1px solid rgba(219,227,239,.9); border-radius: var(--radius);
+      box-shadow: var(--shadow-sm); background: var(--card); backdrop-filter: blur(10px);
+    }
+    .card h2, .card h3 { letter-spacing: -.02em; }
+    .card h2 { font-size: 22px; }
+    .section-label { color: #334155; background: #eef6ff; border: 1px solid #dbeafe; display: inline-flex; padding: 6px 10px; border-radius: 999px; }
+    textarea, input[type="text"], input[type="number"], input[type="password"], input[type="datetime-local"], input[type="date"], select {
+      min-height: 42px; border-radius: 12px; border-color: #cbd5e1; background: #fff;
+    }
+    textarea:focus, input:focus, select:focus { border-color: var(--primary); box-shadow: 0 0 0 4px rgba(37,99,235,.14); }
+    .btn { border-radius: 999px; min-height: 42px; transition: transform .12s ease, box-shadow .12s ease, background .12s ease; }
+    .btn:hover { transform: translateY(-1px); box-shadow: 0 8px 18px rgba(15,23,42,.12); }
+    .btn-primary { background: linear-gradient(135deg, var(--primary), #06b6d4); box-shadow: 0 10px 22px rgba(37,99,235,.22); }
+    .btn-secondary { border-color: #bfdbfe; background: #fff; }
+    table { border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+    th { background: #f1f5f9; color: #334155; }
+    .stat-tile { border-radius: 16px; background: linear-gradient(180deg,#fff,#f8fbff); }
+    .trust-note { margin-top: 10px; padding: 12px 14px; border-radius: 14px; background: #eff6ff; color: #1e3a8a; font-size: 12px; border: 1px solid #bfdbfe; }
+    @media (max-width: 980px) {
+      .lifecycle-overview { grid-template-columns: 1fr; }
+      .overview-actions { justify-content: flex-start; }
+      .active-step-panel { align-items: flex-start; flex-direction: column; }
+      .hero-shell { align-items: flex-start; flex-wrap: wrap; }
+      .hero-status { width: 100%; }
+    }
+    @media (max-width: 640px) {
+      .quick-metric-grid { display: grid; grid-template-columns: 1fr; }
+      .lifecycle-hub-head { align-items: flex-start; flex-direction: column; }
+      .lifecycle-nav { grid-template-columns: 1fr; }
+      .card { padding: 18px; }
+    }
   </style>
 </head>
 <body>
   <header>
-    <div class="container">
-      <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
-      <h1>Spektra hack setup</h1>
+    <div class="container hero-shell">
+      <div class="hero-mark">⚡</div>
+      <div class="hero-copy">
+        <div class="eyebrow">Azure + Microsoft Entra hack lifecycle</div>
+        <h1>Spektra HackOps</h1>
+        <p>Plan the event, create identities, grant Azure access, seed OneDrive content, report cost, move to read-only, and clean up from one guided workspace.</p>
+      </div>
+      <div class="hero-status">
+        <span>Active step</span>
+        <strong id="activeStepLabel">Plan & provision</strong>
+      </div>
     </div>
   </header>
 
-  <div class="container">
-    <!-- ────────── Mode Switcher ────────── -->
-    <div class="tabs" style="margin-bottom:20px;flex-wrap:wrap;">
-      <div class="tab active" data-view="provision" onclick="switchView('provision')">� Setup Hack</div>
-      <div class="tab" data-view="permissions" onclick="switchView('permissions')">🔐 Assign Permissions</div>
-      <div class="tab" data-view="upload" onclick="switchView('upload')">📤 Upload Files</div>
-      <div class="tab" data-view="readonly" onclick="switchView('readonly')">👀 Read-Only Mode</div>
-      <div class="tab" data-view="cleanup" onclick="switchView('cleanup')">🗑️ Cleanup Hack</div>
-      <div class="tab" data-view="manage" onclick="switchView('manage')">📋 Manage Hack</div>
-      <div class="tab" data-view="scheduler" onclick="switchView('scheduler')">📅 Scheduler</div>
-      <div class="tab" data-view="chat" onclick="switchView('chat')">🤖 Chat</div>
-      <div class="tab" data-view="tenant-setup" onclick="switchView('tenant-setup')">⚙ Setup Tenant</div>
-      <div class="tab" data-view="help" onclick="switchView('help')">❓ Help</div>
-    </div>
+  <div class="container app-stage">
+    <section class="lifecycle-overview">
+      <div>
+        <h2>Run a hackathon from kickoff to cleanup</h2>
+        <p>Follow the lifecycle in order, or jump directly to the operation you need. Credentials stay in the browser session and sensitive TAP/password values remain protected in the UI.</p>
+        <div class="quick-metric-grid">
+          <div class="quick-metric"><strong>Secure</strong><span>Credentials stay browser-side</span></div>
+          <div class="quick-metric"><strong>Guided</strong><span>Lifecycle actions in order</span></div>
+          <div class="quick-metric"><strong>Auditable</strong><span>Saved state, reports, and cleanup</span></div>
+        </div>
+      </div>
+      <div class="overview-actions">
+        <button class="btn btn-secondary" onclick="switchView('tenant-setup')">Check tenant readiness</button>
+        <button class="btn btn-primary" onclick="switchView('provision')">Start setup</button>
+        <button class="btn btn-secondary" onclick="switchView('manage')">Load saved hack</button>
+      </div>
+    </section>
+
+    <!-- ────────── Lifecycle Switcher ────────── -->
+    <section class="lifecycle-hub">
+      <div class="lifecycle-hub-head">
+        <div>
+          <h3>Hack lifecycle command center</h3>
+          <p>One navigation rail controls the workspace below — no duplicate cards, no horizontal scrollbar.</p>
+        </div>
+        <div class="lifecycle-badge">Recommended flow: left to right</div>
+      </div>
+      <div class="tabs lifecycle-nav">
+        <div class="tab" data-view="tenant-setup" onclick="switchView('tenant-setup')"><small>01 Prepare</small>Tenant setup</div>
+        <div class="tab active" data-view="provision" onclick="switchView('provision')"><small>02 Plan</small>Setup hack</div>
+        <div class="tab" data-view="permissions" onclick="switchView('permissions')"><small>03 Access</small>Azure RBAC</div>
+        <div class="tab" data-view="upload" onclick="switchView('upload')"><small>04 Content</small>Upload files</div>
+        <div class="tab" data-view="manage" onclick="switchView('manage')"><small>05 Monitor</small>Manage & report</div>
+        <div class="tab" data-view="readonly" onclick="switchView('readonly')"><small>06 Freeze</small>Read-only</div>
+        <div class="tab" data-view="cleanup" onclick="switchView('cleanup')"><small>07 Finish</small>Cleanup</div>
+        <div class="tab" data-view="scheduler" onclick="switchView('scheduler')"><small>Automation</small>Scheduler</div>
+        <div class="tab" data-view="chat" onclick="switchView('chat')"><small>Assist</small>AI helper</div>
+        <div class="tab" data-view="help" onclick="switchView('help')"><small>Docs</small>Help</div>
+      </div>
+      <div class="active-step-panel">
+        <div>
+          <span>Current step</span>
+          <h3 id="activeStepTitle">Plan & provision</h3>
+          <p id="activeStepHint">Define dates, teams, admins, TAP policy, passwords, and licenses before running the hack setup.</p>
+        </div>
+        <button class="btn btn-secondary" type="button" onclick="scrollToActiveView()">Jump to section</button>
+      </div>
+    </section>
 
     <!-- ────────── SPN Credentials Card ────────── -->
+    <span id="activeStepTarget"></span>
     <div class="card">
-      <h2>Azure AD Credentials</h2>
-      <div class="hint" style="margin-bottom:12px">Provide your App Registration (Service Principal) credentials. These are sent securely to the API and never stored.</div>
+      <h2>Secure connection</h2>
+      <div class="hint" style="margin-bottom:12px">Enter the Service Principal credentials used for Microsoft Graph and Azure management calls. Values are sent per request and are not stored on the server.</div>
       <div class="row">
         <div class="form-group">
           <label for="tenantId">Tenant ID</label>
@@ -174,6 +398,7 @@
         <input type="checkbox" id="rememberCreds" checked />
         <label for="rememberCreds" style="margin:0;cursor:pointer;">Remember credentials (stored in browser localStorage)</label>
       </div>
+      <div class="trust-note">Tip: use least-privilege app permissions for the lifecycle action you are performing, then revoke or rotate credentials after the event.</div>
     </div>
 
     <!-- ────────── Upload View ────────── -->
@@ -351,8 +576,8 @@
         </div>
 
         <div class="form-group">
-          <label>Licenses to assign (per non-admin user)</label>
-          <div class="hint">Select from your tenant's available licenses. Click "Load from Tenant" or they'll auto-load on provision/pre-flight.</div>
+          <label>Licenses to assign</label>
+          <div class="hint">Select from your tenant's available licenses. By default these go to participant users; enable the admin option below if admins also need M365 apps.</div>
           <div style="margin-bottom:8px;display:flex;gap:8px;align-items:center;">
             <button class="btn btn-secondary btn-sm" onclick="withBusy(this, loadTenantLicenses)">🔄 Load from Tenant</button>
             <span id="ep-licLoading" class="hidden"><span class="spinner" style="width:14px;height:14px;"></span></span>
@@ -361,6 +586,10 @@
           <div id="ep-licenses" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px 16px;">
             <span class="hint">Click "Load from Tenant" or enter credentials and detect tenant to see available licenses.</span>
           </div>
+          <label style="display:flex;align-items:center;gap:6px;margin-top:10px;font-weight:400;font-size:13px;">
+            <input type="checkbox" id="ep-assignLicensesToAdmins"> Assign selected M365 licenses to admin users also
+          </label>
+          <div class="hint" style="margin-top:4px;">Leave unchecked when admins only need Entra admin/RBAC permissions. Check it when admins need apps like Teams, SharePoint/OneDrive, Copilot, Power BI, or Office.</div>
         </div>
 
         <div class="row">
@@ -413,12 +642,22 @@
         <!-- Optional lifecycle scheduling (PST) -->
         <div class="row" style="margin-top:12px;">
           <div class="form-group">
-            <label for="ep-readonlyDate">Read-Only Date/Time <span class="hint" style="font-weight:400;">(PST, optional)</span></label>
+            <label for="ep-hackStartDate">Hack Start Date/Time <span class="hint" style="font-weight:400;">(PST, optional)</span></label>
+            <input type="datetime-local" id="ep-hackStartDate" />
+          </div>
+          <div class="form-group">
+            <label for="ep-hackDate">Hack Date/Time <span class="hint" style="font-weight:400;">(PST, optional)</span></label>
+            <input type="datetime-local" id="ep-hackDate" />
+          </div>
+        </div>
+        <div class="row">
+          <div class="form-group">
+            <label for="ep-readonlyDate">Read-Only Mode Date/Time <span class="hint" style="font-weight:400;">(PST, optional)</span></label>
             <input type="datetime-local" id="ep-readonlyDate" />
           </div>
           <div class="form-group">
-            <label for="ep-endDate">End Date/Time <span class="hint" style="font-weight:400;">(PST, optional)</span></label>
-            <input type="datetime-local" id="ep-endDate" />
+            <label for="ep-deleteDate">Delete Date/Time <span class="hint" style="font-weight:400;">(PST, optional)</span></label>
+            <input type="datetime-local" id="ep-deleteDate" />
           </div>
         </div>
 
@@ -428,6 +667,13 @@
           <div class="form-group" style="flex:1;">
             <label for="ep-scheduleSubs">Subscription IDs <span class="hint" style="font-weight:400;">(for RBAC, one per line, optional)</span></label>
             <textarea id="ep-scheduleSubs" rows="2" placeholder="Paste Azure subscription IDs for RBAC assignment / readonly / cleanup"></textarea>
+            <div class="subscription-toolbar">
+              <button class="btn btn-secondary btn-sm" type="button" onclick="withBusy(this, () => loadAzureSubscriptions('ep'))">🔎 Load available subscriptions</button>
+              <input type="text" id="ep-subSearch" placeholder="Search loaded subscriptions by name or ID" oninput="renderSubscriptionPicker('ep')" />
+              <button class="btn btn-secondary btn-sm" type="button" onclick="applySelectedSubscriptions('ep')">Add selected</button>
+              <button class="btn btn-secondary btn-sm" type="button" onclick="clearSubscriptionSelection('ep')">Clear</button>
+            </div>
+            <div id="ep-subPicker" class="subscription-picker hidden"></div>
           </div>
           <div class="form-group" style="min-width:160px;">
             <label for="ep-rbacRole">RBAC Role <span class="hint" style="font-weight:400;">(optional)</span></label>
@@ -437,6 +683,26 @@
               <option value="Contributor" selected>Contributor</option>
               <option value="Reader">Reader</option>
             </select>
+          </div>
+        </div>
+        <div class="assignment-controls">
+          <div class="form-group">
+            <label for="ep-rbacStrategy">Auto RBAC assignment strategy</label>
+            <select id="ep-rbacStrategy">
+              <option value="all" selected>Every target gets every selected subscription</option>
+              <option value="one-to-one">Map teams/users to subscriptions in order</option>
+            </select>
+            <div class="hint">Used after provisioning when an RBAC role and subscriptions are provided.</div>
+          </div>
+          <div class="form-group">
+            <label for="ep-rbacTargetScope">Auto RBAC targets</label>
+            <select id="ep-rbacTargetScope">
+              <option value="teams" selected>Team groups only</option>
+              <option value="teams-admins">Team groups + admin group</option>
+              <option value="admins">Admin group only</option>
+              <option value="users">Individual users</option>
+            </select>
+            <div class="hint">Team groups are recommended because they avoid per-user role sprawl.</div>
           </div>
         </div>
 
@@ -514,10 +780,17 @@
           <div class="form-group">
             <label for="pp-prefix">Hack Prefix</label>
             <input type="text" id="pp-prefix" value="nyc-esri-gcc-" />
+            <div class="hack-picker-row">
+              <select id="pp-hackSelect" onchange="applyHackPrefixSelect('pp-hackSelect','pp-prefix')">
+                <option value="">— Select saved hack —</option>
+              </select>
+              <button class="btn btn-secondary btn-sm" type="button" onclick="withBusy(this, () => loadHackPrefixSelect('pp-hackSelect','pp-prefix', { force: true }))">↻</button>
+            </div>
+            <div class="hint">Pick a saved active hack instead of typing the prefix manually.</div>
           </div>
           <div class="form-group">
             <label for="pp-mode">Mode</label>
-            <select id="pp-mode">
+            <select id="pp-mode" onchange="refreshPermissionPrincipals()">
               <option value="team">Team groups</option>
               <option value="flat">Individual users</option>
             </select>
@@ -534,13 +807,36 @@
 
         <div class="form-group">
           <label for="pp-subs">Subscription IDs (one per line)</label>
-          <div class="hint">In team mode you can map team→subscription by listing one sub per team in order; otherwise all teams get all subs.</div>
+          <div class="hint">Paste IDs manually, or load the subscriptions visible to this service principal and choose from a searchable list.</div>
           <textarea id="pp-subs" placeholder="00000000-0000-0000-0000-000000000000&#10;11111111-1111-1111-1111-111111111111" style="height:100px;" oninput="updateMappingPreview()"></textarea>
-          <div style="margin-top:8px;display:flex;align-items:center;gap:8px;">
-            <input type="checkbox" id="pp-mapTeams" style="width:auto" />
-            <label for="pp-mapTeams" style="margin:0;cursor:pointer;">Map subscriptions 1-to-1 to teams (in order)</label>
+          <div class="subscription-toolbar">
+            <button class="btn btn-secondary btn-sm" type="button" onclick="withBusy(this, () => loadAzureSubscriptions('pp'))">🔎 Load available subscriptions</button>
+            <input type="text" id="pp-subSearch" placeholder="Search loaded subscriptions by name or ID" oninput="renderSubscriptionPicker('pp')" />
+            <button class="btn btn-secondary btn-sm" type="button" onclick="applySelectedSubscriptions('pp')">Add selected</button>
+            <button class="btn btn-secondary btn-sm" type="button" onclick="clearSubscriptionSelection('pp')">Clear</button>
           </div>
-          <div class="hint" style="margin-top:4px;">When mapped 1-to-1: Team 1 → Subscription 1, Team 2 → Subscription 2, etc. Otherwise all principals get all subscriptions.</div>
+          <div id="pp-subPicker" class="subscription-picker hidden"></div>
+        </div>
+
+        <div class="assignment-controls">
+          <div class="form-group">
+            <label for="pp-assignmentStrategy">Assignment strategy</label>
+            <select id="pp-assignmentStrategy" onchange="updateMappingPreview()">
+              <option value="all" selected>Every target gets every selected subscription</option>
+              <option value="one-to-one">Map teams/users to subscriptions in order</option>
+            </select>
+            <div class="hint">Use one-to-one when each team or user should work in a dedicated subscription.</div>
+          </div>
+          <div class="form-group">
+            <label for="pp-targetScope">Targets to assign</label>
+            <select id="pp-targetScope" onchange="refreshPermissionPrincipals()">
+              <option value="teams" selected>Team groups only</option>
+              <option value="teams-admins">Team groups + admin group</option>
+              <option value="admins">Admin group only</option>
+              <option value="users">Individual users</option>
+            </select>
+            <div class="hint">Team groups are recommended. Choose users for flat-mode or per-user access.</div>
+          </div>
         </div>
 
         <div class="actions">
@@ -552,7 +848,7 @@
 
         <div id="pp-subValidation" class="hidden" style="margin-top:12px;padding:10px;background:#f7f9fc;border:1px solid var(--border);border-radius:6px;font-size:13px;"></div>
 
-        <div id="pp-mappingPreview" class="hidden" style="margin-top:12px;padding:10px;background:#fff8e1;border:1px solid #ffe082;border-radius:6px;font-size:13px;">
+        <div id="pp-mappingPreview" class="assignment-preview hidden">
           <div style="font-weight:600;margin-bottom:6px;">📍 Subscription → Principal Mapping Preview</div>
           <div id="pp-mappingList" style="font-family:var(--font-mono);font-size:12px;"></div>
         </div>
@@ -587,6 +883,13 @@
           <div class="form-group">
             <label for="ro-prefix">Hack Prefix</label>
             <input type="text" id="ro-prefix" value="nyc-esri-gcc-" />
+            <div class="hack-picker-row">
+              <select id="ro-hackSelect" onchange="applyHackPrefixSelect('ro-hackSelect','ro-prefix')">
+                <option value="">— Select saved hack —</option>
+              </select>
+              <button class="btn btn-secondary btn-sm" type="button" onclick="withBusy(this, () => loadHackPrefixSelect('ro-hackSelect','ro-prefix', { force: true }))">↻</button>
+            </div>
+            <div class="hint">Choose the active hack to freeze before judging.</div>
           </div>
           <div class="form-group">
             <label for="ro-mode">Apply to</label>
@@ -635,12 +938,19 @@
     <div id="view-cleanup" class="hidden">
       <div class="card">
         <h2>🗑️ Cleanup Hack Resources</h2>
-        <div class="hint" style="margin-bottom:12px">Discover all users + groups whose name starts with the hack prefix, then choose what to delete. <strong>This is destructive — operations cannot be undone.</strong></div>
+        <div class="hint" style="margin-bottom:12px">Discover all users + groups whose name starts with the hack prefix, then choose what to delete. <strong>This is destructive — operations cannot be undone.</strong> Saved hack state is moved to Archive for future reporting instead of being deleted.</div>
 
         <div class="row">
           <div class="form-group">
             <label for="cu-prefix">Hack Prefix</label>
             <input type="text" id="cu-prefix" value="nyc-esri-gcc-" />
+            <div class="hack-picker-row">
+              <select id="cu-hackSelect" onchange="applyHackPrefixSelect('cu-hackSelect','cu-prefix')">
+                <option value="">— Select saved hack —</option>
+              </select>
+              <button class="btn btn-secondary btn-sm" type="button" onclick="withBusy(this, () => loadHackPrefixSelect('cu-hackSelect','cu-prefix', { force: true }))">↻</button>
+            </div>
+            <div class="hint">Cleanup uses active hacks. After cleanup, the state appears under Archive.</div>
           </div>
           <div class="form-group" style="display:flex;align-items:flex-end;">
             <button class="btn btn-secondary" onclick="withBusy(this, discoverForCleanup)">🔍 Discover</button>
@@ -721,7 +1031,7 @@
     <!-- ────────── Manage Existing Hack ────────── -->
     <div id="view-manage" class="hidden">
       <h2>📋 Manage Existing Hack</h2>
-      <p class="hint">Load a previously provisioned hack from Azure Blob Storage. Regenerate TAPs, assign licenses, or review state.</p>
+      <p class="hint">Load a previously provisioned hack from Azure Blob Storage. Active hacks support operations; archived hacks remain available for reports and audit history.</p>
 
       <div class="card">
         <h3>Load Hack</h3>
@@ -732,30 +1042,45 @@
               <input type="text" id="mh-prefix" placeholder="e.g. nyc-esri-gcc-" style="flex:1;" />
               <button class="btn btn-primary btn-sm" onclick="withBusy(this, loadHackState)">📥 Load</button>
             </div>
+            <div class="hack-picker-row">
+              <select id="mh-hackSelect" onchange="applyHackPrefixSelect('mh-hackSelect','mh-prefix')">
+                <option value="">— Select active or archived hack —</option>
+              </select>
+              <button class="btn btn-secondary btn-sm" type="button" onclick="withBusy(this, () => loadHackPrefixSelect('mh-hackSelect','mh-prefix', { includeArchived: true, force: true }))">↻</button>
+            </div>
+            <div class="hint">Archived hacks are read-only in this screen, but reports can still be generated.</div>
           </div>
           <div class="form-group" style="flex:1;">
             <label>&nbsp;</label>
-            <button class="btn btn-secondary btn-sm" onclick="withBusy(this, listSavedHacks)" style="width:100%;">📋 List All Saved Hacks</button>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button class="btn btn-secondary btn-sm" onclick="withBusy(this, () => listSavedHacks(false))" style="flex:1;min-width:130px;">📋 Active Hacks</button>
+              <button class="btn btn-secondary btn-sm" onclick="withBusy(this, () => listSavedHacks(true))" style="flex:1;min-width:130px;">🗄 Archived Hacks</button>
+            </div>
           </div>
         </div>
         <div id="mh-hackList" class="hidden" style="margin-top:10px;padding:8px 12px;background:#f7f9fc;border:1px solid var(--border);border-radius:6px;font-size:13px;max-height:200px;overflow:auto;"></div>
       </div>
 
       <div id="mh-stateCard" class="card hidden">
-        <h3>Hack State: <span id="mh-hackTitle"></span></h3>
+        <h3>Hack State: <span id="mh-hackTitle"></span> <span id="mh-archiveBadge" class="badge badge-archived hidden">Archived</span></h3>
         <div class="row" style="gap:20px;">
           <div><strong>Prefix:</strong> <span id="mh-stPrefix"></span></div>
           <div><strong>Domain:</strong> <span id="mh-stDomain"></span></div>
           <div><strong>Users:</strong> <span id="mh-stUsers"></span></div>
+          <div><strong>Hack Start:</strong> <span id="mh-stHackStart"></span></div>
+          <div><strong>Hack Date:</strong> <span id="mh-stHackDate"></span></div>
+          <div><strong>Read-Only:</strong> <span id="mh-stReadonlyDate"></span></div>
           <div><strong>Created:</strong> <span id="mh-stCreated"></span></div>
           <div><strong>Last Updated:</strong> <span id="mh-stUpdated"></span></div>
-          <div id="mh-endDateRow"><strong>End Date:</strong> <span id="mh-stEndDate" style="color:#c62828;"></span></div>
+          <div id="mh-endDateRow"><strong>Delete Date:</strong> <span id="mh-stEndDate" style="color:#c62828;"></span></div>
         </div>
+        <div id="mh-archiveNotice" class="archive-notice hidden">This hack was cleaned up and archived. Reports and exports remain available, but TAP regeneration, license assignment, and schedule changes are disabled.</div>
 
         <div style="margin-top:16px;">
           <div class="tabs">
             <div class="tab active" data-tab="mh-users" onclick="switchTab(this)">Users</div>
             <div class="tab" data-tab="mh-actions" onclick="switchTab(this)">Actions</div>
+            <div class="tab" data-tab="mh-report" onclick="switchTab(this)">Report</div>
             <div class="tab" data-tab="mh-schedule" onclick="switchTab(this)">Schedule</div>
             <div class="tab" data-tab="mh-versions" onclick="switchTab(this)">Versions</div>
             <div class="tab" data-tab="mh-raw" onclick="switchTab(this)">Raw JSON</div>
@@ -789,13 +1114,13 @@
                   <textarea id="mh-tapUsers" rows="2" placeholder="user1@domain.com, user2@domain.com (blank = all non-admin users)"></textarea>
                 </div>
               </div>
-              <button class="btn btn-primary" onclick="withBusy(this, regenTapForHack)">🔑 Regenerate TAP</button>
+              <button class="btn btn-primary" data-archived-disabled="true" onclick="withBusy(this, regenTapForHack)">🔑 Regenerate TAP</button>
               <span id="mh-tapSpinner" class="hidden"><span class="spinner"></span></span>
             </div>
 
             <div class="card" style="margin-top:10px;">
               <h4>📦 Assign Additional Licenses</h4>
-              <p class="hint">Assign new licenses to users in this hack (non-admin only).</p>
+              <p class="hint">Assign new licenses to users in this hack. Admins are excluded unless the option below is enabled.</p>
               <div class="form-group">
                 <label>Licenses to assign</label>
                 <div id="mh-licenseBox" style="display:flex;flex-wrap:wrap;gap:10px;">
@@ -803,22 +1128,68 @@
                 </div>
               </div>
               <div class="form-group">
-                <label for="mh-licUsers">Users (blank = all non-admin)</label>
+                <label for="mh-licUsers">Users (blank = all selected target users)</label>
                 <textarea id="mh-licUsers" rows="2" placeholder="user1@domain.com, user2@domain.com (blank = all)"></textarea>
               </div>
+              <label style="display:flex;align-items:center;gap:6px;margin:0 0 10px;font-weight:400;font-size:13px;">
+                <input type="checkbox" id="mh-includeAdminLicenses"> Include admin users when assigning these licenses
+              </label>
               <div class="form-group">
                 <label for="mh-licNames">License SKU names (comma-separated)</label>
                 <input type="text" id="mh-licNames" placeholder="e.g. M365_G3_GOV, COPILOT_FOR_MICROSOFT_365_GCC" />
               </div>
-              <button class="btn btn-primary" onclick="withBusy(this, assignLicensesToHack)">📦 Assign Licenses</button>
+              <button class="btn btn-primary" data-archived-disabled="true" onclick="withBusy(this, assignLicensesToHack)">📦 Assign Licenses</button>
               <span id="mh-licSpinner" class="hidden"><span class="spinner"></span></span>
+            </div>
+          </div>
+
+          <div data-tab-content="mh-report" class="hidden">
+            <div class="card" style="margin-top:10px;">
+              <h4>📊 Hack Report</h4>
+              <p class="hint">Generate a report with created users/admins, assigned licenses, and estimated or actual Azure subscription cost allocation per subscription, team, and user.</p>
+              <div class="row">
+                <div class="form-group">
+                  <label for="mh-reportCurrency">Currency</label>
+                  <input type="text" id="mh-reportCurrency" value="USD" maxlength="8" />
+                </div>
+                <div class="form-group">
+                  <label for="mh-costStart">Cost period start</label>
+                  <input type="date" id="mh-costStart" />
+                </div>
+                <div class="form-group">
+                  <label for="mh-costEnd">Cost period end</label>
+                  <input type="date" id="mh-costEnd" />
+                </div>
+              </div>
+              <div class="checkbox-row">
+                <input type="checkbox" id="mh-fetchAzureCosts" />
+                <label for="mh-fetchAzureCosts" style="margin:0;cursor:pointer;">Fetch actual subscription costs from Azure Cost Management</label>
+              </div>
+              <div class="row">
+                <div class="form-group">
+                  <label for="mh-subCosts">Subscription costs / team mapping</label>
+                  <div class="hint">One per line: <code>subscriptionId</code>, <code>subscriptionId,cost</code>, or <code>subscriptionId,cost,team</code>. If Azure cost fetch is checked, cost can be omitted.</div>
+                  <textarea id="mh-subCosts" rows="5" placeholder="00000000-0000-0000-0000-000000000000,250,t01&#10;11111111-1111-1111-1111-111111111111,300,t02" style="font-size:12px;font-family:monospace;"></textarea>
+                </div>
+                <div class="form-group">
+                  <label for="mh-licenseCosts">License unit costs</label>
+                  <div class="hint">One per line: <code>licenseName=monthlyUnitCost</code>. Example: <code>M365_E3=36</code>.</div>
+                  <textarea id="mh-licenseCosts" rows="5" placeholder="M365_E3=36&#10;COPILOT=30" style="font-size:12px;font-family:monospace;"></textarea>
+                </div>
+              </div>
+              <div class="actions">
+                <button class="btn btn-primary" onclick="withBusy(this, generateManagedHackReport)">📊 Generate Report</button>
+                <button class="btn btn-secondary" onclick="downloadManagedHackReportJson()">⬇ JSON</button>
+                <button class="btn btn-secondary" onclick="downloadManagedHackReportCsv()">⬇ CSV</button>
+              </div>
+              <div id="mh-reportBox" class="hidden" style="margin-top:16px;"></div>
             </div>
           </div>
 
           <div data-tab-content="mh-schedule" class="hidden">
             <div class="card" style="margin-top:10px;">
               <h4>⏰ Auto-Cleanup End Date</h4>
-              <p class="hint">Set a date/time after which this hack will be automatically cleaned up — users, groups, RBAC role assignments, and blob state will all be deleted.</p>
+              <p class="hint">Set a date/time after which this hack will be automatically cleaned up — users, groups, and RBAC role assignments are removed, while blob state is archived for future reporting.</p>
               <div class="row">
                 <div class="form-group">
                   <label for="mh-endDateInput">End Date &amp; Time (UTC)</label>
@@ -830,8 +1201,8 @@
                 <div class="hint">RBAC role assignments for hack users/groups will be removed from these subscriptions during cleanup.</div>
                 <textarea id="mh-endDateSubs" rows="3" placeholder="Paste one subscription ID per line (optional — leave blank to skip RBAC cleanup)" style="font-size:12px;font-family:monospace;"></textarea>
               </div>
-              <button class="btn btn-primary" onclick="withBusy(this, setHackEndDate)">⏰ Set End Date</button>
-              <button class="btn btn-secondary" onclick="withBusy(this, clearHackEndDate)" style="margin-left:8px;">✖ Clear End Date</button>
+              <button class="btn btn-primary" data-archived-disabled="true" onclick="withBusy(this, setHackEndDate)">⏰ Set End Date</button>
+              <button class="btn btn-secondary" data-archived-disabled="true" onclick="withBusy(this, clearHackEndDate)" style="margin-left:8px;">✖ Clear End Date</button>
               <span id="mh-endDateSpinner" class="hidden"><span class="spinner"></span></span>
             </div>
 
@@ -1074,11 +1445,12 @@
             <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Mode</td><td style="padding:6px 0;"><b>Team-based</b>: Creates team groups (team01, team02, …) with users distributed across them. <b>Flat</b>: Creates all users without team grouping.</td></tr>
             <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Teams / Users per team</td><td style="padding:6px 0;">Controls how many teams and users per team to create. Total users = teams × users per team.</td></tr>
             <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Admin users</td><td style="padding:6px 0;">Number of admin accounts to create. Admins are assigned Global Reader role and placed in an admins group.</td></tr>
-            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Licenses</td><td style="padding:6px 0;">Select M365/Azure licenses to assign to each non-admin user. Click "Load from Tenant" to see available licenses with remaining capacity.</td></tr>
+            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Licenses</td><td style="padding:6px 0;">Select M365/Azure licenses to assign to participants. Enable “Assign selected M365 licenses to admin users also” when admins need Teams, SharePoint/OneDrive, Copilot, Power BI, or Office apps. Click "Load from Tenant" to see available licenses with remaining capacity.</td></tr>
             <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">TAP lifetime</td><td style="padding:6px 0;">Temporary Access Pass duration in minutes. Set to 0 to use the tenant's maximum. Users use TAP to sign in without a password.</td></tr>
             <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Password</td><td style="padding:6px 0;">Optional shared password for all users. Leave blank for unique random passwords per user.</td></tr>
             <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Force password change</td><td style="padding:6px 0;">If checked, users must change their password on first sign-in.</td></tr>
             <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Hack name</td><td style="padding:6px 0;">Stamped as <code>companyName</code> on each user object for easy identification.</td></tr>
+            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Lifecycle dates</td><td style="padding:6px 0;">Hack Start Date, Hack Date, Read-Only Mode Date, and Delete Date are stored with the hack. Read-only and delete dates schedule lifecycle jobs automatically when provided.</td></tr>
             <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Skip existing</td><td style="padding:6px 0;">If checked, skip users that already exist in the tenant instead of failing.</td></tr>
             <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Pre-flight check</td><td style="padding:6px 0;">Validates permissions, license availability, and subscription access before provisioning.</td></tr>
             <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Schedule Hack</td><td style="padding:6px 0;">Schedule provisioning for a future date/time instead of running immediately.</td></tr>
@@ -1128,20 +1500,21 @@
             <li>Delete all users matching the hack prefix</li>
             <li>Delete all groups (team groups + admin group)</li>
             <li>Remove all RBAC role assignments on specified subscriptions</li>
-            <li>Remove blob state data</li>
+            <li>Move blob state data into Archive for future reports</li>
           </ul>
-          <div style="margin-top:10px;padding:8px 12px;background:#fde7e9;border-radius:6px;">🚨 <b>Warning:</b> This action is <b>irreversible</b>. All hack users, groups, and permissions will be permanently deleted.</div>
+          <div style="margin-top:10px;padding:8px 12px;background:#fde7e9;border-radius:6px;">🚨 <b>Warning:</b> This action is <b>irreversible</b>. All hack users, groups, and permissions will be permanently deleted. The saved hack record is retained under Archive without passwords or TAPs.</div>
         </div>
       </div>
 
       <div class="card">
         <h3>📋 Manage Hack</h3>
         <div style="font-size:13px;line-height:1.8;">
-          <p>Load and manage a previously provisioned hack from Azure Blob Storage.</p>
+          <p>Load and manage a previously provisioned hack from Azure Blob Storage. Use Active Hacks for operations and Archived Hacks for historical reports after cleanup.</p>
           <table style="margin-top:10px;">
             <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Load Hack</td><td style="padding:6px 0;">Enter the hack prefix to load state from blob storage. View all created users, their passwords, TAPs, licenses, and group memberships.</td></tr>
             <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Regenerate TAP</td><td style="padding:6px 0;">Generate new Temporary Access Passes for users whose TAPs have expired.</td></tr>
-            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Assign Licenses</td><td style="padding:6px 0;">Assign additional licenses to hack users who are missing them.</td></tr>
+            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Assign Licenses</td><td style="padding:6px 0;">Assign additional licenses to hack users who are missing them. Admin users are excluded by default and can be included with the admin checkbox.</td></tr>
+            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Report</td><td style="padding:6px 0;">Generate a summary of created users/admins, assigned licenses, and cost allocation by subscription, team, and user. Reports work for active and archived hacks.</td></tr>
             <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Set End Date</td><td style="padding:6px 0;">Schedule automatic read-only and cleanup jobs for the hack.</td></tr>
             <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Export</td><td style="padding:6px 0;">Download results as Excel (.xls) or CSV for distribution to hack participants.</td></tr>
           </table>
@@ -1852,15 +2225,57 @@ function copyProvCode() {
 }
 
 // ──────────── View switching ────────────
+let _activeLifecycleView = 'provision';
+
+function scrollToActiveView() {
+  const view = document.getElementById('view-' + _activeLifecycleView) || document.getElementById('activeStepTarget');
+  if (view) view.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 function switchView(name) {
+  const labels = {
+    'tenant-setup': 'Prepare tenant',
+    provision: 'Plan & provision',
+    permissions: 'Grant Azure access',
+    upload: 'Seed OneDrive content',
+    manage: 'Operate & report',
+    readonly: 'Freeze workspace',
+    cleanup: 'Cleanup safely',
+    scheduler: 'Automation scheduler',
+    chat: 'AI helper',
+    help: 'Help & docs'
+  };
+  const hints = {
+    'tenant-setup': 'Verify required Graph permissions, service principal access, tenant domain, and license availability before creating users.',
+    provision: 'Define dates, teams, admins, TAP policy, passwords, and licenses before running the hack setup.',
+    permissions: 'Assign the correct Azure RBAC role to participant teams or admin users on the selected subscriptions.',
+    upload: 'Seed starter files, policies, and payload content into participant OneDrives after users are ready.',
+    manage: 'Load saved hack state, regenerate TAPs, add licenses, export user data, and create cost reports.',
+    readonly: 'Freeze participant workspaces when submissions close so judges can review content safely.',
+    cleanup: 'Remove hack users, groups, RBAC assignments, and licenses, then archive saved state for future reports.',
+    scheduler: 'Review queued provision, read-only, and cleanup jobs for the full hack lifecycle.',
+    chat: 'Ask the assistant to inspect saved hacks, generate reports, or explain next actions.',
+    help: 'Use the guide for setup instructions, field meanings, and operational safety checks.'
+  };
+  _activeLifecycleView = name;
   document.querySelectorAll('.tab[data-view]').forEach(t => {
     t.classList.toggle('active', t.dataset.view === name);
   });
+  document.querySelectorAll('.lifecycle-card[data-lifecycle-view]').forEach(card => {
+    card.classList.toggle('is-active', card.dataset.lifecycleView === name);
+  });
+  const activeStepLabel = document.getElementById('activeStepLabel');
+  if (activeStepLabel) activeStepLabel.textContent = labels[name] || 'Hack lifecycle';
+  const activeStepTitle = document.getElementById('activeStepTitle');
+  if (activeStepTitle) activeStepTitle.textContent = labels[name] || 'Hack lifecycle';
+  const activeStepHint = document.getElementById('activeStepHint');
+  if (activeStepHint) activeStepHint.textContent = hints[name] || 'Select a lifecycle action to continue.';
   ['upload','provision','permissions','readonly','cleanup','manage','scheduler','chat','tenant-setup','help'].forEach(v => {
     const el = document.getElementById('view-' + v);
     if (el) el.classList.toggle('hidden', v !== name);
   });
   if (name === 'provision') updateProvisionPreview();
+  if (['permissions', 'readonly', 'cleanup', 'manage', 'scheduler'].includes(name)) refreshHackPrefixPickers();
   if (name === 'scheduler') loadAllScheduledJobs();
 }
 
@@ -1979,8 +2394,62 @@ let _entraReport = null;
 let _entraPollTimer = null;
 let _entraPartial = [];  // accumulated partial users so password field survives polling
 
+function _dateInputValue(id) {
+  return ((document.getElementById(id) || {}).value || '').trim();
+}
+
+function _pstToUtcIso(localVal) {
+  if (!localVal) return '';
+  const d = new Date(localVal + ':00-08:00');
+  return Number.isNaN(d.getTime()) ? '' : d.toISOString();
+}
+
+function _getSetupLifecycleDates() {
+  const hackStartDateVal = _dateInputValue('ep-hackStartDate');
+  const hackDateVal = _dateInputValue('ep-hackDate');
+  const readonlyDateVal = _dateInputValue('ep-readonlyDate');
+  const deleteDateVal = _dateInputValue('ep-deleteDate');
+  return {
+    hackStartDateVal,
+    hackDateVal,
+    readonlyDateVal,
+    deleteDateVal,
+    hackStartDate: _pstToUtcIso(hackStartDateVal),
+    hackDate: _pstToUtcIso(hackDateVal),
+    readonlyDate: _pstToUtcIso(readonlyDateVal),
+    deleteDate: _pstToUtcIso(deleteDateVal),
+  };
+}
+
+function _validateSetupLifecycleDates() {
+  const d = _getSetupLifecycleDates();
+  const values = [
+    ['Hack start date', d.hackStartDateVal, d.hackStartDate],
+    ['Hack date', d.hackDateVal, d.hackDate],
+    ['Read-only mode date', d.readonlyDateVal, d.readonlyDate],
+    ['Delete date', d.deleteDateVal, d.deleteDate],
+  ];
+  for (const [label, raw, iso] of values) {
+    if (raw && !iso) { toast(`${label} is invalid`, 'danger'); return false; }
+  }
+  const asTime = iso => iso ? new Date(iso).getTime() : null;
+  const start = asTime(d.hackStartDate);
+  const hack = asTime(d.hackDate);
+  const ro = asTime(d.readonlyDate);
+  const del = asTime(d.deleteDate);
+  if (start && hack && hack < start) { toast('Hack date must be after hack start date', 'danger'); return false; }
+  if (hack && ro && ro < hack) { toast('Read-only mode date must be after hack date', 'danger'); return false; }
+  if (start && ro && ro < start) { toast('Read-only mode date must be after hack start date', 'danger'); return false; }
+  if (ro && !del) { toast('Delete date is required when read-only mode date is set', 'danger'); return false; }
+  if (ro && del && del <= ro) { toast('Delete date must be after read-only mode date', 'danger'); return false; }
+  if (start && del && del < start) { toast('Delete date must be after hack start date', 'danger'); return false; }
+  if (hack && del && del < hack) { toast('Delete date must be after hack date', 'danger'); return false; }
+  return true;
+}
+
 function _epCfg() {
   const licenses = Array.from(document.querySelectorAll('#ep-licenses input:checked')).map(c => c.value);
+  const lifecycle = _getSetupLifecycleDates();
   return {
     prefix: document.getElementById('ep-prefix').value.trim(),
     domain: document.getElementById('ep-domain').value.trim(),
@@ -1989,6 +2458,7 @@ function _epCfg() {
     usersPerTeam: parseInt(document.getElementById('ep-perTeam').value || '0', 10),
     adminUsers: parseInt(document.getElementById('ep-admins').value || '0', 10),
     licenses,
+    assignLicensesToAdmins: document.getElementById('ep-assignLicensesToAdmins').checked,
     tapLifetime: parseInt(document.getElementById('ep-tapLifetime').value || '120', 10),
     concurrency: parseInt(document.getElementById('ep-concurrency').value || '6', 10),
     skipExisting: document.getElementById('ep-skipExisting').checked,
@@ -2000,6 +2470,11 @@ function _epCfg() {
     createdBy: (document.getElementById('ep-createdBy')||{}).value || '',
     initialPassword: (document.getElementById('ep-password')||{}).value || '',
     forceChangePassword: document.getElementById('ep-forceChangePwd').checked,
+    hackStartDate: lifecycle.hackStartDate,
+    hackDate: lifecycle.hackDate,
+    readonlyDate: lifecycle.readonlyDate,
+    deleteDate: lifecycle.deleteDate,
+    endDate: lifecycle.deleteDate,
   };
 }
 
@@ -2007,6 +2482,7 @@ async function runPreflight() {
   const creds = getCreds();
   if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
   if (!(await _ensureTenantDetected())) { toast('Could not detect tenant domain', 'danger'); return; }
+  if (!_validateSetupLifecycleDates()) return;
   const cfg = _epCfg();
   const box = document.getElementById('ep-preflightBox');
   const summary = document.getElementById('ep-preflightSummary');
@@ -2223,9 +2699,14 @@ function showScheduleHackDialog() {
   document.getElementById('ep-scheduleDialog').classList.remove('hidden');
   const el = document.getElementById('ep-scheduleDate');
   if (!el.value) {
-    // Default to tomorrow 9 AM
-    const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0);
-    el.value = d.toISOString().slice(0, 16);
+    const hackStart = _dateInputValue('ep-hackStartDate');
+    if (hackStart) {
+      el.value = hackStart;
+    } else {
+      // Default to tomorrow 9 AM
+      const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0);
+      el.value = d.toISOString().slice(0, 16);
+    }
   }
 }
 
@@ -2234,6 +2715,7 @@ async function scheduleHack() {
   const creds = getCreds();
   if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
   if (!(await _ensureTenantDetected())) { toast('Could not detect tenant domain', 'danger'); return; }
+  if (!_validateSetupLifecycleDates()) return;
   const cfg = _epCfg();
   const provDateVal = (document.getElementById('ep-scheduleDate') || {}).value || '';
   if (!provDateVal) { toast('Pick a date/time for provisioning', 'danger'); return; }
@@ -2242,11 +2724,7 @@ async function scheduleHack() {
 
 /* Schedule provision for a future date */
 async function _scheduleProvision(creds, cfg, provDateVal) {
-  function pstToUtc(localVal) {
-    const d = new Date(localVal + ':00-08:00');
-    return d.toISOString();
-  }
-  const scheduledAt = pstToUtc(provDateVal);
+  const scheduledAt = _pstToUtcIso(provDateVal);
   const schedDate = new Date(scheduledAt);
   if (schedDate <= new Date()) {
     toast('Provision date must be in the future', 'danger');
@@ -2262,19 +2740,21 @@ async function _scheduleProvision(creds, cfg, provDateVal) {
     if (res.ok) {
       toast(`Hack scheduled for ${schedDate.toLocaleString()} UTC`, 'success');
       // Also schedule lifecycle (readonly/cleanup) if dates provided
-      const endDateVal = (document.getElementById('ep-endDate') || {}).value || '';
-      const roDateVal = (document.getElementById('ep-readonlyDate') || {}).value || '';
-      if (endDateVal) {
+      const lifecycle = _getSetupLifecycleDates();
+      if (lifecycle.deleteDate) {
         const subsRaw = (document.getElementById('ep-scheduleSubs') || {}).value || '';
         const subIds = subsRaw.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
         const mode = cfg.mode || 'team';
         const body = {
           ...creds,
-          endDate: pstToUtc(endDateVal),
+          endDate: lifecycle.deleteDate,
+          deleteDate: lifecycle.deleteDate,
+          hackStartDate: lifecycle.hackStartDate,
+          hackDate: lifecycle.hackDate,
           mode,
           subscriptionIds: subIds,
         };
-        if (roDateVal) body.readonlyDate = pstToUtc(roDateVal);
+        if (lifecycle.readonlyDate) body.readonlyDate = lifecycle.readonlyDate;
         try {
           await fetch(`${API}/hack-state/${encodeURIComponent(cfg.prefix)}/set-end-date`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -2291,6 +2771,35 @@ async function _scheduleProvision(creds, cfg, provDateVal) {
 }
 
 /* Auto-assign RBAC role on subscriptions after provisioning */
+function _buildAutoRbacPrincipals(report) {
+  const cfg = _epCfg();
+  const mode = cfg.mode || 'team';
+  const scope = (document.getElementById('ep-rbacTargetScope') || {}).value || 'teams';
+  const users = (report.users || [])
+    .filter(u => (u.id || u.userId) && u.status !== 'failed')
+    .map(u => ({
+      id: u.id || u.userId,
+      type: 'User',
+      displayName: u.userPrincipalName || u.displayName || u.id || u.userId,
+      userPrincipalName: u.userPrincipalName,
+    }));
+  if (mode === 'flat' || scope === 'users') return users.sort((a, b) => _principalLabel(a).localeCompare(_principalLabel(b)));
+
+  const groups = (report.groups || [])
+    .filter(g => g.id)
+    .map(g => ({ id: g.id, type: 'Group', displayName: g.displayName || g.name || g.id }));
+  const teamGroups = groups.filter(g => !_isAdminPrincipalName(g.displayName));
+  const adminGroups = groups.filter(g => _isAdminPrincipalName(g.displayName));
+  const selected = scope === 'admins' ? adminGroups
+    : scope === 'teams-admins' ? [...teamGroups, ...adminGroups]
+    : teamGroups;
+  return selected.sort((a, b) => {
+    const ak = _principalTeamKey(a) || _principalLabel(a).toLowerCase();
+    const bk = _principalTeamKey(b) || _principalLabel(b).toLowerCase();
+    return ak.localeCompare(bk);
+  });
+}
+
 async function _autoAssignRbac() {
   const role = (document.getElementById('ep-rbacRole') || {}).value || '';
   if (!role) return;
@@ -2299,36 +2808,25 @@ async function _autoAssignRbac() {
   if (!subIds.length) return;
   const creds = getCreds();
   if (!creds) return;
-  // Gather created users + groups from the provision report
   const report = _entraReport;
   if (!report) return;
-  const principals = [];
-  for (const u of (report.users || [])) {
-    if (u.status === 'created' && u.id) {
-      principals.push({ id: u.id, type: 'User', displayName: u.userPrincipalName || '' });
-    }
-  }
-  for (const g of (report.groups || [])) {
-    if (g.id) {
-      principals.push({ id: g.id, type: 'Group', displayName: g.displayName || '' });
-    }
-  }
+  const principals = _buildAutoRbacPrincipals(report);
   if (!principals.length) return;
+  const strategy = (document.getElementById('ep-rbacStrategy') || {}).value || 'all';
+  const plan = _buildAssignmentPlan(subIds, principals, strategy);
   try {
-    toast(`Assigning ${role} on ${subIds.length} subscription(s) to ${principals.length} principal(s)…`, 'info');
-    const res = await fetch(`${API}/assign-permissions`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...creds, subscriptions: subIds, principals, role }),
-    });
-    const data = await res.json();
-    if (res.ok) {
-      const results = data.results || data;
-      const ok = Array.isArray(results) ? results.filter(r => r.status === 'assigned').length : '?';
-      const fail = Array.isArray(results) ? results.filter(r => r.status === 'failed').length : 0;
-      toast(`RBAC: ${ok} assigned, ${fail} failed`, fail > 0 ? 'warn' : 'success');
+    toast(`Assigning ${role}: ${plan.length} RBAC assignment(s)…`, 'info');
+    let results = [];
+    if (strategy === 'one-to-one') {
+      for (const item of plan) {
+        results = results.concat(await _doAssign(creds, [item.subscription], [item.principal], role));
+      }
     } else {
-      toast('RBAC assignment failed: ' + (data.error || ''), 'danger');
+      results = await _doAssign(creds, subIds, principals, role);
     }
+    const ok = results.filter(r => r.status === 'assigned').length;
+    const fail = results.filter(r => r.status === 'failed').length;
+    toast(`RBAC: ${ok} assigned, ${fail} failed`, fail > 0 ? 'warn' : 'success');
   } catch (e) {
     toast('RBAC assignment failed: ' + e.message, 'danger');
   }
@@ -2336,9 +2834,8 @@ async function _autoAssignRbac() {
 
 /* Auto-schedule readonly + cleanup jobs if dates were provided */
 async function _autoScheduleLifecycle() {
-  const endDateVal = (document.getElementById('ep-endDate') || {}).value || '';
-  const roDateVal = (document.getElementById('ep-readonlyDate') || {}).value || '';
-  if (!endDateVal) return; // no end date → nothing to schedule
+  const lifecycle = _getSetupLifecycleDates();
+  if (!lifecycle.deleteDate) return; // no delete date → nothing to schedule
   const creds = getCreds();
   if (!creds) return;
   const prefix = (document.getElementById('ep-prefix') || {}).value.trim();
@@ -2346,19 +2843,16 @@ async function _autoScheduleLifecycle() {
   const mode = (document.getElementById('ep-mode') || {}).value || 'team';
   const subsRaw = (document.getElementById('ep-scheduleSubs') || {}).value || '';
   const subIds = subsRaw.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
-  // Convert PST inputs to UTC ISO strings (PST = UTC-8)
-  function pstToUtc(localVal) {
-    // datetime-local gives "YYYY-MM-DDTHH:MM", treat as PST (UTC-8)
-    const d = new Date(localVal + ':00-08:00');
-    return d.toISOString();
-  }
   const body = {
     ...creds,
-    endDate: pstToUtc(endDateVal),
+    endDate: lifecycle.deleteDate,
+    deleteDate: lifecycle.deleteDate,
+    hackStartDate: lifecycle.hackStartDate,
+    hackDate: lifecycle.hackDate,
     mode,
     subscriptionIds: subIds,
   };
-  if (roDateVal) body.readonlyDate = pstToUtc(roDateVal);
+  if (lifecycle.readonlyDate) body.readonlyDate = lifecycle.readonlyDate;
   try {
     const res = await fetch(`${API}/hack-state/${encodeURIComponent(prefix)}/set-end-date`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -2517,6 +3011,215 @@ function _splitLines(text) {
   return (text || '').split(/[\r\n,]+/).map(s => s.trim()).filter(Boolean);
 }
 
+let _loadedSubscriptions = [];
+const _subscriptionSelections = { ep: new Set(), pp: new Set() };
+const _subscriptionTargets = {
+  ep: { textarea: 'ep-scheduleSubs', search: 'ep-subSearch', picker: 'ep-subPicker' },
+  pp: { textarea: 'pp-subs', search: 'pp-subSearch', picker: 'pp-subPicker' },
+};
+
+function _subscriptionIdsFromTarget(target) {
+  const cfg = _subscriptionTargets[target];
+  return cfg ? _splitLines((document.getElementById(cfg.textarea) || {}).value || '') : [];
+}
+
+function _subscriptionById(id) {
+  return _loadedSubscriptions.find(s => (s.subscriptionId || '').toLowerCase() === String(id || '').toLowerCase()) || null;
+}
+
+function _subscriptionDisplay(id) {
+  const sub = _subscriptionById(id);
+  return sub ? `${sub.displayName || 'Unnamed subscription'} (${sub.subscriptionId})` : id;
+}
+
+async function fetchAzureSubscriptions(query = '') {
+  const creds = getCreds();
+  if (!creds) { toast('Enter SPN credentials first', 'danger'); return null; }
+  const res = await fetch(`${API}/subscriptions`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...creds, query }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data.subscriptions || [];
+}
+
+async function loadAzureSubscriptions(target) {
+  const cfg = _subscriptionTargets[target];
+  if (!cfg) return;
+  const picker = document.getElementById(cfg.picker);
+  picker.classList.remove('hidden');
+  picker.innerHTML = '<span class="spinner" style="display:inline-block;width:14px;height:14px;"></span> Loading subscriptions visible to this SPN…';
+  try {
+    _loadedSubscriptions = await fetchAzureSubscriptions('') || [];
+    _subscriptionSelections[target] = new Set(_subscriptionIdsFromTarget(target));
+    renderSubscriptionPicker(target);
+    toast(`Loaded ${_loadedSubscriptions.length} subscription(s)`, 'success');
+  } catch (e) {
+    picker.innerHTML = `<span style="color:var(--danger)">Failed to load subscriptions: ${esc(e.message)}</span>`;
+    toast('Failed to load subscriptions: ' + e.message, 'danger');
+  }
+}
+
+function toggleSubscriptionSelection(target, subscriptionId, checked) {
+  if (!_subscriptionSelections[target]) _subscriptionSelections[target] = new Set();
+  if (checked) _subscriptionSelections[target].add(subscriptionId);
+  else _subscriptionSelections[target].delete(subscriptionId);
+}
+
+function renderSubscriptionPicker(target) {
+  const cfg = _subscriptionTargets[target];
+  if (!cfg) return;
+  const picker = document.getElementById(cfg.picker);
+  const search = ((document.getElementById(cfg.search) || {}).value || '').toLowerCase().trim();
+  if (!_loadedSubscriptions.length) {
+    picker.classList.remove('hidden');
+    picker.innerHTML = '<span class="hint">No subscriptions loaded yet. Click “Load available subscriptions”.</span>';
+    return;
+  }
+  const current = new Set(_subscriptionIdsFromTarget(target));
+  const selected = _subscriptionSelections[target] || new Set();
+  const rows = _loadedSubscriptions.filter(sub => {
+    const haystack = `${sub.displayName || ''} ${sub.subscriptionId || ''}`.toLowerCase();
+    return !search || haystack.includes(search);
+  });
+  picker.classList.remove('hidden');
+  picker.innerHTML = rows.map(sub => {
+    const id = sub.subscriptionId || '';
+    const checked = selected.has(id) || current.has(id);
+    return `<label class="subscription-row">
+      <input type="checkbox" ${checked ? 'checked' : ''} onchange="toggleSubscriptionSelection('${target}', '${esc(id)}', this.checked)" />
+      <div>
+        <div class="subscription-name">${esc(sub.displayName || 'Unnamed subscription')}</div>
+        <div class="subscription-id">${esc(id)}</div>
+      </div>
+      <span class="subscription-state">${esc(sub.state || 'Visible')}</span>
+    </label>`;
+  }).join('') || '<div class="hint" style="padding:8px;">No subscriptions match the search.</div>';
+}
+
+function applySelectedSubscriptions(target) {
+  const cfg = _subscriptionTargets[target];
+  if (!cfg) return;
+  const selected = Array.from(_subscriptionSelections[target] || new Set()).filter(Boolean);
+  const existing = _subscriptionIdsFromTarget(target);
+  const merged = Array.from(new Set([...existing, ...selected]));
+  document.getElementById(cfg.textarea).value = merged.join('\n');
+  if (target === 'pp') updateMappingPreview();
+  toast(`${merged.length} subscription(s) selected`, 'success');
+}
+
+function clearSubscriptionSelection(target) {
+  const cfg = _subscriptionTargets[target];
+  if (!cfg) return;
+  _subscriptionSelections[target] = new Set();
+  document.getElementById(cfg.textarea).value = '';
+  renderSubscriptionPicker(target);
+  if (target === 'pp') updateMappingPreview();
+}
+
+let _savedHackCache = { active: null, archived: null, loadedAt: 0 };
+
+async function fetchSavedHacks(options = {}) {
+  const includeArchived = !!options.includeArchived;
+  const force = !!options.force;
+  if (!force && _savedHackCache.active && (!includeArchived || _savedHackCache.archived)) {
+    return {
+      active: _savedHackCache.active || [],
+      archived: includeArchived ? (_savedHackCache.archived || []) : [],
+    };
+  }
+
+  const activeRes = await fetch(`${API}/hack-state`);
+  const active = await activeRes.json();
+  if (!activeRes.ok) throw new Error(active.error || 'Failed to load saved hacks');
+  _savedHackCache.active = Array.isArray(active) ? active : [];
+
+  if (includeArchived) {
+    const archivedRes = await fetch(`${API}/hack-state/archive`);
+    const archived = await archivedRes.json();
+    if (!archivedRes.ok) throw new Error(archived.error || 'Failed to load archived hacks');
+    _savedHackCache.archived = Array.isArray(archived) ? archived : [];
+  }
+  _savedHackCache.loadedAt = Date.now();
+  return {
+    active: _savedHackCache.active || [],
+    archived: includeArchived ? (_savedHackCache.archived || []) : [],
+  };
+}
+
+function _hackSelectLabel(h, archived = false) {
+  const bits = [h.prefix || ''];
+  if (h.hackName) bits.push(`(${h.hackName})`);
+  if (h.totalUsers != null) bits.push(`— ${h.totalUsers} users`);
+  if (archived) bits.push('— archived');
+  return bits.filter(Boolean).join(' ');
+}
+
+async function loadHackPrefixSelect(selectId, inputId, options = {}) {
+  const sel = document.getElementById(selectId);
+  if (!sel) return;
+  const includeArchived = !!options.includeArchived;
+  sel.innerHTML = '<option value="">— Loading hacks… —</option>';
+  try {
+    const { active, archived } = await fetchSavedHacks(options);
+    const currentValue = (document.getElementById(inputId) || {}).value || '';
+    const optionsHtml = ['<option value="">— Select saved hack —</option>'];
+    if (active.length) {
+      optionsHtml.push('<optgroup label="Active hacks">');
+      for (const h of active) optionsHtml.push(`<option value="${esc(h.prefix || '')}">${esc(_hackSelectLabel(h))}</option>`);
+      optionsHtml.push('</optgroup>');
+    }
+    if (includeArchived && archived.length) {
+      optionsHtml.push('<optgroup label="Archived hacks">');
+      for (const h of archived) optionsHtml.push(`<option value="${esc(h.prefix || '')}">${esc(_hackSelectLabel(h, true))}</option>`);
+      optionsHtml.push('</optgroup>');
+    }
+    if (!active.length && (!includeArchived || !archived.length)) {
+      optionsHtml.push('<option value="" disabled>No saved hacks found</option>');
+    }
+    sel.innerHTML = optionsHtml.join('');
+    if (currentValue) sel.value = currentValue;
+  } catch (e) {
+    sel.innerHTML = `<option value="">— ${esc(e.message || 'Failed to load')} —</option>`;
+  }
+}
+
+function applyHackPrefixSelect(selectId, inputId) {
+  const sel = document.getElementById(selectId);
+  const input = document.getElementById(inputId);
+  if (!sel || !input || !sel.value) return;
+  input.value = sel.value;
+  if (inputId === 'pp-prefix') {
+    _ppDiscovery = null;
+    _ppPrincipals = [];
+    document.getElementById('pp-btnAssign').disabled = true;
+    document.getElementById('pp-discoveryBox').classList.add('hidden');
+    updateMappingPreview();
+  } else if (inputId === 'ro-prefix') {
+    _roPrincipals = [];
+    document.getElementById('ro-btnApply').disabled = true;
+    document.getElementById('ro-warning').classList.add('hidden');
+    document.getElementById('ro-discoveryBox').classList.add('hidden');
+  } else if (inputId === 'cu-prefix') {
+    _cuDiscovery = null;
+    document.getElementById('cu-discoveryCard').classList.add('hidden');
+    document.getElementById('cu-resultCard').classList.add('hidden');
+    document.getElementById('cu-confirmInput').value = '';
+    document.getElementById('cu-btnCleanup').disabled = true;
+  }
+}
+
+async function refreshHackPrefixPickers(force = false) {
+  await Promise.allSettled([
+    loadHackPrefixSelect('pp-hackSelect', 'pp-prefix', { force }),
+    loadHackPrefixSelect('ro-hackSelect', 'ro-prefix', { force }),
+    loadHackPrefixSelect('cu-hackSelect', 'cu-prefix', { force }),
+    loadHackPrefixSelect('mh-hackSelect', 'mh-prefix', { includeArchived: true, force }),
+    _loadHackPrefixes(force),
+  ]);
+}
+
 async function _discover(prefix) {
   const creds = getCreds();
   if (!creds) { toast('Enter SPN credentials first', 'danger'); return null; }
@@ -2535,6 +3238,51 @@ let _ppPrincipals = [];
 let _ppDiscovery = null;
 let _ppLastResults = null;
 
+function _isAdminPrincipalName(name) {
+  return /(^|-)admins?$/i.test(String(name || '')) || /(^|\s)admin(s)?($|\s)/i.test(String(name || ''));
+}
+
+function _principalTeamKey(principal) {
+  const text = `${principal.displayName || ''} ${principal.userPrincipalName || ''}`;
+  const m = text.match(/(?:^|-|\s)(t\d{2,})(?:-|\s|$)/i);
+  return m ? m[1].toLowerCase() : '';
+}
+
+function _principalLabel(principal) {
+  return principal.displayName || principal.userPrincipalName || principal.id || '';
+}
+
+function refreshPermissionPrincipals() {
+  if (!_ppDiscovery) return;
+  const mode = document.getElementById('pp-mode').value;
+  const scope = document.getElementById('pp-targetScope').value;
+  if (mode === 'flat' || scope === 'users') {
+    _ppPrincipals = (_ppDiscovery.users || []).map(u => ({
+      id: u.id, type: 'User', displayName: u.userPrincipalName || u.displayName,
+      userPrincipalName: u.userPrincipalName,
+    }));
+  } else {
+    const groups = (_ppDiscovery.groups || []).map(g => ({ id: g.id, type: 'Group', displayName: g.displayName }));
+    const teamGroups = groups.filter(g => !_isAdminPrincipalName(g.displayName));
+    const adminGroups = groups.filter(g => _isAdminPrincipalName(g.displayName));
+    if (scope === 'admins') _ppPrincipals = adminGroups;
+    else if (scope === 'teams-admins') _ppPrincipals = [...teamGroups, ...adminGroups];
+    else _ppPrincipals = teamGroups;
+  }
+  _ppPrincipals.sort((a, b) => {
+    const ak = _principalTeamKey(a) || _principalLabel(a).toLowerCase();
+    const bk = _principalTeamKey(b) || _principalLabel(b).toLowerCase();
+    return ak.localeCompare(bk);
+  });
+  document.getElementById('pp-discoverySummary').textContent =
+    `Found ${(_ppDiscovery.users || []).length} users + ${(_ppDiscovery.groups || []).length} groups → ${_ppPrincipals.length} selected RBAC target(s).`;
+  document.getElementById('pp-discoveryList').innerHTML =
+    _ppPrincipals.map(p => `${esc(p.type)}: ${esc(_principalLabel(p))} (${esc(p.id)})`).join('<br>') || '<em>None</em>';
+  document.getElementById('pp-discoveryBox').classList.remove('hidden');
+  document.getElementById('pp-btnAssign').disabled = _ppPrincipals.length === 0;
+  updateMappingPreview();
+}
+
 async function discoverForPermissions() {
   const prefix = document.getElementById('pp-prefix').value.trim();
   document.getElementById('pp-discoveryBox').classList.add('hidden');
@@ -2542,19 +3290,24 @@ async function discoverForPermissions() {
   const data = await _discover(prefix);
   if (!data) return;
   _ppDiscovery = data;
-  const mode = document.getElementById('pp-mode').value;
-  if (mode === 'team') {
-    _ppPrincipals = data.groups.map(g => ({ id: g.id, type: 'Group', displayName: g.displayName }));
-  } else {
-    _ppPrincipals = data.users.map(u => ({ id: u.id, type: 'User', displayName: u.userPrincipalName }));
+  refreshPermissionPrincipals();
+}
+
+function _buildAssignmentPlan(subs, principals, strategy) {
+  if (strategy === 'one-to-one') {
+    return principals.map((principal, i) => ({
+      subscription: subs[i % subs.length],
+      principal,
+      note: i >= subs.length ? 'cycled subscription list' : '',
+    }));
   }
-  document.getElementById('pp-discoverySummary').textContent =
-    `Found ${data.users.length} users + ${data.groups.length} groups → ${_ppPrincipals.length} ${mode === 'team' ? 'group(s)' : 'user(s)'} target for assignment.`;
-  document.getElementById('pp-discoveryList').innerHTML =
-    _ppPrincipals.map(p => `${esc(p.type)}: ${esc(p.displayName)} (${esc(p.id)})`).join('<br>') || '<em>None</em>';
-  document.getElementById('pp-discoveryBox').classList.remove('hidden');
-  document.getElementById('pp-btnAssign').disabled = _ppPrincipals.length === 0;
-  updateMappingPreview();
+  const plan = [];
+  for (const sub of subs) {
+    for (const principal of principals) {
+      plan.push({ subscription: sub, principal, note: '' });
+    }
+  }
+  return plan;
 }
 
 async function assignPermissions() {
@@ -2565,9 +3318,8 @@ async function assignPermissions() {
   if (!subs.length) { toast('At least one subscription ID required', 'danger'); return; }
   if (!_ppPrincipals.length) { toast('Run discovery first', 'danger'); return; }
 
-  // Optional 1-to-1 team-sub mapping
-  const mapTeams = document.getElementById('pp-mapTeams').checked;
-  const mode = document.getElementById('pp-mode').value;
+  const strategy = document.getElementById('pp-assignmentStrategy').value;
+  const plan = _buildAssignmentPlan(subs, _ppPrincipals, strategy);
 
   const btn = document.getElementById('pp-btnAssign');
   btn.disabled = true;
@@ -2577,11 +3329,9 @@ async function assignPermissions() {
 
   let allResults = [];
   try {
-    if (mode === 'team' && mapTeams) {
-      // 1-to-1: principal[i] → subs[i]; if more principals than subs, cycle subs
-      for (let i = 0; i < _ppPrincipals.length; i++) {
-        const sub = subs[i % subs.length];
-        const r = await _doAssign(creds, [sub], [_ppPrincipals[i]], role);
+    if (strategy === 'one-to-one') {
+      for (const item of plan) {
+        const r = await _doAssign(creds, [item.subscription], [item.principal], role);
         allResults = allResults.concat(r);
         renderRbacRows(allResults);
       }
@@ -2798,12 +3548,19 @@ async function executeCleanup() {
     document.getElementById('cu-resultCard').classList.remove('hidden');
     const okU = (data.users || []).filter(u => u.status === 'deleted').length;
     const okG = (data.groups || []).filter(g => g.status === 'deleted').length;
+    const archiveMsg = data.blob_state_archived
+      ? ' · <span style="color:var(--success)">Hack state archived for future reports</span>'
+      : data.blob_state_error
+        ? ` · <span style="color:var(--danger)">State archive error: ${esc(data.blob_state_error)}</span>`
+        : data.blob_state_note
+          ? ` · <span style="color:var(--muted)">${esc(data.blob_state_note)}</span>`
+          : '';
     document.getElementById('cu-resultSummary').innerHTML =
-      `<span style="color:var(--success)">Deleted ${okU}/${(data.users || []).length} users, ${okG}/${(data.groups || []).length} groups</span>` +
-      (data.blob_state_deleted ? ' · <span style="color:var(--success)">Hack state removed from storage</span>' :
-       data.blob_state_error ? ` · <span style="color:var(--danger)">State cleanup error: ${esc(data.blob_state_error)}</span>` : '');
+      `<span style="color:var(--success)">Deleted ${okU}/${(data.users || []).length} users, ${okG}/${(data.groups || []).length} groups</span>` + archiveMsg;
     toast(`Deleted ${okU}/${(data.users || []).length} users, ${okG}/${(data.groups || []).length} groups` +
-      (data.blob_state_deleted ? ' + state cleaned' : ''), 'success');
+      (data.blob_state_archived ? ' + state archived' : ''), 'success');
+    _savedHackCache = { active: null, archived: null, loadedAt: 0 };
+    refreshHackPrefixPickers(true);
   } catch (e) {
     toast('Cleanup failed: ' + e.message, 'danger');
   } finally {
@@ -2854,7 +3611,8 @@ async function checkLicenseAvailability() {
   const creds = getCreds();
   if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
   const cfg = _epCfg();
-  const totalUsers = (cfg.mode === 'flat' ? cfg.usersPerTeam : cfg.teams * cfg.usersPerTeam) + cfg.adminUsers;
+  const participantUsers = cfg.mode === 'flat' ? cfg.usersPerTeam : cfg.teams * cfg.usersPerTeam;
+  const licenseSeatCount = participantUsers + (cfg.assignLicensesToAdmins ? cfg.adminUsers : 0);
   const box = document.getElementById('ep-licenseAvailability');
   box.classList.remove('hidden');
   box.innerHTML = '<span class="spinner" style="display:inline-block;width:14px;height:14px;"></span> Checking…';
@@ -2875,11 +3633,11 @@ async function checkLicenseAvailability() {
     for (const sku of skus) {
       const avail = (sku.prepaidUnits?.enabled || 0) - (sku.consumedUnits || 0);
       const isSelected = cfg.licenses.some(l => (sku.skuPartNumber || '').toUpperCase().includes(l));
-      const needsSeats = isSelected && avail < totalUsers;
+      const needsSeats = isSelected && avail < licenseSeatCount;
       const color = needsSeats ? 'var(--danger)' : 'var(--success)';
       const icon = needsSeats ? '⚠️' : '✓';
       const rowStyle = isSelected ? 'font-weight:600;' : 'opacity:0.6;';
-      html += `<tr style="${rowStyle}"><td>${esc(sku.skuPartNumber)}</td><td>${sku.prepaidUnits?.enabled || 0}</td><td>${sku.consumedUnits || 0}</td><td style="color:${color}">${avail}</td><td>${isSelected ? (needsSeats ? `<span style="color:var(--danger)">${icon} Need ${totalUsers}, only ${avail} avail</span>` : `<span style="color:var(--success)">${icon} OK (need ${totalUsers})</span>`) : ''}</td></tr>`;
+      html += `<tr style="${rowStyle}"><td>${esc(sku.skuPartNumber)}</td><td>${sku.prepaidUnits?.enabled || 0}</td><td>${sku.consumedUnits || 0}</td><td style="color:${color}">${avail}</td><td>${isSelected ? (needsSeats ? `<span style="color:var(--danger)">${icon} Need ${licenseSeatCount}, only ${avail} avail</span>` : `<span style="color:var(--success)">${icon} OK (need ${licenseSeatCount})</span>`) : ''}</td></tr>`;
     }
     html += '</tbody></table>';
     box.innerHTML = html;
@@ -2899,23 +3657,17 @@ async function validateSubscriptions() {
   box.innerHTML = '<span class="spinner" style="display:inline-block;width:14px;height:14px;"></span> Validating…';
   let html = '';
   try {
-    // Quick check via tenant-info which includes subscription list
-    const res = await fetch(`${API}/tenant-info`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(creds),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Failed');
-    const knownSubs = (data.subscriptions || []).map(s => s.subscriptionId || s.id || s);
+    if (!_loadedSubscriptions.length) _loadedSubscriptions = await fetchAzureSubscriptions('') || [];
+    const knownSubs = _loadedSubscriptions.map(s => String(s.subscriptionId || s.id || s).toLowerCase()).filter(Boolean);
     html = '<div style="font-weight:600;margin-bottom:6px;">Subscription Validation</div>';
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     for (const sub of subs) {
       if (!uuidRegex.test(sub)) {
         html += `<div style="color:var(--danger)">✗ <code>${esc(sub)}</code> — invalid format (not a UUID)</div>`;
-      } else if (knownSubs.length && !knownSubs.includes(sub)) {
+      } else if (knownSubs.length && !knownSubs.includes(sub.toLowerCase())) {
         html += `<div style="color:var(--warn)">⚠ <code>${esc(sub)}</code> — not visible to SPN (check access)</div>`;
       } else {
-        html += `<div style="color:var(--success)">✓ <code>${esc(sub)}</code> — accessible</div>`;
+        html += `<div style="color:var(--success)">✓ <code>${esc(sub)}</code> — accessible${_subscriptionById(sub) ? ` (${esc(_subscriptionById(sub).displayName || '')})` : ''}</div>`;
       }
     }
     box.innerHTML = html;
@@ -2928,17 +3680,23 @@ async function validateSubscriptions() {
 // ──────────── Mapping preview (Permissions page) ────────────
 function updateMappingPreview() {
   if (!_ppPrincipals.length) return;
-  const mapTeams = document.getElementById('pp-mapTeams').checked;
+  const strategy = document.getElementById('pp-assignmentStrategy').value;
   const subs = _splitLines(document.getElementById('pp-subs').value);
-  if (!subs.length || !mapTeams) {
+  if (!subs.length) {
     document.getElementById('pp-mappingPreview').classList.add('hidden');
     return;
   }
-  let html = '';
-  for (let i = 0; i < _ppPrincipals.length; i++) {
-    const sub = subs[i % subs.length];
-    html += `<div>${esc(_ppPrincipals[i].displayName)} → <code>${esc(sub)}</code></div>`;
-  }
+  const plan = _buildAssignmentPlan(subs, _ppPrincipals, strategy);
+  const maxRows = 60;
+  let html = `<div><strong>${plan.length}</strong> role assignment(s) will be attempted using <strong>${strategy === 'one-to-one' ? 'one-to-one mapping' : 'all subscriptions to all targets'}</strong>.</div>`;
+  html += '<table><thead><tr><th>Target</th><th>Subscription</th><th>Note</th></tr></thead><tbody>';
+  html += plan.slice(0, maxRows).map(item => `<tr>
+    <td>${esc(item.principal.type)} · ${esc(_principalLabel(item.principal))}</td>
+    <td><code style="font-size:11px;">${esc(_subscriptionDisplay(item.subscription))}</code></td>
+    <td>${esc(item.note || '')}</td>
+  </tr>`).join('');
+  if (plan.length > maxRows) html += `<tr><td colspan="3" class="empty">Showing first ${maxRows} of ${plan.length} assignments.</td></tr>`;
+  html += '</tbody></table>';
   document.getElementById('pp-mappingList').innerHTML = html;
   document.getElementById('pp-mappingPreview').classList.remove('hidden');
 }
@@ -3012,8 +3770,9 @@ function updateJobsPanel(jobs) {
   body.innerHTML = html;
 }
 
-// Init: also update mapping preview when mapTeams checkbox changes
-document.getElementById('pp-mapTeams').addEventListener('change', updateMappingPreview);
+// Keep older deployments safe if the legacy mapTeams checkbox exists.
+const _legacyMapTeams = document.getElementById('pp-mapTeams');
+if (_legacyMapTeams) _legacyMapTeams.addEventListener('change', updateMappingPreview);
 
 // ──────────── Hack name validation on provision start ────────────
 const _origStartProvision = startProvision;
@@ -3025,28 +3784,32 @@ startProvision = async function() {
 
 // ──────────── Manage Existing Hack (Blob State) ────────────
 let _managedHackState = null;
+let _managedHackReport = null;
 
-async function listSavedHacks() {
+async function listSavedHacks(archived = false) {
   const box = document.getElementById('mh-hackList');
   box.classList.remove('hidden');
   box.innerHTML = '<span class="spinner" style="display:inline-block;width:14px;height:14px;"></span> Loading…';
   try {
-    const res = await fetch(`${API}/hack-state`);
+    const res = await fetch(`${API}/hack-state${archived ? '/archive' : ''}`);
     const hacks = await res.json();
     if (!res.ok) throw new Error(hacks.error || 'Failed');
     if (Array.isArray(hacks) && hacks.length === 0) {
-      box.innerHTML = '<span class="hint">No saved hacks found. Provision users first, and state will be saved automatically.</span>';
+      box.innerHTML = archived
+        ? '<span class="hint">No archived hacks found yet. Cleanup an active hack to move it here for historical reports.</span>'
+        : '<span class="hint">No active saved hacks found. Provision users first, and state will be saved automatically.</span>';
       return;
     }
-    let html = '<div style="font-weight:600;margin-bottom:6px;">Saved Hacks</div>';
-    html += '<table style="width:100%;font-size:12px;"><thead><tr><th>Prefix</th><th>Hack Name</th><th>Domain</th><th>Users</th><th>Last Updated</th><th></th></tr></thead><tbody>';
+    let html = `<div style="font-weight:600;margin-bottom:6px;">${archived ? 'Archived Hacks' : 'Active Saved Hacks'}</div>`;
+    html += '<table style="width:100%;font-size:12px;"><thead><tr><th>Prefix</th><th>Status</th><th>Hack Name</th><th>Domain</th><th>Users</th><th>Last Updated</th><th></th></tr></thead><tbody>';
     for (const h of hacks) {
       html += `<tr>
         <td><code>${esc(h.prefix)}</code></td>
+        <td>${archived ? '<span class="badge badge-archived">Archived</span>' : '<span class="badge badge-completed">Active</span>'}</td>
         <td>${esc(h.hackName || '-')}</td>
         <td>${esc(h.domain || '-')}</td>
         <td>${h.totalUsers || 0}</td>
-        <td>${esc((h.lastUpdated||'').substring(0,19))}</td>
+        <td>${esc(((archived ? h.archivedAt : h.lastUpdated) || h.lastUpdated || '').substring(0,19))}</td>
         <td><button class="btn btn-secondary btn-sm" onclick="document.getElementById('mh-prefix').value='${esc(h.prefix)}';loadHackState()">Load</button></td>
       </tr>`;
     }
@@ -3066,6 +3829,9 @@ async function loadHackState() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Not found');
     _managedHackState = data;
+    document.getElementById('mh-prefix').value = data.prefix || cleanPrefix;
+    const mhSelect = document.getElementById('mh-hackSelect');
+    if (mhSelect) mhSelect.value = data.prefix || cleanPrefix;
     _renderManagedHackState(data);
     toast(`Loaded state for "${cleanPrefix}"`, 'success');
   } catch (e) {
@@ -3076,19 +3842,36 @@ async function loadHackState() {
 function _renderManagedHackState(state) {
   document.getElementById('mh-stateCard').classList.remove('hidden');
   document.getElementById('mh-hackTitle').textContent = state.hackName || state.prefix || '';
+  const archived = !!(state.isArchived || state.archivedAt || state.lifecycleStatus === 'archived');
+  document.getElementById('mh-archiveBadge').classList.toggle('hidden', !archived);
+  const archiveNotice = document.getElementById('mh-archiveNotice');
+  archiveNotice.classList.toggle('hidden', !archived);
+  if (archived) {
+    const archivedAt = (state.archivedAt || '').substring(0, 19) || 'unknown time';
+    archiveNotice.textContent = `This hack was cleaned up and archived at ${archivedAt}. Reports and exports remain available; TAP regeneration, license assignment, and schedule changes are disabled.`;
+  }
+  document.querySelectorAll('[data-archived-disabled]').forEach(el => { el.disabled = archived; });
   document.getElementById('mh-stPrefix').textContent = state.prefix || '';
   document.getElementById('mh-stDomain').textContent = state.domain || '';
   document.getElementById('mh-stUsers').textContent = String(state.totalUsers || 0);
   document.getElementById('mh-stCreated').textContent = (state.createdAt || '').substring(0, 19);
   document.getElementById('mh-stUpdated').textContent = (state.lastUpdated || '').substring(0, 19);
 
-  // End date
+  const lifecycle = state || {};
+  const lifecycleDate = (value) => value ? `${new Date(value).toLocaleString()} (UTC: ${String(value).substring(0, 19)})` : 'Not set';
+  document.getElementById('mh-stHackStart').textContent = lifecycleDate(lifecycle.hackStartDate);
+  document.getElementById('mh-stHackDate').textContent = lifecycleDate(lifecycle.hackDate);
+  document.getElementById('mh-stReadonlyDate').textContent = lifecycleDate(lifecycle.readonlyDate);
+
+  // Delete date (legacy states may still store this as endDate)
   const endDateSpan = document.getElementById('mh-stEndDate');
-  if (state.endDate) {
-    const ed = new Date(state.endDate);
-    endDateSpan.textContent = ed.toLocaleString() + ' (UTC: ' + state.endDate.substring(0,19) + ')';
+  const deleteDate = state.deleteDate || state.endDate || '';
+  if (deleteDate) {
+    const ed = new Date(deleteDate);
+    endDateSpan.textContent = ed.toLocaleString() + ' (UTC: ' + String(deleteDate).substring(0,19) + ')';
+    endDateSpan.style.color = '#c62828';
     const endInput = document.getElementById('mh-endDateInput');
-    if (endInput) endInput.value = state.endDate.substring(0, 16);
+    if (endInput) endInput.value = String(deleteDate).substring(0, 16);
   } else {
     endDateSpan.textContent = 'Not set';
     endDateSpan.style.color = '#888';
@@ -3098,6 +3881,8 @@ function _renderManagedHackState(state) {
   if (subsArea && state.subscriptionIds && state.subscriptionIds.length) {
     subsArea.value = state.subscriptionIds.join('\n');
   }
+
+  _prefillManagedReportInputs(state);
 
   // Users table
   const body = document.getElementById('mh-usersBody');
@@ -3147,6 +3932,7 @@ async function _loadHackVersions(prefix) {
 
 async function regenTapForHack() {
   if (!_managedHackState) { toast('Load a hack first', 'danger'); return; }
+  if (_managedHackState.isArchived || _managedHackState.archivedAt) { toast('Archived hacks are report-only', 'warn'); return; }
   const creds = getCreds();
   if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
   const prefix = _managedHackState.prefix.replace(/-$/, '');
@@ -3174,6 +3960,7 @@ async function regenTapForHack() {
 
 async function assignLicensesToHack() {
   if (!_managedHackState) { toast('Load a hack first', 'danger'); return; }
+  if (_managedHackState.isArchived || _managedHackState.archivedAt) { toast('Archived hacks are report-only', 'warn'); return; }
   const creds = getCreds();
   if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
   const prefix = _managedHackState.prefix.replace(/-$/, '');
@@ -3181,11 +3968,12 @@ async function assignLicensesToHack() {
   if (!licNames.length) { toast('Enter at least one license SKU name', 'danger'); return; }
   const usersText = document.getElementById('mh-licUsers').value.trim();
   const users = usersText ? usersText.split(/[\r\n,]+/).map(s => s.trim()).filter(Boolean) : undefined;
+  const includeAdmins = document.getElementById('mh-includeAdminLicenses').checked;
   document.getElementById('mh-licSpinner').classList.remove('hidden');
   try {
     const res = await fetch(`${API}/hack-state/${encodeURIComponent(prefix)}/assign-licenses`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...creds, licenses: licNames, users }),
+      body: JSON.stringify({ ...creds, licenses: licNames, users, includeAdmins }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Failed');
@@ -3251,6 +4039,225 @@ function downloadManagedHackCsv() {
   a.click();
 }
 
+function _todayIsoDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function _prefillManagedReportInputs(state) {
+  const start = document.getElementById('mh-costStart');
+  const end = document.getElementById('mh-costEnd');
+  if (start && !start.value) start.value = (state.createdAt || '').slice(0, 10) || _todayIsoDate();
+  if (end && !end.value) end.value = _todayIsoDate();
+
+  const licBox = document.getElementById('mh-licenseCosts');
+  if (licBox && !licBox.value.trim()) {
+    const names = Array.from(new Set((state.users || []).flatMap(u => u.licenses || []))).sort();
+    licBox.value = names.map(n => `${n}=`).join('\n');
+  }
+
+  const subBox = document.getElementById('mh-subCosts');
+  let subs = state.subscriptionIds || (state.config && state.config.subscriptionIds) || [];
+  if (typeof subs === 'string') subs = subs.split(/[\r\n,]+/).map(s => s.trim()).filter(Boolean);
+  if (subBox && !subBox.value.trim() && subs.length) {
+    subBox.value = subs.join('\n');
+  }
+}
+
+function _parseLicenseCostLines(text) {
+  const out = {};
+  for (const raw of (text || '').split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    const parts = line.includes('=') ? line.split('=') : line.split(/[,:\t|]/);
+    const name = (parts[0] || '').trim();
+    const value = parseFloat(String(parts.slice(1).join('=')).replace(/[$,]/g, '').trim());
+    if (name && Number.isFinite(value)) out[name] = value;
+  }
+  return out;
+}
+
+function _parseSubscriptionCostLines(text) {
+  const out = [];
+  for (const raw of (text || '').split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    const parts = line.split(/[,:\t|]/).map(p => p.trim()).filter(Boolean);
+    if (!parts.length) continue;
+    const entry = { subscriptionId: parts[0] };
+    for (const part of parts.slice(1)) {
+      const amount = parseFloat(part.replace(/[$,]/g, ''));
+      if (Number.isFinite(amount) && entry.cost == null) entry.cost = amount;
+      else if (!entry.team) entry.team = part.toLowerCase();
+      else if (!entry.displayName) entry.displayName = part;
+    }
+    out.push(entry);
+  }
+  return out;
+}
+
+function _money(value, currency) {
+  if (value == null || value === '') return '-';
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return '-';
+  return `${currency || ''} ${amount.toFixed(2)}`.trim();
+}
+
+async function generateManagedHackReport() {
+  if (!_managedHackState) { toast('Load a hack first', 'danger'); return; }
+  const prefix = _managedHackState.prefix.replace(/-$/, '');
+  const fetchSubscriptionCosts = document.getElementById('mh-fetchAzureCosts').checked;
+  let creds = {};
+  if (fetchSubscriptionCosts) {
+    creds = getCreds();
+    if (!creds) { toast('Enter SPN credentials to fetch Azure costs', 'danger'); return; }
+  }
+  const subscriptionCosts = _parseSubscriptionCostLines(document.getElementById('mh-subCosts').value);
+  const subscriptionIds = Array.from(new Set(subscriptionCosts.map(s => s.subscriptionId).filter(Boolean)));
+  if (fetchSubscriptionCosts && !subscriptionIds.length) {
+    toast('Enter at least one subscription ID to fetch Azure costs', 'danger');
+    return;
+  }
+
+  const body = {
+    ...creds,
+    fetchSubscriptionCosts,
+    subscriptionIds,
+    subscriptionCosts,
+    licenseUnitCosts: _parseLicenseCostLines(document.getElementById('mh-licenseCosts').value),
+    currency: (document.getElementById('mh-reportCurrency').value || 'USD').trim().toUpperCase(),
+    startDate: document.getElementById('mh-costStart').value,
+    endDate: document.getElementById('mh-costEnd').value,
+  };
+  const box = document.getElementById('mh-reportBox');
+  box.classList.remove('hidden');
+  box.innerHTML = '<span class="spinner"></span> Generating report…';
+  try {
+    const res = await fetch(`${API}/hack-state/${encodeURIComponent(prefix)}/report`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    _managedHackReport = data;
+    _renderManagedHackReport(data);
+    toast('Report generated', 'success');
+  } catch (e) {
+    box.innerHTML = `<span style="color:var(--danger)">Report failed: ${esc(e.message)}</span>`;
+    toast('Report failed: ' + e.message, 'danger');
+  }
+}
+
+function _renderManagedHackReport(report) {
+  const box = document.getElementById('mh-reportBox');
+  const summary = report.summary || {};
+  const costs = report.costs || {};
+  const currency = report.currency || costs.currency || '';
+  const licenseItems = (report.licenses && report.licenses.items) || [];
+  const subItems = (report.subscriptions && report.subscriptions.items) || [];
+  const teams = report.teams || [];
+  const users = report.users || [];
+
+  const stats = [
+    ['Total Users', summary.totalUsers || 0],
+    ['Participants', summary.participantUsers || 0],
+    ['Admins', summary.adminUsers || 0],
+    ['Created Users', summary.createdUsers || 0],
+    ['Created Admins', summary.createdAdmins || 0],
+    ['Existing', summary.existing || 0],
+    ['Failed', summary.failed || 0],
+  ].map(([label, value]) => `<div class="stat-tile"><div class="stat-label">${esc(label)}</div><div class="stat-value">${esc(value)}</div></div>`).join('');
+
+  const costStats = [
+    ['License / month', _money(costs.licenseMonthly, currency)],
+    ['Subscription period', _money(costs.subscriptionPeriod, currency)],
+    ['Total estimated', _money(costs.totalEstimated, currency)],
+  ].map(([label, value]) => `<div class="stat-tile"><div class="stat-label">${esc(label)}</div><div class="stat-value" style="font-size:18px;">${esc(value)}</div></div>`).join('');
+
+  const licenseRows = licenseItems.map(l => `<tr>
+    <td>${esc(l.name)}</td><td>${l.assignedUsers || 0}</td><td>${_money(l.unitCost, currency)}</td><td>${_money(l.estimatedMonthlyCost, currency)}</td>
+  </tr>`).join('') || '<tr><td colspan="4" class="empty">No licenses assigned</td></tr>';
+
+  const subRows = subItems.map(s => `<tr>
+    <td><code style="font-size:11px;">${esc(s.subscriptionId)}</code></td>
+    <td>${esc(s.team || 'all participants')}</td>
+    <td>${esc(s.source || 'manual')}</td>
+    <td>${s.targetUsers || 0}</td>
+    <td>${_money(s.cost, s.currency || currency)}</td>
+    <td>${_money(s.costPerUser, s.currency || currency)}</td>
+    <td style="color:var(--danger);font-size:11px;">${esc(s.error || '')}</td>
+  </tr>`).join('') || '<tr><td colspan="7" class="empty">No subscription costs supplied</td></tr>';
+
+  const teamRows = teams.map(t => `<tr>
+    <td>${esc(t.team)}</td><td>${t.users || 0}</td><td>${_money(t.licenseCost, currency)}</td><td>${_money(t.subscriptionCost, currency)}</td><td>${_money(t.totalEstimatedCost, currency)}</td>
+  </tr>`).join('') || '<tr><td colspan="5" class="empty">No team allocation</td></tr>';
+
+  const userRows = users.map(u => `<tr>
+    <td><code style="font-size:11px;">${esc(u.userPrincipalName)}</code></td>
+    <td>${esc(u.isAdmin ? 'admin' : (u.team || 'participant'))}</td>
+    <td>${esc(u.status || '')}</td>
+    <td>${(u.licenses || []).map(esc).join(', ') || '-'}</td>
+    <td>${_money(u.licenseCost, currency)}</td>
+    <td>${_money(u.subscriptionCost, currency)}</td>
+    <td>${_money(u.totalEstimatedCost, currency)}</td>
+  </tr>`).join('') || '<tr><td colspan="7" class="empty">No users</td></tr>';
+
+  const notes = (report.notes || []).length
+    ? `<div style="margin-top:10px;padding:10px;background:#fff4ce;border-radius:6px;font-size:12px;"><strong>Notes:</strong><ul style="margin:6px 0 0 18px;">${report.notes.map(n => `<li>${esc(n)}</li>`).join('')}</ul></div>`
+    : '';
+
+  box.innerHTML = `
+    <div class="stats" style="gap:10px;">${stats}</div>
+    <div class="stats" style="gap:10px;">${costStats}</div>
+    ${notes}
+    <h4 style="margin-top:16px;">Licenses</h4>
+    <table><thead><tr><th>License</th><th>Assigned Users</th><th>Unit Cost</th><th>Estimated Monthly Cost</th></tr></thead><tbody>${licenseRows}</tbody></table>
+    <h4 style="margin-top:16px;">Subscription Costs</h4>
+    <table><thead><tr><th>Subscription</th><th>Team</th><th>Source</th><th>Users</th><th>Cost</th><th>Cost / User</th><th>Error</th></tr></thead><tbody>${subRows}</tbody></table>
+    <h4 style="margin-top:16px;">Team Allocation</h4>
+    <table><thead><tr><th>Team</th><th>Users</th><th>License Cost</th><th>Subscription Cost</th><th>Total</th></tr></thead><tbody>${teamRows}</tbody></table>
+    <h4 style="margin-top:16px;">Per-User Allocation</h4>
+    <div class="results-scroll" style="max-height:300px;"><table><thead><tr><th>User</th><th>Type/Team</th><th>Status</th><th>Licenses</th><th>License Cost</th><th>Subscription Cost</th><th>Total</th></tr></thead><tbody>${userRows}</tbody></table></div>
+  `;
+}
+
+function _downloadText(filename, text, type) {
+  const blob = new Blob([text], { type });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+}
+
+function downloadManagedHackReportJson() {
+  if (!_managedHackReport) { toast('Generate a report first', 'warn'); return; }
+  _downloadText(`hack_report_${_managedHackReport.prefix || 'export'}.json`, JSON.stringify(_managedHackReport, null, 2), 'application/json;charset=utf-8');
+}
+
+function downloadManagedHackReportCsv() {
+  if (!_managedHackReport) { toast('Generate a report first', 'warn'); return; }
+  const rows = [];
+  const add = (...cols) => rows.push(cols.map(v => String(v == null ? '' : v)));
+  const s = _managedHackReport.summary || {};
+  const c = _managedHackReport.costs || {};
+  add('Section', 'Metric', 'Value');
+  for (const [k, v] of Object.entries(s)) add('Summary', k, v);
+  for (const [k, v] of Object.entries(c)) add('Costs', k, v);
+  add('', '', '');
+  add('Licenses', 'Name', 'Assigned Users', 'Unit Cost', 'Estimated Monthly Cost');
+  for (const l of ((_managedHackReport.licenses || {}).items || [])) add('Licenses', l.name, l.assignedUsers, l.unitCost, l.estimatedMonthlyCost);
+  add('', '', '');
+  add('Subscriptions', 'Subscription ID', 'Team', 'Source', 'Target Users', 'Cost', 'Cost Per User', 'Error');
+  for (const sub of ((_managedHackReport.subscriptions || {}).items || [])) add('Subscriptions', sub.subscriptionId, sub.team || 'all participants', sub.source, sub.targetUsers, sub.cost, sub.costPerUser, sub.error || '');
+  add('', '', '');
+  add('Teams', 'Team', 'Users', 'License Cost', 'Subscription Cost', 'Total');
+  for (const t of (_managedHackReport.teams || [])) add('Teams', t.team, t.users, t.licenseCost, t.subscriptionCost, t.totalEstimatedCost);
+  add('', '', '');
+  add('Users', 'UPN', 'Type/Team', 'Status', 'Licenses', 'License Cost', 'Subscription Cost', 'Total');
+  for (const u of (_managedHackReport.users || [])) add('Users', u.userPrincipalName, u.isAdmin ? 'admin' : (u.team || 'participant'), u.status, (u.licenses || []).join('|'), u.licenseCost, u.subscriptionCost, u.totalEstimatedCost);
+  const csv = '\ufeff' + rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\r\n');
+  _downloadText(`hack_report_${_managedHackReport.prefix || 'export'}.csv`, csv, 'text/csv;charset=utf-8');
+}
+
 async function generateAdminGuide() {
   if (!_managedHackState) { toast('Load a hack first', 'danger'); return; }
   const prefix = _managedHackState.prefix.replace(/-$/, '');
@@ -3284,6 +4291,7 @@ async function generateAdminGuide() {
 
 async function setHackEndDate() {
   if (!_managedHackState) { toast('Load a hack first', 'danger'); return; }
+  if (_managedHackState.isArchived || _managedHackState.archivedAt) { toast('Archived hacks are report-only', 'warn'); return; }
   const input = document.getElementById('mh-endDateInput').value;
   if (!input) { toast('Select an end date & time', 'danger'); return; }
   const endDate = new Date(input).toISOString();
@@ -3314,6 +4322,7 @@ async function setHackEndDate() {
 
 async function clearHackEndDate() {
   if (!_managedHackState) { toast('Load a hack first', 'danger'); return; }
+  if (_managedHackState.isArchived || _managedHackState.archivedAt) { toast('Archived hacks are report-only', 'warn'); return; }
   const prefix = _managedHackState.prefix.replace(/-$/, '');
   const creds = getSPNCreds();
   if (!creds.tenant_id) { toast('Enter SPN credentials', 'danger'); return; }
@@ -3615,13 +4624,12 @@ function toggleCreateJobForm() {
   }
 }
 
-async function _loadHackPrefixes() {
+async function _loadHackPrefixes(force = false) {
   const sel = document.getElementById('sj-hackPrefix');
+  if (!sel) return;
   sel.innerHTML = '<option value="">— Loading… —</option>';
   try {
-    const res = await fetch(`${API}/hack-state`);
-    const hacks = await res.json();
-    if (!res.ok) throw new Error(hacks.error || 'Failed');
+    const { active: hacks } = await fetchSavedHacks({ force });
     let html = '<option value="">— Select a hack —</option>';
     for (const h of hacks) {
       const label = h.hackName ? `${h.prefix} (${h.hackName})` : h.prefix;

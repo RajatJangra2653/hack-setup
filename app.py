@@ -148,7 +148,7 @@ def _scheduler_cleanup(prefix: str, tenant_id: str, client_id: str, client_secre
     """Called by scheduler to cleanup an expired hack (runs in scheduler thread).
 
     Deletes Entra ID users, groups, removes RBAC assignments from subscriptions,
-    and deletes blob state. Returns result dict with details.
+    and archives blob state for later reporting. Returns result dict with details.
     """
     sub_ids = subscription_ids or []
     async def _do():
@@ -183,11 +183,12 @@ def _scheduler_cleanup(prefix: str, tenant_id: str, client_id: str, client_secre
             "rbac_removed": rbac_results,
         }
     result = asyncio.run(_do())
-    # Delete blob state
+    # Archive blob state so historical reports can still be generated.
     mgr = _get_state_manager()
     if mgr:
-        mgr.delete_state(prefix)
-    result["state_deleted"] = True
+        result["state_archived"] = mgr.archive_state(prefix, reason="scheduled_cleanup", cleanup_result=result)
+    else:
+        result["state_archived"] = False
     return result
 
 # ── In-memory Entra provisioning sessions ──
@@ -772,6 +773,37 @@ def tenant_info():
         return jsonify({"error": str(exc)}), 500
 
 
+async def _async_list_subscriptions(t, c, s):
+    tp = _make_token_provider(t, c, s)
+    async with RbacService(tp) as rbac:
+        return await rbac.list_subscriptions()
+
+
+@app.route("/api/subscriptions", methods=["POST"])
+def list_subscriptions():
+    """List Azure subscriptions visible to the supplied service principal."""
+    data = request.get_json(silent=True) or {}
+    creds = _extract_creds(data)
+    if not creds:
+        return jsonify({"error": "Missing SPN credentials"}), 400
+    try:
+        query = (data.get("query") or "").strip().lower()
+        subscriptions = asyncio.run(_async_list_subscriptions(*creds))
+        if query:
+            subscriptions = [
+                s for s in subscriptions
+                if query in (s.get("subscriptionId") or "").lower()
+                or query in (s.get("displayName") or "").lower()
+            ]
+        subscriptions = sorted(
+            subscriptions,
+            key=lambda s: ((s.get("displayName") or "").lower(), s.get("subscriptionId") or ""),
+        )
+        return jsonify({"subscriptions": subscriptions, "count": len(subscriptions)})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 async def _async_assign_permissions(t, c, s, *, subscriptions, principals, role):
     tp = _make_token_provider(t, c, s)
     out = []
@@ -870,7 +902,7 @@ async def _async_cleanup(t, c, s, *, user_ids, group_ids, sub_ids, principal_ids
 
 @app.route("/api/cleanup-hack", methods=["POST"])
 def cleanup_hack():
-    """Delete selected users + groups + RBAC assignments, then remove blob state.
+    """Delete selected users + groups + RBAC assignments, then archive blob state.
 
     Body: { tenant_id, client_id, client_secret,
             userIds: [], groupIds: [],
@@ -889,15 +921,18 @@ def cleanup_hack():
             sub_ids=data.get("subscriptionIds") or [],
             principal_ids=data.get("principalIds") or [],
         ))
-        # Delete hack state from blob storage if prefix provided
+        # Archive hack state from blob storage if prefix provided. Archived state
+        # remains reportable while no longer appearing in active hack lists.
         prefix = (data.get("hackPrefix") or "").strip()
         if prefix:
             try:
                 mgr = _get_state_manager()
                 if mgr:
-                    deleted = mgr.delete_state(prefix)
-                    result["blob_state_deleted"] = deleted
+                    archived = mgr.archive_state(prefix, cleanup_result=result)
+                    result["blob_state_archived"] = archived
+                    result["blob_state_deleted"] = False
                 else:
+                    result["blob_state_archived"] = False
                     result["blob_state_deleted"] = False
                     result["blob_state_note"] = "Storage not configured"
             except Exception as exc:
@@ -946,6 +981,18 @@ def list_hacks():
         return jsonify({"error": "Storage not configured (set AZURE_STORAGE_CONNECTION_STRING)"}), 503
     try:
         return jsonify(mgr.list_hacks())
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/hack-state/archive", methods=["GET"])
+def list_archived_hacks():
+    """List archived hacks retained after cleanup."""
+    mgr = _get_state_manager()
+    if not mgr:
+        return jsonify({"error": "Storage not configured (set AZURE_STORAGE_CONNECTION_STRING)"}), 503
+    try:
+        return jsonify(mgr.list_archived_hacks())
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
@@ -1034,7 +1081,8 @@ def assign_licenses_to_hack(prefix):
 
     Body: { tenant_id, client_id, client_secret,
             licenses: ["SKU_PART_1", ...],
-            users?: [upn1, ...] }  // omit for all non-admin users
+            users?: [upn1, ...],
+            includeAdmins?: true }  // omit users for all non-admin users, or all users if includeAdmins=true
     """
     data = request.get_json(silent=True) or {}
     creds = _extract_creds(data)
@@ -1052,17 +1100,19 @@ def assign_licenses_to_hack(prefix):
     if not licenses:
         return jsonify({"error": "licenses[] required"}), 400
     target_upns = data.get("users")
+    include_admins = bool(data.get("includeAdmins", False))
 
     try:
         results = asyncio.run(_async_assign_licenses(
-            *creds, state=state, licenses=licenses, target_upns=target_upns))
+            *creds, state=state, licenses=licenses, target_upns=target_upns,
+            include_admins=include_admins))
         updated_state = mgr.update_user_licenses(prefix, results)
         return jsonify({"results": results, "updatedUsers": len(results)})
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
 
-async def _async_assign_licenses(t, c, s, *, state, licenses, target_upns):
+async def _async_assign_licenses(t, c, s, *, state, licenses, target_upns, include_admins: bool = False):
     from onedrive_provisioner.entra.license_service import LicenseService
     tp = _make_token_provider(t, c, s)
     results = []
@@ -1075,7 +1125,7 @@ async def _async_assign_licenses(t, c, s, *, state, licenses, target_upns):
         for u in state.get("users", []):
             upn = u.get("userPrincipalName", "")
             uid = u.get("userId", "")
-            if not uid or u.get("isAdmin"):
+            if not uid or (u.get("isAdmin") and not include_admins):
                 continue
             if target_upns and upn not in target_upns:
                 continue
@@ -1088,6 +1138,100 @@ async def _async_assign_licenses(t, c, s, *, state, licenses, target_upns):
                 "status": "ok" if assigned else "failed",
             })
     return results
+
+
+async def _async_fetch_subscription_costs(t, c, s, *, subscription_ids, start_date, end_date):
+    from onedrive_provisioner.entra.cost_service import CostManagementService
+
+    tp = _make_token_provider(t, c, s)
+    async with CostManagementService(tp) as cost_svc:
+        return await cost_svc.query_subscription_costs(
+            subscription_ids,
+            start_date=start_date,
+            end_date=end_date,
+        )
+
+
+def _merge_subscription_cost_inputs(manual_costs, fetched_costs):
+    merged: Dict[str, dict] = {}
+    for item in manual_costs or []:
+        if not isinstance(item, dict):
+            continue
+        sub_id = (item.get("subscriptionId") or item.get("subscription") or item.get("id") or "").strip()
+        if sub_id:
+            merged[sub_id] = dict(item)
+            merged[sub_id]["subscriptionId"] = sub_id
+    for item in fetched_costs or []:
+        sub_id = item.get("subscriptionId", "")
+        if not sub_id:
+            continue
+        existing = merged.get(sub_id, {"subscriptionId": sub_id})
+        existing.update({
+            "cost": item.get("cost"),
+            "currency": item.get("currency") or existing.get("currency", ""),
+            "source": item.get("source", "azure_cost_management"),
+            "periodStart": item.get("periodStart", ""),
+            "periodEnd": item.get("periodEnd", ""),
+            "error": item.get("error", ""),
+        })
+        merged[sub_id] = existing
+    return list(merged.values())
+
+
+@app.route("/api/hack-state/<prefix>/report", methods=["POST"])
+def build_hack_report_api(prefix):
+    """Build a management report for a saved hack.
+
+    Body: { tenant_id?, client_id?, client_secret?,
+            fetchSubscriptionCosts?: true,
+            subscriptionIds?: [subId],
+            subscriptionCosts?: [{subscriptionId, cost?, team?}],
+            licenseUnitCosts?: {skuName: unitCost},
+            startDate?: "YYYY-MM-DD", endDate?: "YYYY-MM-DD",
+            currency?: "USD" }
+    """
+    from onedrive_provisioner.hack_report import build_hack_report
+
+    data = request.get_json(silent=True) or {}
+    mgr = _get_state_manager()
+    if not mgr:
+        return jsonify({"error": "Storage not configured"}), 503
+    state = mgr.get_state(prefix)
+    if not state:
+        return jsonify({"error": f"No state found for prefix '{prefix}'"}), 404
+
+    subscription_costs = data.get("subscriptionCosts") or []
+    fetched_costs = []
+    if data.get("fetchSubscriptionCosts"):
+        creds = _extract_creds(data)
+        if not creds:
+            return jsonify({"error": "SPN credentials required to fetch Azure costs"}), 400
+        subscription_ids = data.get("subscriptionIds") or [
+            sc.get("subscriptionId") or sc.get("subscription") or sc.get("id")
+            for sc in subscription_costs if isinstance(sc, dict)
+        ]
+        subscription_ids = [str(s).strip() for s in subscription_ids if str(s or "").strip()]
+        if not subscription_ids:
+            return jsonify({"error": "subscriptionIds[] required to fetch Azure costs"}), 400
+        start_date = data.get("startDate") or (state.get("createdAt") or "")[:10]
+        end_date = data.get("endDate") or datetime.now(timezone.utc).date().isoformat()
+        fetched_costs = asyncio.run(_async_fetch_subscription_costs(
+            *creds,
+            subscription_ids=subscription_ids,
+            start_date=start_date,
+            end_date=end_date,
+        ))
+        subscription_costs = _merge_subscription_cost_inputs(subscription_costs, fetched_costs)
+
+    report = build_hack_report(
+        state,
+        subscription_costs=subscription_costs,
+        license_unit_costs=data.get("licenseUnitCosts") or {},
+        currency=data.get("currency") or "USD",
+    )
+    if fetched_costs:
+        report["costFetch"] = {"subscriptionsQueried": len(fetched_costs)}
+    return jsonify(report)
 
 
 # ────────────────────── Scheduler ──────────────────────
@@ -1110,6 +1254,11 @@ def set_hack_end_date(prefix):
     readonly_date = (data.get("readonlyDate") or "").strip() or None
     mode = data.get("mode") or "team"
     sub_ids = data.get("subscriptionIds") or []
+    lifecycle_metadata = {
+        "hackStartDate": (data.get("hackStartDate") or "").strip(),
+        "hackDate": (data.get("hackDate") or "").strip(),
+        "deleteDate": (data.get("deleteDate") or end_date).strip(),
+    }
 
     scheduler = _get_scheduler()
     if not scheduler:
@@ -1119,9 +1268,13 @@ def set_hack_end_date(prefix):
         t, c, s = creds
         jobs = scheduler.set_hack_end_date(prefix, end_date, {
             "tenant_id": t, "client_id": c, "client_secret": s,
-        }, subscription_ids=sub_ids, readonly_date=readonly_date, mode=mode)
+        }, subscription_ids=sub_ids, readonly_date=readonly_date, mode=mode,
+           metadata=lifecycle_metadata)
         return jsonify({"message": f"End date set for '{prefix}'",
                         "endDate": end_date,
+                        "deleteDate": lifecycle_metadata["deleteDate"],
+                        "hackStartDate": lifecycle_metadata["hackStartDate"],
+                        "hackDate": lifecycle_metadata["hackDate"],
                         "readonlyDate": readonly_date,
                         "subscriptionIds": sub_ids,
                         "jobs": [j.to_dict() for j in jobs]})

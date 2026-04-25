@@ -55,6 +55,38 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "generate_hack_report",
+            "description": "Generate a saved hack report with user/admin counts, licenses assigned, and optional cost allocation by subscription/team/user.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prefix": {"type": "string", "description": "The hack prefix"},
+                    "currency": {"type": "string", "description": "Currency code for manual cost inputs, default USD"},
+                    "licenseUnitCosts": {
+                        "type": "object",
+                        "description": "Optional map of license/SKU name to monthly unit cost",
+                        "additionalProperties": {"type": "number"},
+                    },
+                    "subscriptionCosts": {
+                        "type": "array",
+                        "description": "Optional subscription costs to allocate. Each item may include subscriptionId, cost, and team.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "subscriptionId": {"type": "string"},
+                                "cost": {"type": "number"},
+                                "team": {"type": "string"},
+                            },
+                        },
+                    },
+                },
+                "required": ["prefix"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_provisioning_sessions",
             "description": "List recent provisioning sessions (in-memory). Shows session IDs, status, config, timing.",
             "parameters": {"type": "object", "properties": {}, "required": []},
@@ -116,6 +148,7 @@ TOOLS = [
                     "adminUsers": {"type": "integer", "description": "Admin users (default 1)"},
                     "mode": {"type": "string", "enum": ["team", "flat"], "description": "Provisioning mode"},
                     "licenses": {"type": "array", "items": {"type": "string"}, "description": "License SKU names to assign"},
+                    "assignLicensesToAdmins": {"type": "boolean", "description": "Set true to assign selected licenses to admin users also"},
                     "hackName": {"type": "string", "description": "Human-friendly hack name"},
                     "dryRun": {"type": "boolean", "description": "If true, simulate without creating anything"},
                 },
@@ -149,7 +182,8 @@ TOOLS = [
                 "properties": {
                     "prefix": {"type": "string", "description": "The hack prefix"},
                     "licenses": {"type": "array", "items": {"type": "string"}, "description": "License SKU part numbers to assign"},
-                    "users": {"type": "array", "items": {"type": "string"}, "description": "Specific UPNs (omit for all non-admin)"},
+                    "users": {"type": "array", "items": {"type": "string"}, "description": "Specific UPNs (omit for all non-admin users, or all users when includeAdmins is true)"},
+                    "includeAdmins": {"type": "boolean", "description": "Set true to include admin users in license assignment"},
                 },
                 "required": ["prefix", "licenses"],
             },

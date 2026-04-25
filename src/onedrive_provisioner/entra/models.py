@@ -37,6 +37,7 @@ class EntraConfig:
     users_per_team: int = 10
     mode: str = "team"  # "team" | "flat"
     licenses: List[str] = field(default_factory=list)
+    assign_licenses_to_admins: bool = False
     admin_users: int = 0
     tap_lifetime: int = 120  # minutes
     dry_run: bool = False
@@ -60,6 +61,7 @@ class EntraConfig:
             users_per_team=int(d.get("usersPerTeam", 10)),
             mode=d.get("mode", "team"),
             licenses=list(d.get("licenses", [])),
+            assign_licenses_to_admins=bool(d.get("assignLicensesToAdmins", False)),
             admin_users=int(d.get("adminUsers", 0)),
             tap_lifetime=int(d.get("tapLifetime", 120)),
             dry_run=bool(d.get("dryRun", False)),

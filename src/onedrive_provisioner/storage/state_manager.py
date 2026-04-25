@@ -29,14 +29,30 @@ class HackStateManager:
         return f"{prefix.rstrip('-')}/state.json"
 
     @staticmethod
+    def _archive_state_path(prefix: str) -> str:
+        return f"archive/{prefix.rstrip('-')}/state.json"
+
+    @staticmethod
     def _version_path(prefix: str) -> str:
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M%S")
         return f"{prefix.rstrip('-')}/state_{ts}.json"
 
+    @staticmethod
+    def _archive_version_path(prefix: str) -> str:
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M%S")
+        return f"archive/{prefix.rstrip('-')}/state_{ts}.json"
+
     # ─────────── Core operations ───────────
     def get_state(self, prefix: str) -> Optional[Dict[str, Any]]:
-        """Retrieve the current state for a hack prefix."""
-        return self._blob.read_json(self._state_path(prefix))
+        """Retrieve the current state for a hack prefix.
+
+        Archived state is returned as a fallback so reports can still be
+        generated after cleanup has moved the hack out of the active list.
+        """
+        return (
+            self._blob.read_json(self._state_path(prefix))
+            or self._blob.read_json(self._archive_state_path(prefix))
+        )
 
     def save_state(
         self,
@@ -59,28 +75,56 @@ class HackStateManager:
         blobs = self._blob.list_blobs("")
         prefixes = set()
         for b in blobs:
+            if b.startswith("archive/"):
+                continue
             if b.endswith("/state.json"):
                 prefixes.add(b.replace("/state.json", ""))
         result = []
         for p in sorted(prefixes):
             state = self._blob.read_json(f"{p}/state.json")
             if state:
-                result.append({
-                    "prefix": state.get("prefix", p),
-                    "hackName": state.get("hackName", ""),
-                    "domain": state.get("domain", ""),
-                    "totalUsers": state.get("totalUsers", 0),
-                    "lastUpdated": state.get("lastUpdated", ""),
-                    "createdAt": state.get("createdAt", ""),
-                    "createdBy": state.get("createdBy", ""),
-                    "endDate": state.get("endDate", ""),
-                })
+                result.append(self._summary_from_state(state, p, archived=False))
         return result
+
+    def list_archived_hacks(self) -> List[Dict[str, Any]]:
+        """List hack prefixes that were cleaned up and archived."""
+        blobs = self._blob.list_blobs("archive/")
+        prefixes = set()
+        for b in blobs:
+            if b.endswith("/state.json"):
+                prefixes.add(b.replace("archive/", "", 1).replace("/state.json", ""))
+        result = []
+        for p in sorted(prefixes):
+            state = self._blob.read_json(self._archive_state_path(p))
+            if state:
+                result.append(self._summary_from_state(state, p, archived=True))
+        return result
+
+    @staticmethod
+    def _summary_from_state(state: Dict[str, Any], prefix: str, *, archived: bool) -> Dict[str, Any]:
+        return {
+            "prefix": state.get("prefix", prefix),
+            "hackName": state.get("hackName", ""),
+            "domain": state.get("domain", ""),
+            "totalUsers": state.get("totalUsers", 0),
+            "lastUpdated": state.get("lastUpdated", ""),
+            "createdAt": state.get("createdAt", ""),
+            "createdBy": state.get("createdBy", ""),
+            "hackStartDate": state.get("hackStartDate", ""),
+            "hackDate": state.get("hackDate", ""),
+            "readonlyDate": state.get("readonlyDate", ""),
+            "deleteDate": state.get("deleteDate") or state.get("endDate", ""),
+            "endDate": state.get("endDate", ""),
+            "archived": archived or bool(state.get("archivedAt")),
+            "archivedAt": state.get("archivedAt", ""),
+            "archiveReason": state.get("archiveReason", ""),
+        }
 
     def list_versions(self, prefix: str) -> List[str]:
         """List timestamped version blobs for a prefix."""
         clean = prefix.rstrip("-")
         blobs = self._blob.list_blobs(f"{clean}/state_")
+        blobs.extend(self._blob.list_blobs(f"archive/{clean}/state_"))
         return sorted(blobs, reverse=True)
 
     def get_version(self, prefix: str, version_blob: str) -> Optional[Dict[str, Any]]:
@@ -90,6 +134,41 @@ class HackStateManager:
     def delete_state(self, prefix: str) -> bool:
         """Delete a hack's state (current only, keeps versions)."""
         return self._blob.delete_blob(self._state_path(prefix))
+
+    def archive_state(
+        self,
+        prefix: str,
+        *,
+        reason: str = "cleanup",
+        cleanup_result: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """Move active state into the archive folder and remove active state.
+
+        Passwords and TAP values are removed from the archived copy. The archive
+        keeps enough metadata for later audit/report generation without keeping
+        stale sign-in secrets after cleanup.
+        """
+        state = self._blob.read_json(self._state_path(prefix))
+        if not state:
+            return bool(self._blob.read_json(self._archive_state_path(prefix)))
+
+        archived = copy.deepcopy(state)
+        now = datetime.now(timezone.utc).isoformat()
+        archived["archivedAt"] = now
+        archived["archiveReason"] = reason
+        archived["lifecycleStatus"] = "archived"
+        archived["isArchived"] = True
+        if cleanup_result is not None:
+            archived["cleanupResult"] = cleanup_result
+        for user in archived.get("users", []) or []:
+            user.pop("password", None)
+            user.pop("tap", None)
+            user["credentialsArchived"] = True
+
+        self._blob.write_json(self._archive_state_path(prefix), archived)
+        self._blob.write_json(self._archive_version_path(prefix), archived)
+        self._blob.delete_blob(self._state_path(prefix))
+        return True
 
     # ─────────── Build state from provisioning report ───────────
     @staticmethod
@@ -129,6 +208,11 @@ class HackStateManager:
             "createdBy": config.get("createdBy", ""),
             "domain": config.get("domain", ""),
             "mode": config.get("mode", "team"),
+            "hackStartDate": config.get("hackStartDate", ""),
+            "hackDate": config.get("hackDate", ""),
+            "readonlyDate": config.get("readonlyDate", ""),
+            "deleteDate": config.get("deleteDate") or config.get("endDate", ""),
+            "endDate": config.get("deleteDate") or config.get("endDate", ""),
             "createdAt": now,
             "lastUpdated": now,
             "sessionId": session_id,

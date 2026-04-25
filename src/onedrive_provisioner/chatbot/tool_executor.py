@@ -81,6 +81,28 @@ class ToolExecutor:
             "upns": [u.get("userPrincipalName", "") for u in users],
         }
 
+    def _tool_generate_hack_report(
+        self,
+        prefix: str,
+        currency: str = "USD",
+        licenseUnitCosts: Optional[dict] = None,
+        subscriptionCosts: Optional[list] = None,
+    ) -> Any:
+        from onedrive_provisioner.hack_report import build_hack_report
+
+        mgr = self._get_mgr()
+        if not mgr:
+            return {"error": "Storage not configured"}
+        state = mgr.get_state(prefix)
+        if not state:
+            return {"error": f"No state found for prefix '{prefix}'"}
+        return build_hack_report(
+            state,
+            subscription_costs=subscriptionCosts or [],
+            license_unit_costs=licenseUnitCosts or {},
+            currency=currency or "USD",
+        )
+
     def _tool_get_provisioning_sessions(self) -> Any:
         with self._entra_lock:
             return [
@@ -136,6 +158,8 @@ class ToolExecutor:
             "usersPerTeam": kwargs.get("usersPerTeam", 5),
             "adminUsers": kwargs.get("adminUsers", 1),
             "mode": kwargs.get("mode", "team"),
+            "licenses": kwargs.get("licenses", []),
+            "assignLicensesToAdmins": kwargs.get("assignLicensesToAdmins", False),
         }
         cfg = EntraConfig.from_dict(cfg_dict)
 
@@ -158,6 +182,7 @@ class ToolExecutor:
             "adminUsers": kwargs.get("adminUsers", 1),
             "mode": kwargs.get("mode", "flat"),
             "licenses": kwargs.get("licenses", []),
+            "assignLicensesToAdmins": kwargs.get("assignLicensesToAdmins", False),
             "hackName": kwargs.get("hackName", prefix),
             "dryRun": kwargs.get("dryRun", False),
             "initialPassword": kwargs.get("initialPassword", ""),
@@ -226,6 +251,7 @@ class ToolExecutor:
             return {"error": f"No state found for prefix '{prefix}'"}
 
         target_upns = kwargs.get("users")
+        include_admins = bool(kwargs.get("includeAdmins", False))
         tp = _make_tp(self._creds)
 
         async def _run():
@@ -240,7 +266,7 @@ class ToolExecutor:
                 for u in state.get("users", []):
                     upn = u.get("userPrincipalName", "")
                     uid = u.get("userId", "")
-                    if not uid or u.get("isAdmin"):
+                    if not uid or (u.get("isAdmin") and not include_admins):
                         continue
                     if target_upns and upn not in target_upns:
                         continue

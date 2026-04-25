@@ -70,7 +70,7 @@ class EntraOrchestrator:
                     status=Status.DRY_RUN,
                     is_admin=p.is_admin,
                     groups=self._planned_groups(cfg, p),
-                    licenses=list(cfg.licenses) if not p.is_admin else [],
+                    licenses=list(cfg.licenses) if (not p.is_admin or cfg.assign_licenses_to_admins) else [],
                 ) for p in plans
             ]
             return self._build_report(plans, results, groups_created=0, groups=[])
@@ -192,7 +192,7 @@ class EntraOrchestrator:
                 result.tap_expires = tap.get("startDateTime")  # plus lifetimeInMinutes
 
         # 3) Licenses
-        if sku_ids and not plan.is_admin:
+        if sku_ids and (not plan.is_admin or cfg.assign_licenses_to_admins):
             assigned = await license_svc.assign(user_id, sku_ids)
             # Map back assigned SKU IDs to friendly names for output
             result.licenses = [

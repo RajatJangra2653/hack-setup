@@ -177,7 +177,8 @@ class HackScheduler:
     def set_hack_end_date(self, prefix: str, end_date: str, creds: Dict[str, str],
                           subscription_ids: Optional[List[str]] = None,
                           readonly_date: Optional[str] = None,
-                          mode: str = "team") -> List[ScheduledJob]:
+                          mode: str = "team",
+                          metadata: Optional[Dict[str, Any]] = None) -> List[ScheduledJob]:
         """Set end date (and optional read-only date) for a hack.
 
         Creates up to two scheduler jobs:
@@ -190,10 +191,16 @@ class HackScheduler:
         """
         # Update hack state
         mgr = self._get_mgr()
+        metadata = metadata or {}
         if mgr:
             state = mgr.get_state(prefix)
             if state:
                 state["endDate"] = end_date
+                state["deleteDate"] = metadata.get("deleteDate") or end_date
+                if metadata.get("hackStartDate"):
+                    state["hackStartDate"] = metadata["hackStartDate"]
+                if metadata.get("hackDate"):
+                    state["hackDate"] = metadata["hackDate"]
                 if readonly_date:
                     state["readonlyDate"] = readonly_date
                 if subscription_ids:
@@ -217,6 +224,9 @@ class HackScheduler:
             "client_id": creds["client_id"],
             "client_secret": creds["client_secret"],
             "subscription_ids": subscription_ids or [],
+            "hackStartDate": metadata.get("hackStartDate", ""),
+            "hackDate": metadata.get("hackDate", ""),
+            "deleteDate": metadata.get("deleteDate") or end_date,
         }
 
         # Read-only job (if date provided)
