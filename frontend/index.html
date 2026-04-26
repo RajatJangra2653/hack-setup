@@ -408,6 +408,14 @@
         </div>
         <div class="lifecycle-badge">Recommended flow: left to right</div>
       </div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:12px 0;padding:12px;border:1px solid var(--border);border-radius:14px;background:#f8fbff;">
+        <strong>Active hack:</strong>
+        <select id="globalHackSelect" onchange="applyGlobalHackSelection()" style="min-width:280px;max-width:520px;flex:1;">
+          <option value="">— Select saved hack —</option>
+        </select>
+        <button class="btn btn-secondary btn-sm" type="button" onclick="withBusy(this, () => loadGlobalHackSelect(true))">↻ Load hacks</button>
+        <span id="globalHackInfo" class="hint">Pick once; Permissions, Read-only, Cleanup, Manage, and Scheduler will use it.</span>
+      </div>
       <div class="tabs lifecycle-nav">
         <div class="tab" data-view="tenant-setup" onclick="switchView('tenant-setup')"><small>01 Prepare</small>Tenant setup</div>
         <div class="tab active" data-view="provision" onclick="switchView('provision')"><small>02 Plan</small>Setup hack</div>
@@ -450,10 +458,10 @@
         <input type="password" id="clientSecret" placeholder="••••••••••••••••" autocomplete="off" />
       </div>
       <div class="checkbox-row">
-        <input type="checkbox" id="rememberCreds" checked />
-        <label for="rememberCreds" style="margin:0;cursor:pointer;">Remember credentials (stored in browser localStorage)</label>
+        <input type="checkbox" id="rememberCreds" />
+        <label for="rememberCreds" style="margin:0;cursor:pointer;">Remember tenant and client ID only</label>
       </div>
-      <div class="trust-note">Tip: use least-privilege app permissions for the lifecycle action you are performing, then revoke or rotate credentials after the event.</div>
+      <div class="trust-note">Client Secret is never stored in localStorage. Re-enter it per browser session. Tip: use least-privilege app permissions for the lifecycle action you are performing, then revoke or rotate credentials after the event.</div>
     </div>
 
     <!-- ────────── Upload View ────────── -->
@@ -597,7 +605,7 @@
         <div class="row">
           <div class="form-group">
             <label for="ep-prefix">Hack Prefix</label>
-            <input type="text" id="ep-prefix" value="nyc-esri-gcc-" oninput="updateProvisionPreview()" />
+            <input type="text" id="ep-prefix" placeholder="Auto-derived from hack name" oninput="_prefixEditedManually=true;updateProvisionPreview()" />
           </div>
           <div class="form-group">
             <label for="ep-domain">UPN domain <span class="hint" style="font-weight:400;">(auto-detected if blank)</span></label>
@@ -674,11 +682,11 @@
         <div class="row">
           <div class="form-group">
             <label for="ep-hackName">Hack name <span style="color:var(--danger)">*</span> <span class="hint" style="font-weight:400;">(stamped as companyName on each user)</span></label>
-            <input type="text" id="ep-hackName" placeholder="e.g. NYC Esri GCC Hack — Apr 2026" required />
+            <input type="text" id="ep-hackName" placeholder="e.g. Acme Hackathon — Apr 2026" required oninput="derivePrefixFromHackName()" />
           </div>
           <div class="form-group">
             <label for="ep-createdBy">Created by <span class="hint" style="font-weight:400;">(your alias / email)</span></label>
-            <input type="text" id="ep-createdBy" placeholder="e.g. sumitmalik51@gmail.com" />
+            <input type="text" id="ep-createdBy" placeholder="e.g. you@company.com" />
           </div>
         </div>
 
@@ -686,7 +694,7 @@
           <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="ep-skipExisting" checked> Skip existing users</label>
           <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="ep-createTeamGroups" checked> Create team groups</label>
           <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="ep-createAdminGroup" checked> Create admin group</label>
-          <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="ep-assignAdminRole" checked> Assign Global Reader to admins</label>
+          <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="ep-assignAdminRole"> Assign Global Reader to admins <span class="hint">(tenant-wide, opt-in)</span></label>
           <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="ep-dryRun"> Dry run</label>
         </div>
 
@@ -734,9 +742,11 @@
             <label for="ep-rbacRole">RBAC Role <span class="hint" style="font-weight:400;">(optional)</span></label>
             <select id="ep-rbacRole">
               <option value="">— none —</option>
-              <option value="Owner">Owner</option>
-              <option value="Contributor" selected>Contributor</option>
-              <option value="Reader">Reader</option>
+              <option value="Reader" selected>Reader</option>
+              <option value="Contributor">Contributor</option>
+              <optgroup label="Dangerous — full control">
+                <option value="Owner">Owner</option>
+              </optgroup>
             </select>
           </div>
         </div>
@@ -834,7 +844,7 @@
         <div class="row">
           <div class="form-group">
             <label for="pp-prefix">Hack Prefix</label>
-            <input type="text" id="pp-prefix" value="nyc-esri-gcc-" />
+            <input type="text" id="pp-prefix" placeholder="Select active hack or enter prefix" />
             <div class="hack-picker-row">
               <select id="pp-hackSelect" onchange="applyHackPrefixSelect('pp-hackSelect','pp-prefix')">
                 <option value="">— Select saved hack —</option>
@@ -853,9 +863,11 @@
           <div class="form-group">
             <label for="pp-role">Role</label>
             <select id="pp-role">
-              <option value="Owner">Owner</option>
-              <option value="Contributor" selected>Contributor</option>
-              <option value="Reader">Reader</option>
+              <option value="Reader" selected>Reader</option>
+              <option value="Contributor">Contributor</option>
+              <optgroup label="Dangerous — full control">
+                <option value="Owner">Owner</option>
+              </optgroup>
             </select>
           </div>
         </div>
@@ -951,7 +963,7 @@
         <div class="row">
           <div class="form-group">
             <label for="ro-prefix">Hack Prefix</label>
-            <input type="text" id="ro-prefix" value="nyc-esri-gcc-" />
+            <input type="text" id="ro-prefix" placeholder="Select active hack or enter prefix" oninput="resetReadOnlyDiscovery()" />
             <div class="hack-picker-row">
               <select id="ro-hackSelect" onchange="applyHackPrefixSelect('ro-hackSelect','ro-prefix')">
                 <option value="">— Select saved hack —</option>
@@ -962,7 +974,7 @@
           </div>
           <div class="form-group">
             <label for="ro-mode">Apply to</label>
-            <select id="ro-mode">
+            <select id="ro-mode" onchange="resetReadOnlyDiscovery()">
               <option value="team">Team groups</option>
               <option value="flat">Individual users</option>
             </select>
@@ -970,8 +982,12 @@
         </div>
 
         <div class="form-group">
-          <label for="ro-subs">Subscription IDs <span style="font-weight:400;color:var(--muted)">(optional — leave blank to auto-detect every subscription the SPN can see and only touch subs where each principal already has a role)</span></label>
-          <textarea id="ro-subs" placeholder="Leave empty to auto-detect, or paste one subscription ID per line" style="height:100px;"></textarea>
+          <label for="ro-subs">Subscription IDs <span style="font-weight:400;color:var(--muted)">(recommended — one per line)</span></label>
+          <textarea id="ro-subs" placeholder="Paste one subscription ID per line" style="height:100px;" oninput="resetReadOnlyDiscovery()"></textarea>
+          <label style="display:flex;align-items:flex-start;gap:8px;margin-top:8px;font-weight:500;font-size:13px;">
+            <input type="checkbox" id="ro-allowAutoSubs" onchange="resetReadOnlyDiscovery()" style="width:auto;margin-top:2px;">
+            I understand this will scan every subscription visible to the service principal when no subscription IDs are listed.
+          </label>
         </div>
 
         <div class="actions">
@@ -987,6 +1003,11 @@
         <div id="ro-discoveryBox" class="hidden" style="margin-top:16px;padding:12px;background:#f7f9fc;border-radius:6px;border:1px solid var(--border);font-size:13px;">
           <div id="ro-discoverySummary" style="font-weight:600;"></div>
           <div id="ro-discoveryDetails" style="margin-top:12px;"></div>
+          <div id="ro-confirmPanel" class="hidden" style="margin-top:14px;padding:12px;border:1px solid #fecaca;background:#fff7f7;border-radius:8px;">
+            <label for="ro-confirmInput" style="font-weight:700;">Type the hack name to confirm read-only: <code id="ro-confirmTarget"></code></label>
+            <input type="text" id="ro-confirmInput" placeholder="Type exact hack name or prefix" oninput="checkReadOnlyConfirm()" />
+            <div class="hint">This extra gate protects against accidental subscription-wide permission downgrades.</div>
+          </div>
         </div>
       </div>
 
@@ -1013,7 +1034,7 @@
         <div class="row">
           <div class="form-group">
             <label for="cu-prefix">Hack Prefix</label>
-            <input type="text" id="cu-prefix" value="nyc-esri-gcc-" />
+            <input type="text" id="cu-prefix" placeholder="Select active hack or enter prefix" oninput="resetCleanupDiscovery()" />
             <div class="hack-picker-row">
               <select id="cu-hackSelect" onchange="applyHackPrefixSelect('cu-hackSelect','cu-prefix')">
                 <option value="">— Select saved hack —</option>
@@ -1029,7 +1050,7 @@
 
         <div class="form-group">
           <label for="cu-subs">Subscription IDs (optional, for RBAC removal)</label>
-          <textarea id="cu-subs" placeholder="00000000-0000-0000-0000-000000000000" style="height:80px;"></textarea>
+          <textarea id="cu-subs" placeholder="00000000-0000-0000-0000-000000000000" style="height:80px;" oninput="updateCleanupPreview();checkCleanupConfirm()"></textarea>
         </div>
 
         <div id="cu-discoveryCard" class="hidden" style="margin-top:8px;padding:12px;border:1px solid var(--border);border-radius:6px;">
@@ -1059,10 +1080,12 @@
           </div>
 
           <div style="margin-top:14px;display:flex;flex-wrap:wrap;gap:16px;">
-            <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="cu-deleteUsers" checked> Delete selected users</label>
-            <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="cu-deleteGroups" checked> Delete selected groups</label>
-            <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="cu-removeRbac" checked> Remove RBAC at listed subscriptions</label>
+            <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="cu-deleteUsers" checked onchange="updateCleanupPreview();checkCleanupConfirm()"> Delete selected users</label>
+            <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="cu-deleteGroups" checked onchange="updateCleanupPreview();checkCleanupConfirm()"> Delete selected groups</label>
+            <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="cu-removeRbac" checked onchange="updateCleanupPreview();checkCleanupConfirm()"> Remove RBAC at listed subscriptions</label>
           </div>
+
+          <div id="cu-blastSummary" style="margin-top:12px;padding:12px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;font-size:13px;font-weight:700;"></div>
 
           <div id="cu-previewTable" class="hidden" style="margin-top:14px;max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:4px;">
             <table style="width:100%;font-size:12px;">
@@ -1072,8 +1095,13 @@
           </div>
 
           <div class="form-group" style="margin-top:14px;">
-            <label for="cu-confirmInput">Type the hack prefix to confirm: <code id="cu-confirmPrefix"></code></label>
-            <input type="text" id="cu-confirmInput" placeholder="Type prefix to enable cleanup" oninput="checkCleanupConfirm()" />
+            <label for="cu-confirmInput">Type the hack name to confirm cleanup</label>
+            <div class="hint" style="margin-bottom:6px;">Saved state will be moved to Archive for later reports. This does not preserve user passwords or TAPs.</div>
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
+              <code id="cu-confirmPrefix" style="filter:blur(5px);user-select:none;">hidden</code>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="revealCleanupConfirmTarget()">Reveal name</button>
+            </div>
+            <input type="text" id="cu-confirmInput" placeholder="Type exact hack name or prefix" oninput="checkCleanupConfirm()" />
           </div>
 
           <div class="actions" style="margin-top:10px;">
@@ -1867,9 +1895,9 @@ function getCreds() {
   const c = document.getElementById('clientId').value.trim();
   const s = document.getElementById('clientSecret').value.trim();
   if (!t || !c || !s) return null;
-  // Save to localStorage if checkbox is checked
+  // Save only non-secret identifiers. Client Secret is intentionally session-only.
   if (document.getElementById('rememberCreds').checked) {
-    localStorage.setItem('odp_creds', JSON.stringify({ tenant_id: t, client_id: c, client_secret: s }));
+    localStorage.setItem('odp_creds', JSON.stringify({ tenant_id: t, client_id: c }));
   } else {
     localStorage.removeItem('odp_creds');
   }
@@ -1883,7 +1911,7 @@ function loadSavedCreds() {
     const creds = JSON.parse(raw);
     if (creds.tenant_id) document.getElementById('tenantId').value = creds.tenant_id;
     if (creds.client_id) document.getElementById('clientId').value = creds.client_id;
-    if (creds.client_secret) document.getElementById('clientSecret').value = creds.client_secret;
+    if (creds.client_secret) localStorage.setItem('odp_creds', JSON.stringify({ tenant_id: creds.tenant_id || '', client_id: creds.client_id || '' }));
   } catch { /* ignore corrupt data */ }
 }
 
@@ -2648,9 +2676,25 @@ let _entraSessionId = null;
 let _entraReport = null;
 let _entraPollTimer = null;
 let _entraPartial = [];  // accumulated partial users so password field survives polling
+let _prefixEditedManually = false;
 
 function _dateInputValue(id) {
   return ((document.getElementById(id) || {}).value || '').trim();
+}
+
+function derivePrefixFromHackName() {
+  const prefixEl = document.getElementById('ep-prefix');
+  const name = ((document.getElementById('ep-hackName') || {}).value || '').trim();
+  if (!prefixEl || _prefixEditedManually) {
+    updateProvisionPreview();
+    return;
+  }
+  const slug = name.toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40);
+  if (slug) prefixEl.value = `${slug}-`;
+  updateProvisionPreview();
 }
 
 function _pstToUtcIso(localVal) {
@@ -2733,12 +2777,21 @@ function _epCfg() {
   };
 }
 
+function _validateHackPrefix(prefix) {
+  if (!prefix) return 'Hack prefix is required.';
+  if (!/^[a-z0-9][a-z0-9-]{1,62}-$/i.test(prefix)) return 'Hack prefix must use letters, numbers, hyphens, and end with a hyphen.';
+  if (/--/.test(prefix)) return 'Hack prefix cannot contain repeated hyphens.';
+  return '';
+}
+
 async function runPreflight() {
   const creds = getCreds();
   if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
   if (!(await _ensureTenantDetected())) { toast('Could not detect tenant domain', 'danger'); return; }
   if (!_validateSetupLifecycleDates()) return;
   const cfg = _epCfg();
+  const prefixError = _validateHackPrefix(cfg.prefix);
+  if (prefixError) { toast(prefixError, 'danger'); return; }
   const box = document.getElementById('ep-preflightBox');
   const summary = document.getElementById('ep-preflightSummary');
   const list = document.getElementById('ep-preflightChecks');
@@ -2868,8 +2921,10 @@ function updateProvisionPreview() {
   const sample = isFlat
     ? `${c.prefix}u01@${c.domain || 'DOMAIN'}`
     : `${c.prefix}t01-u01@${c.domain || 'DOMAIN'}`;
-  document.getElementById('ep-preview').textContent =
-    `Will create ${total} user(s) — sample UPN: ${sample}`;
+  const prefixError = _validateHackPrefix(c.prefix);
+  document.getElementById('ep-preview').innerHTML =
+    `${prefixError ? `<span style="color:var(--danger);font-weight:700;">${esc(prefixError)}</span><br>` : ''}` +
+    `Will create ${total} user(s) — sample UPN: <code>${esc(sample)}</code>`;
 }
 
 async function startProvision() {
@@ -2882,6 +2937,8 @@ async function startProvision() {
   }
   if (!(await _ensureTenantDetected())) { toast('Could not detect tenant domain', 'danger'); return; }
   const cfg = _epCfg();
+  const prefixError = _validateHackPrefix(cfg.prefix);
+  if (prefixError) { toast(prefixError, 'danger'); return; }
 
   document.getElementById('ep-btnStart').disabled = true;
   document.getElementById('ep-spinner').classList.remove('hidden');
@@ -2944,6 +3001,7 @@ async function pollProvision() {
         toast(`Done: ${(_entraReport && _entraReport.created) || 0} created`, 'success');
         _savedHackCache = { active: null, archived: null, loadedAt: 0 };
         refreshHackPrefixPickers(true);
+        setActiveHack(cfg.prefix, { reset: false });
         _autoAssignRbac();
         _autoScheduleLifecycle();
       }
@@ -2974,6 +3032,8 @@ async function scheduleHack() {
   if (!(await _ensureTenantDetected())) { toast('Could not detect tenant domain', 'danger'); return; }
   if (!_validateSetupLifecycleDates()) return;
   const cfg = _epCfg();
+  const prefixError = _validateHackPrefix(cfg.prefix);
+  if (prefixError) { toast(prefixError, 'danger'); return; }
   const provDateVal = (document.getElementById('ep-scheduleDate') || {}).value || '';
   if (!provDateVal) { toast('Pick a date/time for provisioning', 'danger'); return; }
   _scheduleProvision(creds, cfg, provDateVal);
@@ -3420,6 +3480,7 @@ function clearSubscriptionSelection(target) {
 }
 
 let _savedHackCache = { active: null, archived: null, loadedAt: 0 };
+let _activeHackPrefix = '';
 
 async function fetchSavedHacks(options = {}) {
   const includeArchived = !!options.includeArchived;
@@ -3455,6 +3516,75 @@ function _hackSelectLabel(h, archived = false) {
   if (h.totalUsers != null) bits.push(`— ${h.totalUsers} users`);
   if (archived) bits.push('— archived');
   return bits.filter(Boolean).join(' ');
+}
+
+function _findSavedHack(prefix) {
+  const clean = String(prefix || '').replace(/-$/, '').toLowerCase();
+  const all = [...(_savedHackCache.active || []), ...(_savedHackCache.archived || [])];
+  return all.find(h => String(h.prefix || '').replace(/-$/, '').toLowerCase() === clean) || null;
+}
+
+function _hackConfirmName(prefix) {
+  const hack = _findSavedHack(prefix);
+  return (hack && hack.hackName) ? hack.hackName : String(prefix || '').trim();
+}
+
+async function loadGlobalHackSelect(force = false) {
+  const sel = document.getElementById('globalHackSelect');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">— Loading hacks… —</option>';
+  try {
+    const { active } = await fetchSavedHacks({ force });
+    const html = ['<option value="">— Select saved hack —</option>'];
+    for (const h of active) html.push(`<option value="${esc(h.prefix || '')}">${esc(_hackSelectLabel(h))}</option>`);
+    if (!active.length) html.push('<option value="" disabled>No active saved hacks found</option>');
+    sel.innerHTML = html.join('');
+    if (_activeHackPrefix) sel.value = _activeHackPrefix;
+  } catch (e) {
+    sel.innerHTML = `<option value="">— ${esc(e.message || 'Failed to load')} —</option>`;
+  }
+}
+
+function setActiveHack(prefix, options = {}) {
+  const value = String(prefix || '').trim();
+  _activeHackPrefix = value;
+  const ids = ['pp-prefix', 'ro-prefix', 'cu-prefix', 'mh-prefix', 'sj-hackPrefixCustom'];
+  for (const id of ids) {
+    const el = document.getElementById(id);
+    if (el) el.value = value;
+  }
+  for (const id of ['pp-hackSelect', 'ro-hackSelect', 'cu-hackSelect', 'mh-hackSelect', 'sj-hackPrefix', 'globalHackSelect']) {
+    const sel = document.getElementById(id);
+    if (sel) sel.value = value;
+  }
+  const info = document.getElementById('globalHackInfo');
+  const hack = _findSavedHack(value);
+  if (info) {
+    info.textContent = value
+      ? `${hack && hack.hackName ? hack.hackName + ' · ' : ''}${hack && hack.totalUsers != null ? hack.totalUsers + ' users · ' : ''}${value}`
+      : 'Pick once; Permissions, Read-only, Cleanup, Manage, and Scheduler will use it.';
+  }
+  if (options.reset !== false) {
+    _ppDiscovery = null;
+    _ppPrincipals = [];
+    _ppTeamSubscriptionMap = {};
+    _roPrincipals = [];
+    _cuDiscovery = null;
+    const ppBtn = document.getElementById('pp-btnAssign'); if (ppBtn) ppBtn.disabled = true;
+    const roBtn = document.getElementById('ro-btnApply'); if (roBtn) roBtn.disabled = true;
+    const cuBtn = document.getElementById('cu-btnCleanup'); if (cuBtn) cuBtn.disabled = true;
+    ['pp-discoveryBox', 'pp-teamMappingPanel', 'ro-warning', 'ro-discoveryBox', 'cu-discoveryCard', 'cu-resultCard'].forEach(id => {
+      const el = document.getElementById(id); if (el) el.classList.add('hidden');
+    });
+    const cuConfirm = document.getElementById('cu-confirmInput'); if (cuConfirm) cuConfirm.value = '';
+    const roConfirm = document.getElementById('ro-confirmInput'); if (roConfirm) roConfirm.value = '';
+  }
+}
+
+function applyGlobalHackSelection() {
+  const sel = document.getElementById('globalHackSelect');
+  if (!sel || !sel.value) return;
+  setActiveHack(sel.value);
 }
 
 async function loadHackPrefixSelect(selectId, inputId, options = {}) {
@@ -3508,6 +3638,7 @@ function applyHackPrefixSelect(selectId, inputId) {
   const input = document.getElementById(inputId);
   if (!sel || !input || !sel.value) return;
   input.value = sel.value;
+  setActiveHack(sel.value, { reset: false });
   if (inputId === 'pp-prefix') {
     _ppDiscovery = null;
     _ppPrincipals = [];
@@ -3535,6 +3666,7 @@ function applyHackPrefixSelect(selectId, inputId) {
 
 async function refreshHackPrefixPickers(force = false) {
   await Promise.allSettled([
+    loadGlobalHackSelect(force),
     loadHackPrefixSelect('pp-hackSelect', 'pp-prefix', { force }),
     loadHackPrefixSelect('ro-hackSelect', 'ro-prefix', { force }),
     loadHackPrefixSelect('cu-hackSelect', 'cu-prefix', { force }),
@@ -3831,6 +3963,19 @@ let _roLastResults = null;
 let _roPreview = null;
 let _roSubscriptionMap = new Map();
 
+function resetReadOnlyDiscovery() {
+  _roPrincipals = [];
+  _roPreview = null;
+  _roSubscriptionMap = new Map();
+  const btn = document.getElementById('ro-btnApply');
+  if (btn) btn.disabled = true;
+  const confirmInput = document.getElementById('ro-confirmInput');
+  if (confirmInput) confirmInput.value = '';
+  ['ro-warning', 'ro-discoveryBox', 'ro-confirmPanel'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.classList.add('hidden');
+  });
+}
+
 async function _discoverReadOnlyPreview(prefix, mode, subs) {
   const creds = getCreds();
   if (!creds) { toast('Enter SPN credentials first', 'danger'); return null; }
@@ -3927,6 +4072,10 @@ async function discoverForReadOnly() {
   document.getElementById('ro-discoveryDetails').innerHTML = '';
   const mode = document.getElementById('ro-mode').value;
   const subs = _splitLines(document.getElementById('ro-subs').value);
+  if (!subs.length && !document.getElementById('ro-allowAutoSubs').checked) {
+    toast('Add subscription IDs or explicitly acknowledge all-subscription auto-detection', 'danger');
+    return;
+  }
   const data = await _discoverReadOnlyPreview(prefix, mode, subs);
   if (!data) return;
   _roPreview = data;
@@ -3941,7 +4090,12 @@ async function discoverForReadOnly() {
   _renderReadOnlyDiscoveryDetails(data);
   document.getElementById('ro-warning').classList.remove('hidden');
   document.getElementById('ro-discoveryBox').classList.remove('hidden');
-  document.getElementById('ro-btnApply').disabled = _roPrincipals.length === 0;
+  const confirmTarget = _hackConfirmName(prefix);
+  document.getElementById('ro-confirmTarget').textContent = confirmTarget;
+  document.getElementById('ro-confirmInput').value = '';
+  document.getElementById('ro-confirmPanel').classList.remove('hidden');
+  document.getElementById('ro-btnApply').disabled = true;
+  checkReadOnlyConfirm();
 }
 
 async function applyReadOnly() {
@@ -3949,6 +4103,9 @@ async function applyReadOnly() {
   if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
   const subs = _splitLines(document.getElementById('ro-subs').value);
   if (!_roPrincipals.length) { toast('Run discovery first', 'danger'); return; }
+  if (!subs.length && !document.getElementById('ro-allowAutoSubs').checked) {
+    toast('All-subscription auto-detection must be explicitly acknowledged', 'danger'); return;
+  }
   document.getElementById('ro-btnApply').disabled = true;
   document.getElementById('ro-spinner').classList.remove('hidden');
   document.getElementById('ro-resultCard').classList.remove('hidden');
@@ -3999,6 +4156,15 @@ function downloadReadOnlyCsv() {
 // ── Cleanup ──
 let _cuDiscovery = null;
 
+function resetCleanupDiscovery() {
+  _cuDiscovery = null;
+  ['cu-discoveryCard', 'cu-resultCard'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.classList.add('hidden');
+  });
+  const confirm = document.getElementById('cu-confirmInput'); if (confirm) confirm.value = '';
+  const btn = document.getElementById('cu-btnCleanup'); if (btn) btn.disabled = true;
+}
+
 async function discoverForCleanup() {
   const prefix = document.getElementById('cu-prefix').value.trim();
   document.getElementById('cu-discoveryCard').classList.add('hidden');
@@ -4010,11 +4176,11 @@ async function discoverForCleanup() {
   document.getElementById('cu-userCount').textContent = `(${data.users.length})`;
   document.getElementById('cu-groupCount').textContent = `(${data.groups.length})`;
   document.getElementById('cu-users-body').innerHTML = data.users.map(u => `
-    <tr><td style="width:24px"><input type="checkbox" class="cu_user_" data-id="${esc(u.id)}" checked></td>
+    <tr><td style="width:24px"><input type="checkbox" class="cu_user_" data-id="${esc(u.id)}" checked onchange="updateCleanupPreview();checkCleanupConfirm()"></td>
         <td>${esc(u.userPrincipalName || u.displayName)}</td></tr>`).join('') ||
     '<tr><td colspan="2"><em>None</em></td></tr>';
   document.getElementById('cu-groups-body').innerHTML = data.groups.map(g => `
-    <tr><td style="width:24px"><input type="checkbox" class="cu_group_" data-id="${esc(g.id)}" checked></td>
+    <tr><td style="width:24px"><input type="checkbox" class="cu_group_" data-id="${esc(g.id)}" checked onchange="updateCleanupPreview();checkCleanupConfirm()"></td>
         <td>${esc(g.displayName)}</td></tr>`).join('') ||
     '<tr><td colspan="2"><em>None</em></td></tr>';
   document.getElementById('cu-selectAllUsers').checked = true;
@@ -4023,7 +4189,10 @@ async function discoverForCleanup() {
 
   // Update preview table and confirmation prefix
   updateCleanupPreview();
-  document.getElementById('cu-confirmPrefix').textContent = prefix;
+  const confirmTarget = _hackConfirmName(prefix);
+  const targetEl = document.getElementById('cu-confirmPrefix');
+  targetEl.textContent = confirmTarget;
+  targetEl.style.filter = 'blur(5px)';
   document.getElementById('cu-confirmInput').value = '';
   document.getElementById('cu-btnCleanup').disabled = true;
 }
@@ -4031,6 +4200,8 @@ async function discoverForCleanup() {
 function toggleSelectAll(bodyId, cls) {
   const checked = document.getElementById(bodyId === 'cu-users-body' ? 'cu-selectAllUsers' : 'cu-selectAllGroups').checked;
   document.querySelectorAll(`#${bodyId} .${cls}`).forEach(c => { c.checked = checked; });
+  updateCleanupPreview();
+  checkCleanupConfirm();
 }
 
 async function executeCleanup() {
@@ -4048,6 +4219,9 @@ async function executeCleanup() {
 
   if (!userIds.length && !groupIds.length && !(subs.length && principalIds.length)) {
     toast('Nothing selected to delete', 'warn'); return;
+  }
+  if (!checkCleanupConfirm()) {
+    toast('Type the exact hack name/prefix to confirm cleanup', 'danger'); return;
   }
 
   // Confirmation is handled by prefix-typing input — no additional modal needed
@@ -4104,30 +4278,52 @@ function updateCleanupPreview() {
   const users = _cuDiscovery.users || [];
   const groups = _cuDiscovery.groups || [];
   const subs = _splitLines(document.getElementById('cu-subs').value);
+  const deleteUsers = document.getElementById('cu-deleteUsers').checked;
+  const deleteGroups = document.getElementById('cu-deleteGroups').checked;
+  const removeRbac = document.getElementById('cu-removeRbac').checked;
+  const selectedUserIds = new Set(Array.from(document.querySelectorAll('#cu-users-body .cu_user_:checked')).map(c => c.dataset.id));
+  const selectedGroupIds = new Set(Array.from(document.querySelectorAll('#cu-groups-body .cu_group_:checked')).map(c => c.dataset.id));
   const body = document.getElementById('cu-previewBody');
   let rows = '';
-  users.forEach(u => {
+  users.filter(u => deleteUsers && selectedUserIds.has(u.id)).forEach(u => {
     rows += `<tr><td>User</td><td>${esc(u.userPrincipalName || u.displayName)}</td><td style="color:var(--danger)">Delete</td></tr>`;
   });
-  groups.forEach(g => {
+  groups.filter(g => deleteGroups && selectedGroupIds.has(g.id)).forEach(g => {
     rows += `<tr><td>Group</td><td>${esc(g.displayName)}</td><td style="color:var(--danger)">Delete</td></tr>`;
   });
-  subs.forEach(s => {
+  (removeRbac ? subs : []).forEach(s => {
     rows += `<tr><td>RBAC</td><td><code>${esc(s)}</code></td><td style="color:var(--warn)">Remove roles</td></tr>`;
   });
   body.innerHTML = rows || '<tr><td colspan="3"><em>Nothing to preview</em></td></tr>';
+  const selectedUsers = deleteUsers ? selectedUserIds.size : 0;
+  const selectedGroups = deleteGroups ? selectedGroupIds.size : 0;
+  const rbacPrincipals = removeRbac ? (selectedUserIds.size + selectedGroupIds.size) : 0;
+  document.getElementById('cu-blastSummary').innerHTML =
+    `Blast radius: <span style="color:var(--danger)">${selectedUsers} user(s)</span>, ` +
+    `<span style="color:var(--danger)">${selectedGroups} group(s)</span>, ` +
+    `<span style="color:var(--warn)">${removeRbac ? subs.length : 0} subscription(s)</span>, ` +
+    `<span style="color:var(--warn)">${removeRbac ? subs.length * rbacPrincipals : 0} potential RBAC principal/subscription touch(es)</span>. ` +
+    `<span style="color:var(--success)">Saved hack state will be archived, not deleted.</span>`;
   document.getElementById('cu-previewTable').classList.remove('hidden');
 }
 
 function checkCleanupConfirm() {
-  const prefix = document.getElementById('cu-prefix').value.trim();
+  const prefix = document.getElementById('cu-confirmPrefix').textContent.trim() || document.getElementById('cu-prefix').value.trim();
   const input = document.getElementById('cu-confirmInput').value.trim();
-  document.getElementById('cu-btnCleanup').disabled = (input !== prefix);
+  const ok = !!_cuDiscovery && !!prefix && input === prefix;
+  document.getElementById('cu-btnCleanup').disabled = !ok;
+  return ok;
+}
+
+function revealCleanupConfirmTarget() {
+  const el = document.getElementById('cu-confirmPrefix');
+  if (el) el.style.filter = '';
 }
 
 // ──────────── Read-Only confirmation ────────────
 async function confirmReadOnly() {
   if (!_roPrincipals.length) { toast('Run discovery first', 'danger'); return; }
+  if (!checkReadOnlyConfirm()) { toast('Type the exact hack name/prefix to confirm read-only mode', 'danger'); return; }
   const subs = _splitLines(document.getElementById('ro-subs').value);
   const subText = subs.length ? `${subs.length} subscription(s)` : 'all auto-detected subscriptions';
   const confirmed = await uxConfirm({
@@ -4144,6 +4340,15 @@ async function confirmReadOnly() {
   if (!confirmed) return;
   const btn = document.getElementById('ro-btnApply');
   withBusy(btn, applyReadOnly);
+}
+
+function checkReadOnlyConfirm() {
+  const target = (document.getElementById('ro-confirmTarget') || {}).textContent || '';
+  const input = ((document.getElementById('ro-confirmInput') || {}).value || '').trim();
+  const ok = !!_roPrincipals.length && !!target && input === target;
+  const btn = document.getElementById('ro-btnApply');
+  if (btn) btn.disabled = !ok;
+  return ok;
 }
 
 // ──────────── License availability check (Provision page) ────────────
@@ -4378,6 +4583,7 @@ async function loadHackState() {
     if (!res.ok) throw new Error(data.error || 'Not found');
     _managedHackState = data;
     document.getElementById('mh-prefix').value = data.prefix || cleanPrefix;
+    setActiveHack(data.prefix || cleanPrefix, { reset: false });
     const mhSelect = document.getElementById('mh-hackSelect');
     if (mhSelect) mhSelect.value = data.prefix || cleanPrefix;
     _renderManagedHackState(data);
@@ -5291,6 +5497,7 @@ function getSPNCreds() {
 loadSavedCreds();
 refreshJobs();
 updateProvisionPreview();
+setTimeout(() => refreshHackPrefixPickers(true), 0);
 
 // ──────────── Chatbot ────────────
 let _chatHistory = []; // [{role, content}, ...]
