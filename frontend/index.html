@@ -1331,6 +1331,22 @@
                 </div>
               </div>
             </div>
+
+            <div class="card" style="margin-top:10px;">
+              <h4>🔧 Repair License Assignments</h4>
+              <p class="hint">Verify that every user has all expected licenses assigned. Any missing licenses are re-assigned automatically.</p>
+              <button class="btn btn-primary" data-archived-disabled="true" onclick="withBusy(this, repairLicensesForHack)">🔧 Verify &amp; Repair Licenses</button>
+              <span id="mh-licRepairSpinner" class="hidden"><span class="spinner"></span></span>
+              <div id="mh-licRepairResultBox" class="hidden" style="margin-top:12px;">
+                <div id="mh-licRepairSummary" style="font-weight:600;margin-bottom:6px;"></div>
+                <div class="results-scroll" style="max-height:260px;">
+                  <table>
+                    <thead><tr><th>UPN</th><th>Assigned</th><th>Repaired</th><th>Missing</th><th>Status</th></tr></thead>
+                    <tbody id="mh-licRepairBody"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div data-tab-content="mh-report" class="hidden">
@@ -5079,6 +5095,53 @@ async function repairGroupsForHack() {
   } catch (e) {
     summaryEl.textContent = 'Error: ' + e.message;
     toast('Group repair failed: ' + e.message, 'danger');
+  } finally {
+    spin.classList.add('hidden');
+  }
+}
+
+async function repairLicensesForHack() {
+  if (!_managedHackState) { toast('Load a hack first', 'danger'); return; }
+  if (_managedHackState.isArchived || _managedHackState.archivedAt) { toast('Archived hacks are report-only', 'warn'); return; }
+  const creds = getCreds();
+  if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
+  const prefix = _managedHackState.prefix.replace(/-$/, '');
+  const spin = document.getElementById('mh-licRepairSpinner');
+  const box = document.getElementById('mh-licRepairResultBox');
+  const summaryEl = document.getElementById('mh-licRepairSummary');
+  const tbody = document.getElementById('mh-licRepairBody');
+  spin.classList.remove('hidden');
+  box.classList.remove('hidden');
+  summaryEl.textContent = 'Verifying license assignments…';
+  tbody.innerHTML = '';
+  try {
+    const data = await postJsonWithServerConfirmation(
+      `${API}/hack-state/${encodeURIComponent(prefix)}/repair-licenses`,
+      { ...creds },
+      { title: 'Confirm license repair' },
+    );
+    const results = data.results || [];
+    const repaired = data.repairedUsers || 0;
+    const total = data.totalChecked || 0;
+    const failCount = results.filter(r => r.status === 'failed').length;
+    summaryEl.textContent = `Checked ${total} user(s): ${repaired} repaired` + (failCount ? `, ${failCount} still failing` : ', all licenses OK');
+    for (const r of results) {
+      const sCls = r.status === 'ok' ? 'color:var(--success)' : r.status === 'repaired' ? 'color:#e67e22' : 'color:var(--danger)';
+      tbody.innerHTML += `<tr>
+        <td><code style="font-size:11px;">${esc(r.userPrincipalName || '')}</code></td>
+        <td style="font-size:11px;">${r.assigned || 0}</td>
+        <td style="font-size:11px;color:#e67e22;">${r.repaired || 0}</td>
+        <td style="font-size:11px;color:var(--danger);">${r.stillMissing || 0}</td>
+        <td style="${sCls}">${esc(r.status || '')}</td>
+      </tr>`;
+    }
+    if (repaired > 0) toast(`Repaired licenses for ${repaired} user(s)`, 'success');
+    else if (failCount > 0) toast(`${failCount} user(s) still have missing licenses`, 'danger');
+    else toast('All license assignments verified OK', 'success');
+    await loadHackState();
+  } catch (e) {
+    summaryEl.textContent = 'Error: ' + e.message;
+    toast('License repair failed: ' + e.message, 'danger');
   } finally {
     spin.classList.add('hidden');
   }

@@ -1580,6 +1580,90 @@ async def _async_repair_groups(t, c, s, *, state):
     return results
 
 
+@app.route("/api/hack-state/<prefix>/repair-licenses", methods=["POST"])
+def repair_licenses(prefix):
+    """Verify and repair license assignments for all users in a hack.
+
+    Checks each user's actual license assignments via Graph API and
+    re-assigns any missing licenses.
+    Body: { tenant_id, client_id, client_secret }
+    """
+    data = request.get_json(silent=True) or {}
+    creds = _extract_creds(data)
+    if not creds:
+        return jsonify({"error": "Missing SPN credentials"}), 400
+
+    mgr = _get_state_manager()
+    if not mgr:
+        return jsonify({"error": "Storage not configured"}), 503
+    state = mgr.get_state(prefix)
+    if not state:
+        return jsonify({"error": f"No state found for prefix '{prefix}'"}), 404
+    if _is_archived_state(state):
+        return jsonify({"error": "Archived hacks are report-only."}), 409
+
+    try:
+        results = asyncio.run(_async_repair_licenses(*creds, state=state))
+        mgr.update_user_licenses(prefix, results)
+        repaired = sum(1 for r in results if r.get("status") == "repaired")
+        return jsonify({"results": results, "repairedUsers": repaired, "totalChecked": len(results)})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+async def _async_repair_licenses(t, c, s, *, state):
+    from onedrive_provisioner.entra.license_service import LicenseService
+    tp = _make_token_provider(t, c, s)
+    results = []
+    config = state.get("config", {})
+    expected_licenses = config.get("licenses", [])
+    assign_to_admins = config.get("assignLicensesToAdmins", False)
+
+    async with GraphClient(tp) as g:
+        lic_svc = LicenseService(g)
+        # Resolve friendly names to SKU IDs
+        sku_map = await lic_svc.resolve(expected_licenses)
+        expected_sku_ids = [sid for (sid, _) in sku_map.values()]
+        # Build reverse map: skuId → friendly name
+        sku_to_friendly = {}
+        for friendly, (sid, _) in sku_map.items():
+            sku_to_friendly[sid] = friendly
+
+        if not expected_sku_ids:
+            return results
+
+        for u in state.get("users", []):
+            uid = u.get("userId", "")
+            upn = u.get("userPrincipalName", "")
+            is_admin = u.get("isAdmin", False)
+            if not uid:
+                continue
+            if is_admin and not assign_to_admins:
+                continue
+
+            vr = await lic_svc.verify_and_repair(uid, expected_sku_ids)
+            if vr["repaired"]:
+                status = "repaired"
+            elif vr["still_missing"]:
+                status = "failed"
+            else:
+                status = "ok"
+
+            # Build the full license list for state update
+            all_assigned_sids = set(vr["assigned"] + vr["repaired"])
+            license_names = [sku_to_friendly[sid] for sid in all_assigned_sids if sid in sku_to_friendly]
+
+            results.append({
+                "userPrincipalName": upn,
+                "licenses": license_names,
+                "assigned": len(vr["assigned"]),
+                "repaired": len(vr["repaired"]),
+                "stillMissing": len(vr["still_missing"]),
+                "status": status,
+            })
+    return results
+
+
 @app.route("/api/hack-state/<prefix>/assign-licenses", methods=["POST"])
 def assign_licenses_to_hack(prefix):
     """Assign additional licenses to users in a hack.

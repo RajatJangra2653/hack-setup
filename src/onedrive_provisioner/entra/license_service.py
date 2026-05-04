@@ -110,3 +110,34 @@ class LicenseService:
             logger.warning("entra.license.failed", user_id=user_id,
                            status=exc.status, code=exc.code, msg=str(exc))
             return []
+
+    async def get_user_licenses(self, user_id: str) -> List[str]:
+        """Return the list of skuId strings currently assigned to a user."""
+        try:
+            data = await self._g.get(f"/users/{user_id}/licenseDetails")
+            return [lic["skuId"] for lic in data.get("value", [])]
+        except GraphError:
+            return []
+
+    async def verify_and_repair(
+        self, user_id: str, expected_sku_ids: List[str],
+    ) -> dict:
+        """Check which expected SKUs a user has; reassign any missing ones.
+
+        Returns {"assigned": [...], "missing": [...], "repaired": [...], "still_missing": [...]}.
+        """
+        current = set(await self.get_user_licenses(user_id))
+        already = [sid for sid in expected_sku_ids if sid in current]
+        missing = [sid for sid in expected_sku_ids if sid not in current]
+
+        if not missing:
+            return {"assigned": already, "missing": [], "repaired": [], "still_missing": []}
+
+        repaired = await self.assign(user_id, missing)
+        still_missing = [sid for sid in missing if sid not in repaired]
+        return {
+            "assigned": already,
+            "missing": missing,
+            "repaired": repaired,
+            "still_missing": still_missing,
+        }

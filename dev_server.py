@@ -551,6 +551,9 @@ class DevHandler(SimpleHTTPRequestHandler):
         elif self.path.startswith("/api/hack-state/") and self.path.endswith("/repair-groups"):
             prefix = self.path.replace("/api/hack-state/", "").replace("/repair-groups", "")
             self._handle_hack_repair_groups(prefix)
+        elif self.path.startswith("/api/hack-state/") and self.path.endswith("/repair-licenses"):
+            prefix = self.path.replace("/api/hack-state/", "").replace("/repair-licenses", "")
+            self._handle_hack_repair_licenses(prefix)
         elif self.path.startswith("/api/hack-state/") and self.path.endswith("/report"):
             prefix = self.path.replace("/api/hack-state/", "").replace("/report", "")
             self._handle_hack_report(prefix)
@@ -1253,6 +1256,68 @@ class DevHandler(SimpleHTTPRequestHandler):
             results = asyncio.run(_run())
             mgr.update_user_groups(prefix, results)
             repaired = sum(1 for r in results if r.get("repaired"))
+            self._send_json({"results": results, "repairedUsers": repaired, "totalChecked": len(results)})
+        except Exception as exc:
+            self._send_json({"error": str(exc)}, 500)
+
+    def _handle_hack_repair_licenses(self, prefix):
+        data = self._read_json()
+        creds = self._creds(data)
+        if not creds:
+            self._send_json({"error": "Missing SPN credentials"}, 400); return
+        mgr = _get_state_manager()
+        if not mgr:
+            self._send_json({"error": "Storage not configured"}, 503); return
+        state = mgr.get_state(prefix)
+        if not state:
+            self._send_json({"error": f"No state found for prefix '{prefix}'"}, 404); return
+        if _is_archived_state(state):
+            self._send_json({"error": "Archived hacks are report-only."}, 409); return
+        t, c, s = creds
+        try:
+            from onedrive_provisioner.entra.license_service import LicenseService
+            tp = MsalTokenProvider(AzureConfig(tenant_id=t, client_id=c, client_secret=s))
+            async def _run():
+                results = []
+                config = state.get("config", {})
+                expected_licenses = config.get("licenses", [])
+                assign_to_admins = config.get("assignLicensesToAdmins", False)
+                async with GraphClient(tp) as g:
+                    lic_svc = LicenseService(g)
+                    sku_map = await lic_svc.resolve(expected_licenses)
+                    expected_sku_ids = [sid for (sid, _) in sku_map.values()]
+                    sku_to_friendly = {sid: friendly for friendly, (sid, _) in sku_map.items()}
+                    if not expected_sku_ids:
+                        return results
+                    for u in state.get("users", []):
+                        uid = u.get("userId", "")
+                        upn = u.get("userPrincipalName", "")
+                        is_admin = u.get("isAdmin", False)
+                        if not uid:
+                            continue
+                        if is_admin and not assign_to_admins:
+                            continue
+                        vr = await lic_svc.verify_and_repair(uid, expected_sku_ids)
+                        if vr["repaired"]:
+                            status = "repaired"
+                        elif vr["still_missing"]:
+                            status = "failed"
+                        else:
+                            status = "ok"
+                        all_assigned_sids = set(vr["assigned"] + vr["repaired"])
+                        license_names = [sku_to_friendly[sid] for sid in all_assigned_sids if sid in sku_to_friendly]
+                        results.append({
+                            "userPrincipalName": upn,
+                            "licenses": license_names,
+                            "assigned": len(vr["assigned"]),
+                            "repaired": len(vr["repaired"]),
+                            "stillMissing": len(vr["still_missing"]),
+                            "status": status,
+                        })
+                return results
+            results = asyncio.run(_run())
+            mgr.update_user_licenses(prefix, results)
+            repaired = sum(1 for r in results if r.get("status") == "repaired")
             self._send_json({"results": results, "repairedUsers": repaired, "totalChecked": len(results)})
         except Exception as exc:
             self._send_json({"error": str(exc)}, 500)
