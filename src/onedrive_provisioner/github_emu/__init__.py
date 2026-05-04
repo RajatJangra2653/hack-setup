@@ -249,6 +249,17 @@ class GitHubEnabler:
                 return False, "already a member"
             raise
 
+    async def _remove_from_group(self, group_id: str, user_id: str) -> tuple[bool, Optional[str]]:
+        """Return (removed?, message). False if not a member."""
+        assert self._graph is not None
+        try:
+            await self._graph.delete(f"/groups/{group_id}/members/{user_id}/$ref")
+            return True, None
+        except GraphError as exc:
+            if exc.status == 404:
+                return False, "not a member"
+            raise
+
     async def _trigger_sync(
         self,
         group_id: str,
@@ -537,6 +548,75 @@ class GitHubEnabler:
             sync_triggered=sum(1 for r in results if r.sync_triggered),
             results=results,
         )
+
+    async def disable_users(
+        self,
+        emails: List[str],
+        *,
+        with_copilot: bool = False,
+        with_ghas: bool = False,
+        use_legacy: bool = False,
+        group_id_override: Optional[str] = None,
+        trigger_sync: bool = True,
+        progress_cb: Optional[Any] = None,
+        concurrency: int = 8,
+    ) -> Dict[str, Any]:
+        """Remove users from GitHub EMU group + trigger sync.
+
+        Looks up each email in the broker tenant, removes from the target group,
+        then triggers a batch sync so GitHub deprovisions them promptly.
+        Does NOT delete any groups — only removes memberships.
+        """
+        group_id = resolve_group_id(
+            with_copilot=with_copilot,
+            with_ghas=with_ghas,
+            use_legacy=use_legacy,
+            override=group_id_override,
+        )
+        clean_emails = [e.strip() for e in emails if e and e.strip()]
+        results: List[Dict[str, Any]] = []
+        sem = asyncio.Semaphore(concurrency)
+        removed_user_ids: List[str] = []
+
+        async def _process_one(email: str) -> Dict[str, Any]:
+            try:
+                user_id, _ = await self._resolve_or_invite_user(email)
+                if not user_id:
+                    return {"email": email, "status": "skipped", "message": "User not found in broker tenant"}
+                removed, msg = await self._remove_from_group(group_id, user_id)
+                if removed:
+                    removed_user_ids.append(user_id)
+                    return {"email": email, "status": "removed", "userId": user_id, "groupId": group_id}
+                else:
+                    return {"email": email, "status": "not-member", "userId": user_id, "message": msg}
+            except Exception as exc:
+                logger.error("github.disable.failed", email=email, err=str(exc))
+                return {"email": email, "status": "failed", "message": str(exc)}
+
+        async def _throttled(email: str) -> Dict[str, Any]:
+            async with sem:
+                return await _process_one(email)
+
+        results = list(await asyncio.gather(*(_throttled(e) for e in clean_emails)))
+
+        # Trigger sync so GitHub deprovisions removed users
+        sync_ok = False
+        if trigger_sync and removed_user_ids:
+            sync_map = await self._trigger_sync_batch(group_id, removed_user_ids)
+            sync_ok = any(sync_map.values())
+            for r in results:
+                if r.get("userId") in sync_map:
+                    r["syncTriggered"] = sync_map[r["userId"]]
+
+        removed_count = sum(1 for r in results if r["status"] == "removed")
+        return {
+            "total": len(results),
+            "removed": removed_count,
+            "notMember": sum(1 for r in results if r["status"] == "not-member"),
+            "failed": sum(1 for r in results if r["status"] == "failed"),
+            "syncTriggered": sync_ok,
+            "results": results,
+        }
 
 
 __all__ = [

@@ -161,7 +161,7 @@ def _scheduler_cleanup(prefix: str, tenant_id: str, client_id: str, client_secre
     """Called by scheduler to cleanup an expired hack (runs in scheduler thread).
 
     Deletes Entra ID users, groups, removes RBAC assignments from subscriptions,
-    and archives blob state for later reporting. Returns result dict with details.
+    removes users from GitHub EMU groups, and archives blob state for later reporting.
     """
     sub_ids = subscription_ids or []
     async def _do():
@@ -173,6 +173,16 @@ def _scheduler_cleanup(prefix: str, tenant_id: str, client_id: str, client_secre
         user_ids = [u["id"] for u in users]
         group_ids = [gr["id"] for gr in groups]
         principal_ids = user_ids + group_ids
+        # Remove from GitHub EMU groups BEFORE deleting Entra users
+        github_results = None
+        user_emails = [u.get("userPrincipalName", "") for u in users if u.get("userPrincipalName")]
+        if user_emails:
+            try:
+                from onedrive_provisioner.github_emu import GitHubEnabler
+                async with GitHubEnabler() as gh:
+                    github_results = await gh.disable_users(user_emails, with_copilot=True, trigger_sync=True)
+            except Exception as exc:
+                github_results = {"error": str(exc)}
         # Remove RBAC role assignments from Azure subscriptions
         rbac_results = []
         if sub_ids and principal_ids:
@@ -194,6 +204,7 @@ def _scheduler_cleanup(prefix: str, tenant_id: str, client_id: str, client_secre
             "users_deleted": deleted_users,
             "groups_deleted": deleted_groups,
             "rbac_removed": rbac_results,
+            "github_cleanup": github_results,
         }
     result = asyncio.run(_do())
     # Archive blob state so historical reports can still be generated.
@@ -908,6 +919,52 @@ def github_enable_status(session_id):
         if not s:
             return jsonify({"error": "Session not found"}), 404
         return jsonify(s)
+
+
+@app.route("/api/github-disable", methods=["POST"])
+def github_disable():
+    """Remove users from GitHub EMU group + trigger sync for deprovisioning.
+
+    Body: {
+        "emails": ["alice@x.com", ...],
+        "withCopilot": false,
+        "withGhas": false,
+        "useLegacyGroups": false,
+        "triggerSync": true
+    }
+
+    Uses hardcoded broker tenant creds. Only removes group memberships,
+    does NOT delete groups.
+    """
+    from onedrive_provisioner.github_emu import GitHubEnabler
+
+    data = request.get_json(silent=True) or {}
+    raw_emails = data.get("emails") or []
+    if isinstance(raw_emails, str):
+        raw_emails = [e for e in re.split(r"[\s,;]+", raw_emails) if e]
+    emails = [str(e).strip() for e in raw_emails if str(e).strip()]
+    if not emails:
+        return jsonify({"error": "Provide at least one email in 'emails'"}), 400
+
+    with_copilot = bool(data.get("withCopilot", False))
+    with_ghas = bool(data.get("withGhas", False))
+    use_legacy = bool(data.get("useLegacyGroups", False))
+    trigger_sync = bool(data.get("triggerSync", True))
+
+    try:
+        async def _go():
+            async with GitHubEnabler() as gh:
+                return await gh.disable_users(
+                    emails,
+                    with_copilot=with_copilot,
+                    with_ghas=with_ghas,
+                    use_legacy=use_legacy,
+                    trigger_sync=trigger_sync,
+                )
+        result = asyncio.run(_go())
+        return jsonify(result)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
 
 
 # ────────────────────── Tenant info / Permissions / Discovery / Cleanup / Read-only ──────────────────────

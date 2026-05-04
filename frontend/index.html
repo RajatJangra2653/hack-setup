@@ -150,6 +150,39 @@
     .section-divider { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
     .section-label { font-size: 13px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 12px; }
 
+    /* ── UX: preflight banner ── */
+    .preflight-banner { padding: 12px 18px; border-radius: 8px; background: #fff7ed; border: 2px solid #fed7aa; margin-bottom: 14px; display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 14px; color: #92400e; }
+    .preflight-banner.pf-passed { background: #f0fdf4; border-color: #86efac; color: var(--success); }
+
+    /* ── UX: disabled-reason text ── */
+    .disabled-reason { font-size: 12px; color: var(--danger); font-weight: 600; margin-left: 8px; display: none; }
+    .btn:disabled + .disabled-reason { display: inline; }
+
+    /* ── UX: date validation ── */
+    .date-timeline { display: flex; gap: 4px; align-items: center; margin: 8px 0 4px; font-size: 12px; }
+    .date-timeline .dt-step { padding: 4px 10px; border-radius: 12px; background: #f0f4ff; border: 1px solid var(--border); }
+    .date-timeline .dt-step.dt-invalid { background: #fef2f2; border-color: var(--danger); color: var(--danger); }
+    .date-timeline .dt-arrow { color: var(--muted); }
+
+    /* ── UX: global busy indicator ── */
+    #globalBusy { position: fixed; top: 12px; right: 16px; z-index: 3000; padding: 8px 16px; border-radius: 20px; background: rgba(37,99,235,.92); color: #fff; font-size: 13px; font-weight: 600; box-shadow: 0 4px 16px rgba(0,0,0,.18); display: none; align-items: center; gap: 8px; backdrop-filter: blur(6px); }
+    #globalBusy .spinner { width: 14px; height: 14px; border-width: 2px; border-top-color: #fff; border-color: rgba(255,255,255,.3); border-top-color: #fff; }
+
+    /* ── UX: cleanup danger box ── */
+    .danger-box { padding: 14px 18px; border-radius: 8px; background: #fef2f2; border: 2px solid #fca5a5; color: #991b1b; font-weight: 600; font-size: 14px; margin-bottom: 12px; }
+
+    /* ── UX: copy button ── */
+    .copy-btn { background: none; border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; font-size: 10px; cursor: pointer; color: var(--muted); }
+    .copy-btn:hover { background: #f0f4ff; color: var(--primary); }
+
+    /* ── UX: prefix validation ── */
+    .prefix-validation { font-size: 12px; margin-top: 4px; font-weight: 600; min-height: 18px; }
+    .prefix-validation.valid { color: var(--success); }
+    .prefix-validation.invalid { color: var(--danger); }
+
+    /* ── UX: keyboard focus ── */
+    .tab:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; border-radius: 4px; }
+
     /* ────────── Lifecycle UX refresh ────────── */
     :root {
       --primary: #2563eb;
@@ -349,6 +382,9 @@
   </style>
 </head>
 <body>
+  <!-- Global busy indicator -->
+  <div id="globalBusy"><span class="spinner"></span> <span id="globalBusyText">Working…</span></div>
+
   <div id="confirmModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="confirmModalTitle">
     <div class="modal-card">
       <div class="modal-head">
@@ -606,7 +642,8 @@
         <div class="row">
           <div class="form-group">
             <label for="ep-prefix">Hack Prefix</label>
-            <input type="text" id="ep-prefix" placeholder="Auto-derived from hack name" oninput="_prefixEditedManually=true;updateProvisionPreview()" />
+            <input type="text" id="ep-prefix" placeholder="Auto-derived from hack name" oninput="_prefixEditedManually=true;updateProvisionPreview();validateHackPrefix()" />
+            <div id="ep-prefixValidation" class="prefix-validation"></div>
           </div>
           <div class="form-group">
             <label for="ep-domain">UPN domain <span class="hint" style="font-weight:400;">(auto-detected if blank)</span></label>
@@ -734,23 +771,25 @@
         <div class="row" style="margin-top:12px;">
           <div class="form-group">
             <label for="ep-hackStartDate">Hack Start Date/Time <span class="hint" style="font-weight:400;">(PST, optional)</span></label>
-            <input type="datetime-local" id="ep-hackStartDate" />
+            <input type="datetime-local" id="ep-hackStartDate" onchange="validateEpDateSequence()" />
           </div>
           <div class="form-group">
             <label for="ep-hackDate">Hack Date/Time <span class="hint" style="font-weight:400;">(PST, optional)</span></label>
-            <input type="datetime-local" id="ep-hackDate" />
+            <input type="datetime-local" id="ep-hackDate" onchange="validateEpDateSequence()" />
           </div>
         </div>
         <div class="row">
           <div class="form-group">
             <label for="ep-readonlyDate">Read-Only Mode Date/Time <span class="hint" style="font-weight:400;">(PST, optional)</span></label>
-            <input type="datetime-local" id="ep-readonlyDate" />
+            <input type="datetime-local" id="ep-readonlyDate" onchange="validateEpDateSequence()" />
           </div>
           <div class="form-group">
             <label for="ep-deleteDate">Delete Date/Time <span class="hint" style="font-weight:400;">(PST, optional)</span></label>
-            <input type="datetime-local" id="ep-deleteDate" />
+            <input type="datetime-local" id="ep-deleteDate" onchange="validateEpDateSequence()" />
           </div>
         </div>
+        <div id="ep-dateTimeline" class="date-timeline"></div>
+        <div id="ep-dateSeqError" style="font-size:12px;color:var(--danger);display:none;"></div>
 
         <hr class="section-divider">
         <div class="section-label">Azure Subscriptions & RBAC</div>
@@ -804,10 +843,17 @@
           </div>
         </div>
 
+        <!-- Pre-flight banner -->
+        <div id="ep-preflightBanner" class="preflight-banner">
+          ⚠️ Run pre-flight check to validate your setup before provisioning
+        </div>
+
         <div class="actions" style="margin-top:20px;padding-top:16px;border-top:2px solid var(--border);">
-          <button class="btn btn-secondary" onclick="withBusy(this, runPreflight)" style="padding:12px 24px;font-size:15px;">🛡 Run Pre-flight Check</button>
-          <button id="ep-btnStart" class="btn btn-primary" onclick="withBusy(this, startProvision)" style="padding:12px 32px;font-size:15px;" disabled title="Run pre-flight check first">▶ Setup Hack</button>
-          <button id="ep-btnSchedule" class="btn btn-secondary" onclick="showScheduleHackDialog()" style="border-color:var(--primary);color:var(--primary);" disabled title="Run pre-flight check first">📅 Schedule Hack</button>
+          <button class="btn btn-primary" onclick="withBusy(this, runPreflight)" style="padding:12px 24px;font-size:15px;">🛡 Run Pre-flight Check</button>
+          <button id="ep-btnStart" class="btn btn-primary" onclick="withBusy(this, startProvision)" style="padding:12px 32px;font-size:15px;" disabled>▶ Provision Now</button>
+          <span class="disabled-reason" id="ep-btnStartReason">Run pre-flight check first</span>
+          <button id="ep-btnSchedule" class="btn btn-secondary" onclick="showScheduleHackDialog()" style="border-color:var(--primary);color:var(--primary);" disabled>⏰ Schedule for Later</button>
+          <span class="disabled-reason" id="ep-btnScheduleReason">Run pre-flight check first</span>
           <span id="ep-spinner" class="hidden"><span class="spinner"></span></span>
           <span id="ep-progress" class="hint"></span>
         </div>
@@ -1116,6 +1162,7 @@
             <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="cu-deleteUsers" checked onchange="updateCleanupPreview();checkCleanupConfirm()"> Delete selected users</label>
             <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="cu-deleteGroups" checked onchange="updateCleanupPreview();checkCleanupConfirm()"> Delete selected groups</label>
             <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="cu-removeRbac" checked onchange="updateCleanupPreview();checkCleanupConfirm()"> Remove RBAC at listed subscriptions</label>
+            <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="cu-removeGithub" checked onchange="updateCleanupPreview();checkCleanupConfirm()"> Remove from GitHub EMU group <span class="hint">(+ trigger sync)</span></label>
           </div>
 
           <div id="cu-blastSummary" style="margin-top:12px;padding:12px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;font-size:13px;font-weight:700;"></div>
@@ -1128,15 +1175,17 @@
           </div>
 
           <div class="form-group" style="margin-top:14px;">
-            <label for="cu-confirmInput">Type the hack name to confirm cleanup</label>
-            <div class="hint" style="margin-bottom:6px;">Saved state will be moved to Archive for later reports. This does not preserve user passwords or TAPs.</div>
-            <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
-              <code id="cu-confirmPrefix" style="filter:blur(5px);user-select:none;">hidden</code>
-              <button type="button" class="btn btn-secondary btn-sm" onclick="revealCleanupConfirmTarget()">Reveal name</button>
+            <div class="danger-box">🚨 WARNING: This will permanently delete users, groups, and remove RBAC access. Saved state will be archived for reports, but user passwords and TAPs will not be preserved. This cannot be undone.</div>
+            <label for="cu-confirmInput">Type the hack name below to confirm cleanup</label>
+            <div style="margin-bottom:6px;font-weight:700;font-size:15px;color:var(--danger);">
+              Confirm target: <code id="cu-confirmPrefix" style="font-size:14px;">—</code>
             </div>
-            <input type="text" id="cu-confirmInput" placeholder="Type exact hack name or prefix" oninput="checkCleanupConfirm()" />
+            <input type="text" id="cu-confirmInput" placeholder="Type exact hack name or prefix to confirm" oninput="checkCleanupConfirm()" />
           </div>
 
+          <div class="actions" style="margin-top:10px;">
+            <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:600;color:var(--danger);"><input type="checkbox" id="cu-understandCheck" onchange="checkCleanupConfirm()" /> I understand this cannot be undone</label>
+          </div>
           <div class="actions" style="margin-top:10px;">
             <button id="cu-btnCleanup" class="btn btn-danger" onclick="withBusy(this, executeCleanup)" style="background:var(--danger);color:#fff;" disabled>⚠ Confirm &amp; Cleanup</button>
             <span id="cu-spinner" class="hidden"><span class="spinner"></span></span>
@@ -1411,12 +1460,28 @@
 
           <div data-tab-content="mh-schedule" class="hidden">
             <div class="card" style="margin-top:10px;">
-              <h4>⏰ Auto-Cleanup End Date</h4>
-              <p class="hint">Set a date/time after which this hack will be automatically cleaned up — users, groups, and RBAC role assignments are removed, while blob state is archived for future reporting.</p>
+              <h4>📅 Modify Hack Dates</h4>
+              <p class="hint">Update lifecycle dates for this hack. Dates should follow the sequence: Hack Start → Hack Date → Read-Only → Delete.</p>
+              <div id="mh-dateTimeline" class="date-timeline" style="margin-bottom:8px;"></div>
+              <div id="mh-dateSeqError" style="font-size:12px;color:var(--danger);margin-bottom:8px;display:none;"></div>
               <div class="row">
                 <div class="form-group">
-                  <label for="mh-endDateInput">End Date &amp; Time (UTC)</label>
-                  <input type="datetime-local" id="mh-endDateInput" />
+                  <label for="mh-editHackStart">Hack Start Date (UTC)</label>
+                  <input type="datetime-local" id="mh-editHackStart" onchange="validateMhDateSequence()" />
+                </div>
+                <div class="form-group">
+                  <label for="mh-editHackDate">Hack Date (UTC)</label>
+                  <input type="datetime-local" id="mh-editHackDate" onchange="validateMhDateSequence()" />
+                </div>
+              </div>
+              <div class="row">
+                <div class="form-group">
+                  <label for="mh-editReadonly">Read-Only Date (UTC)</label>
+                  <input type="datetime-local" id="mh-editReadonly" onchange="validateMhDateSequence()" />
+                </div>
+                <div class="form-group">
+                  <label for="mh-editDelete">Delete / End Date (UTC)</label>
+                  <input type="datetime-local" id="mh-editDelete" onchange="validateMhDateSequence()" />
                 </div>
               </div>
               <div class="form-group" style="margin-top:8px;">
@@ -1424,8 +1489,8 @@
                 <div class="hint">RBAC role assignments for hack users/groups will be removed from these subscriptions during cleanup.</div>
                 <textarea id="mh-endDateSubs" rows="3" placeholder="Paste one subscription ID per line (optional — leave blank to skip RBAC cleanup)" style="font-size:12px;font-family:monospace;"></textarea>
               </div>
-              <button class="btn btn-primary" data-archived-disabled="true" onclick="withBusy(this, setHackEndDate)">⏰ Set End Date</button>
-              <button class="btn btn-secondary" data-archived-disabled="true" onclick="withBusy(this, clearHackEndDate)" style="margin-left:8px;">✖ Clear End Date</button>
+              <button class="btn btn-primary" data-archived-disabled="true" onclick="withBusy(this, saveHackDates)">💾 Save All Dates</button>
+              <button class="btn btn-secondary" data-archived-disabled="true" onclick="withBusy(this, clearHackEndDate)" style="margin-left:8px;">✖ Clear Delete Date</button>
               <span id="mh-endDateSpinner" class="hidden"><span class="spinner"></span></span>
             </div>
 
@@ -1943,6 +2008,13 @@
 <script>
 const API = '/api';
 let _selectedFiles = [];  // {file: File, relativePath: string}[]
+let _globalBusyCount = 0;
+
+function _updateGlobalBusy(delta) {
+  _globalBusyCount = Math.max(0, _globalBusyCount + delta);
+  const el = document.getElementById('globalBusy');
+  if (el) el.classList.toggle('hidden', _globalBusyCount === 0);
+}
 
 // ──────────── Button busy helper ────────────
 // Wrap any onclick like:  onclick="withBusy(this, myAsyncFn, arg1, arg2)"
@@ -1952,15 +2024,19 @@ async function withBusy(btn, fn, ...args) {
   const wasDisabled = btn.disabled;
   btn.classList.add('is-busy');
   btn.disabled = true;
+  _updateGlobalBusy(1);
   // Inline spinner + keep original label for context
   btn.innerHTML = `<span class="btn-spinner"></span><span style="opacity:.9">${originalHTML.replace(/^[^a-zA-Z0-9<]+/, '')}</span>`;
   try {
     return await fn.apply(null, args);
   } catch (e) {
     console.error('Action failed:', e);
-    if (typeof toast === 'function') toast('Action failed: ' + (e.message || e), 'danger');
+    const msg = e.message || String(e);
+    const hint = typeof _credentialErrorHint === 'function' ? _credentialErrorHint(0, msg) : '';
+    if (typeof toast === 'function') toast('Action failed: ' + msg + hint, 'danger');
     throw e;
   } finally {
+    _updateGlobalBusy(-1);
     btn.classList.remove('is-busy');
     btn.disabled = wasDisabled;
     btn.innerHTML = originalHTML;
@@ -2335,20 +2411,34 @@ function closeDetail() { document.getElementById('jobDetail').classList.add('hid
 
 function switchTab(el) {
   const tabBar = el.parentElement;
-  tabBar.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  tabBar.querySelectorAll('.tab').forEach(t => { t.classList.remove('active'); t.setAttribute('aria-selected', 'false'); });
   el.classList.add('active');
+  el.setAttribute('aria-selected', 'true');
   const target = el.dataset.tab;
-  // Find the container holding the tab-content divs (sibling level of the tab bar)
   const container = tabBar.parentElement;
   container.querySelectorAll('[data-tab-content]').forEach(div => {
     div.classList.toggle('hidden', div.dataset.tabContent !== target);
   });
-  // Legacy fallback for old tab-* id approach
   ['users','files','raw'].forEach(t => {
     const old = document.getElementById('tab-' + t);
     if (old) old.classList.toggle('hidden', t !== target);
   });
 }
+
+// Make tabs keyboard-accessible
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.setAttribute('tabindex', '0');
+    tab.setAttribute('role', 'tab');
+    tab.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); switchTab(tab); }
+      if (e.key === 'ArrowRight') { const next = tab.nextElementSibling; if (next && next.classList.contains('tab')) { next.focus(); } }
+      if (e.key === 'ArrowLeft') { const prev = tab.previousElementSibling; if (prev && prev.classList.contains('tab')) { prev.focus(); } }
+    });
+  });
+  // Add role=status to all badges for a11y
+  document.querySelectorAll('.badge').forEach(b => b.setAttribute('role', 'status'));
+});
 
 // ──────────── Load tenant users (POST with creds) ────────────
 async function loadTenantUsers() {
@@ -2462,12 +2552,30 @@ function safeChatLinkUrl(url) {
   return '';
 }
 
-function toast(msg, type='success') {
+function toast(msg, type='success', options={}) {
   const el = document.createElement('div');
   el.className = `toast toast-${type}`;
-  el.textContent = msg;
+  if (options.html) { el.innerHTML = msg; } else { el.textContent = msg; }
+  if (options.duration === 0) {
+    const close = document.createElement('span');
+    close.textContent = ' ✕';
+    close.style.cssText = 'cursor:pointer;margin-left:8px;font-weight:bold;';
+    close.onclick = () => el.remove();
+    el.appendChild(close);
+  } else {
+    setTimeout(() => el.remove(), options.duration || 5000);
+  }
   document.body.appendChild(el);
-  setTimeout(() => el.remove(), 5000);
+  return el;
+}
+
+function _credentialErrorHint(status, message) {
+  const msg = (message || '').toLowerCase();
+  if (status === 401 || status === 403 || msg.includes('unauthorized') || msg.includes('forbidden') || msg.includes('invalid_client') || msg.includes('credentials')) {
+    return ' — Check your SPN credentials (Tenant ID, Client ID, Client Secret).';
+  }
+  if (msg.includes('token') && msg.includes('expired')) return ' — Token expired. Re-enter credentials.';
+  return '';
 }
 
 // ──────────── License Check ────────────
@@ -2825,18 +2933,28 @@ function _renderLicenseCheckboxes(containerId, availabilityId, skus, options = {
   const prevChecked = new Set(Array.from(document.querySelectorAll(`#${containerId} input:checked`)).map(c => c.value));
   const container = document.getElementById(containerId);
   if (!container) return;
+  container.style.cssText = 'display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 16px;';
   container.innerHTML = '';
-  for (const sku of skus) {
+  // Sort: available first, then zero-availability at the bottom
+  const sorted = [...skus].sort((a, b) => {
+    const aAvail = (a.prepaidUnits?.enabled || 0) - (a.consumedUnits || 0);
+    const bAvail = (b.prepaidUnits?.enabled || 0) - (b.consumedUnits || 0);
+    if (aAvail > 0 && bAvail <= 0) return -1;
+    if (aAvail <= 0 && bAvail > 0) return 1;
+    return 0;
+  });
+  for (const sku of sorted) {
     const avail = (sku.prepaidUnits?.enabled || 0) - (sku.consumedUnits || 0);
     const total = sku.prepaidUnits?.enabled || 0;
     const lbl = document.createElement('label');
-    lbl.style.cssText = 'display:flex;align-items:center;gap:4px;font-size:13px;padding:4px 0;min-width:0;overflow:hidden;';
+    const isZero = avail <= 0;
+    lbl.style.cssText = 'display:flex;align-items:center;gap:4px;font-size:13px;padding:4px 0;min-width:0;overflow:hidden;' + (isZero ? 'opacity:0.45;' : '');
     const cb = document.createElement('input');
     cb.type = 'checkbox';
     cb.value = sku.skuPartNumber;
     if (prevChecked.has(sku.skuPartNumber)) cb.checked = true;
     if (options.onChange) cb.addEventListener('change', options.onChange);
-    const color = avail > 0 ? 'var(--success)' : 'var(--danger)';
+    const color = isZero ? 'var(--danger)' : 'var(--success)';
     lbl.appendChild(cb);
     const nameSpan = document.createElement('span');
     nameSpan.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
@@ -2844,8 +2962,8 @@ function _renderLicenseCheckboxes(containerId, availabilityId, skus, options = {
     nameSpan.title = sku.skuPartNumber;
     lbl.appendChild(nameSpan);
     const badge = document.createElement('span');
-    badge.style.cssText = `font-size:11px;color:${color};`;
-    badge.textContent = `(${avail}/${total} avail)`;
+    badge.style.cssText = `font-size:11px;color:${color};white-space:nowrap;`;
+    badge.textContent = `(${avail}/${total})`;
     lbl.appendChild(badge);
     container.appendChild(lbl);
   }
@@ -2999,8 +3117,10 @@ function _resetPreflightGate() {
   _preflightPassed = false;
   const btn = document.getElementById('ep-btnStart');
   const sch = document.getElementById('ep-btnSchedule');
-  if (btn) { btn.disabled = true; btn.title = 'Run pre-flight check first'; }
-  if (sch) { sch.disabled = true; sch.title = 'Run pre-flight check first'; }
+  if (btn) { btn.disabled = true; }
+  if (sch) { sch.disabled = true; }
+  const banner = document.getElementById('ep-preflightBanner');
+  if (banner) { banner.className = 'preflight-banner'; banner.innerHTML = '⚠️ Run pre-flight check to validate your setup before provisioning'; }
 }
 
 async function runPreflight() {
@@ -3043,13 +3163,16 @@ async function runPreflight() {
       _preflightPassed = false;
       document.getElementById('ep-btnStart').disabled = true;
       document.getElementById('ep-btnSchedule').disabled = true;
+      document.getElementById('ep-preflightBanner').className = 'preflight-banner';
+      document.getElementById('ep-preflightBanner').innerHTML = '❌ Pre-flight blocked — fix the issues above before provisioning';
       toast('Pre-flight is blocked — fix issues above before provisioning', 'danger');
     } else {
       _preflightPassed = true;
       document.getElementById('ep-btnStart').disabled = false;
-      document.getElementById('ep-btnStart').title = '';
       document.getElementById('ep-btnSchedule').disabled = false;
-      document.getElementById('ep-btnSchedule').title = '';
+      const banner = document.getElementById('ep-preflightBanner');
+      banner.className = 'preflight-banner pf-passed';
+      banner.innerHTML = '✅ Pre-flight passed — ready to provision';
       if (overall === 'warnings') toast('Pre-flight passed with warnings — review then proceed', 'warn');
       else toast('Pre-flight clear — safe to provision', 'success');
     }
@@ -3129,6 +3252,23 @@ function validatePassword(pwd) {
         ${icon(hasSpecial)} Special character
       </div>
     </div>`;
+}
+
+function validateHackPrefix() {
+  const el = document.getElementById('ep-prefix');
+  const val = (el.value || '').trim();
+  const box = document.getElementById('ep-prefixValidation');
+  if (!val) { box.innerHTML = ''; return; }
+  const errors = [];
+  if (val.length < 3) errors.push('Too short (min 3 chars)');
+  if (val.length > 30) errors.push('Too long (max 30 chars)');
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(val)) errors.push('Lowercase letters, numbers, hyphens only; must start with letter/number');
+  if (val.endsWith('--')) errors.push('Cannot end with double hyphen');
+  if (errors.length) {
+    box.innerHTML = `<span style="color:var(--danger);font-size:12px;">⚠ ${errors.join('; ')}</span>`;
+  } else {
+    box.innerHTML = `<span style="color:var(--success);font-size:12px;">✓ Valid prefix</span>`;
+  }
 }
 
 function updateProvisionPreview() {
@@ -3458,7 +3598,7 @@ function renderProvisionRows(users) {
     const color = u.status === 'created' ? 'var(--success)'
                 : u.status === 'failed' ? 'var(--danger)'
                 : u.status === 'existing' ? 'var(--muted)' : '#888';
-    const tap = u.tap ? `<code style="font-size:11px">${esc(u.tap)}</code>` : '<span class="hint">—</span>';
+    const tap = u.tap ? `<code style="font-size:11px">${esc(u.tap)}</code><button class="copy-btn" style="margin-left:4px" onclick="navigator.clipboard.writeText('${esc(u.tap).replace(/'/g,'&#39;')}').then(()=>toast('Copied','success'))" title="Copy TAP">⧉</button>` : '<span class="hint">—</span>';
     const pwId = `pw_${i}`;
     const pw = u.password
       ? `<code id="${pwId}" style="font-size:11px;filter:blur(4px);cursor:pointer;" onclick="this.style.filter=this.style.filter?'':'blur(4px)'" title="Click to reveal/hide">${esc(u.password)}</code>
@@ -3608,7 +3748,10 @@ async function postJsonWithServerConfirmation(url, body, options = {}) {
       },
     }));
   }
-  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  if (!res.ok) {
+    const hint = _credentialErrorHint(res.status, data.error);
+    throw new Error((data.error || `HTTP ${res.status}`) + hint);
+  }
   return data;
 }
 
@@ -3901,6 +4044,8 @@ function applyHackPrefixSelect(selectId, inputId) {
     document.getElementById('cu-resultCard').classList.add('hidden');
     document.getElementById('cu-confirmInput').value = '';
     document.getElementById('cu-btnCleanup').disabled = true;
+  } else if (inputId === 'mh-prefix') {
+    loadHackState();
   }
 }
 
@@ -4451,32 +4596,60 @@ async function executeCleanup() {
   const deleteUsers = document.getElementById('cu-deleteUsers').checked;
   const deleteGroups = document.getElementById('cu-deleteGroups').checked;
   const removeRbac = document.getElementById('cu-removeRbac').checked;
+  const removeGithub = document.getElementById('cu-removeGithub').checked;
 
   const userIds = deleteUsers ? Array.from(document.querySelectorAll('#cu-users-body .cu_user_:checked')).map(c => c.dataset.id) : [];
   const groupIds = deleteGroups ? Array.from(document.querySelectorAll('#cu-groups-body .cu_group_:checked')).map(c => c.dataset.id) : [];
   const subs = removeRbac ? _splitLines(document.getElementById('cu-subs').value) : [];
-  // RBAC removal targets all selected principals (users + groups)
   const principalIds = [...userIds, ...groupIds];
 
-  if (!userIds.length && !groupIds.length && !(subs.length && principalIds.length)) {
+  // Collect user emails for GitHub cleanup (need UPNs, not IDs)
+  const selectedUserIdSet = new Set(deleteUsers ? userIds : Array.from(document.querySelectorAll('#cu-users-body .cu_user_:checked')).map(c => c.dataset.id));
+  const ghEmails = removeGithub ? (_cuDiscovery.users || []).filter(u => selectedUserIdSet.has(u.id)).map(u => u.userPrincipalName).filter(Boolean) : [];
+
+  if (!userIds.length && !groupIds.length && !ghEmails.length && !(subs.length && principalIds.length)) {
     toast('Nothing selected to delete', 'warn'); return;
   }
   if (!checkCleanupConfirm()) {
     toast('Type the exact hack name/prefix to confirm cleanup', 'danger'); return;
   }
 
-  // Confirmation is handled by prefix-typing input — no additional modal needed
   document.getElementById('cu-spinner').classList.remove('hidden');
   document.getElementById('cu-resultCard').classList.add('hidden');
   try {
+    // Step 1: Remove from GitHub EMU group BEFORE deleting Entra users
+    let ghData = null;
+    if (removeGithub && ghEmails.length) {
+      try {
+        const ghRes = await fetch(`${API}/github-disable`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ emails: ghEmails, withCopilot: true, triggerSync: true }),
+        });
+        ghData = await ghRes.json();
+        if (!ghRes.ok) toast('GitHub cleanup warning: ' + (ghData.error || 'partial failure'), 'warn');
+      } catch (ghErr) {
+        toast('GitHub cleanup failed (continuing with Entra cleanup): ' + ghErr.message, 'warn');
+      }
+    }
+
+    // Step 2: Entra cleanup (users, groups, RBAC)
     const data = await postJsonWithServerConfirmation(
       `${API}/cleanup-hack`,
       { ...creds, userIds, groupIds, subscriptionIds: subs, principalIds, hackPrefix: document.getElementById('cu-prefix').value.trim() },
       { title: 'Confirm destructive cleanup' },
     );
-    document.getElementById('cu-resultJson').textContent = JSON.stringify(data, null, 2);
+    document.getElementById('cu-resultJson').textContent = JSON.stringify({ ...data, github: ghData }, null, 2);
     // Render results table
     let rows = '';
+    // GitHub results first
+    if (ghData && ghData.results) {
+      for (const r of ghData.results) {
+        const color = r.status === 'removed' ? 'var(--success)' : r.status === 'not-member' ? 'var(--muted)' : 'var(--danger)';
+        const syncIcon = r.syncTriggered ? ' ✓sync' : '';
+        rows += `<tr><td>🐙 GitHub</td><td>${esc(r.email || '')}</td><td style="color:${color};font-weight:600">${esc(r.status)}${syncIcon}</td><td style="font-size:12px;color:var(--muted)">${esc(r.message || '')}</td></tr>`;
+      }
+    }
     for (const u of (data.users || [])) {
       const color = u.status === 'deleted' ? 'var(--success)' : 'var(--danger)';
       rows += `<tr><td>User</td><td>${esc(u.displayName || u.id)}</td><td style="color:${color};font-weight:600">${esc(u.status)}</td><td style="font-size:12px;color:var(--muted)">${esc(u.error || '')}</td></tr>`;
@@ -4493,6 +4666,8 @@ async function executeCleanup() {
     document.getElementById('cu-resultCard').classList.remove('hidden');
     const okU = (data.users || []).filter(u => u.status === 'deleted').length;
     const okG = (data.groups || []).filter(g => g.status === 'deleted').length;
+    const ghRemoved = ghData ? (ghData.removed || 0) : 0;
+    const ghMsg = ghData ? `, ${ghRemoved} GitHub removal(s)` : '';
     const archiveMsg = data.blob_state_archived
       ? ' · <span style="color:var(--success)">Hack state archived for future reports</span>'
       : data.blob_state_error
@@ -4501,8 +4676,8 @@ async function executeCleanup() {
           ? ` · <span style="color:var(--muted)">${esc(data.blob_state_note)}</span>`
           : '';
     document.getElementById('cu-resultSummary').innerHTML =
-      `<span style="color:var(--success)">Deleted ${okU}/${(data.users || []).length} users, ${okG}/${(data.groups || []).length} groups</span>` + archiveMsg;
-    toast(`Deleted ${okU}/${(data.users || []).length} users, ${okG}/${(data.groups || []).length} groups` +
+      `<span style="color:var(--success)">Deleted ${okU}/${(data.users || []).length} users, ${okG}/${(data.groups || []).length} groups${ghMsg}</span>` + archiveMsg;
+    toast(`Deleted ${okU}/${(data.users || []).length} users, ${okG}/${(data.groups || []).length} groups${ghMsg}` +
       (data.blob_state_archived ? ' + state archived' : ''), 'success');
     _savedHackCache = { active: null, archived: null, loadedAt: 0 };
     refreshHackPrefixPickers(true);
@@ -4522,10 +4697,17 @@ function updateCleanupPreview() {
   const deleteUsers = document.getElementById('cu-deleteUsers').checked;
   const deleteGroups = document.getElementById('cu-deleteGroups').checked;
   const removeRbac = document.getElementById('cu-removeRbac').checked;
+  const removeGithub = document.getElementById('cu-removeGithub').checked;
   const selectedUserIds = new Set(Array.from(document.querySelectorAll('#cu-users-body .cu_user_:checked')).map(c => c.dataset.id));
   const selectedGroupIds = new Set(Array.from(document.querySelectorAll('#cu-groups-body .cu_group_:checked')).map(c => c.dataset.id));
   const body = document.getElementById('cu-previewBody');
   let rows = '';
+  // GitHub removal preview (before Entra deletion)
+  if (removeGithub) {
+    users.filter(u => selectedUserIds.has(u.id) && u.userPrincipalName).forEach(u => {
+      rows += `<tr><td>🐙 GitHub</td><td>${esc(u.userPrincipalName)}</td><td style="color:var(--warn)">Remove from group</td></tr>`;
+    });
+  }
   users.filter(u => deleteUsers && selectedUserIds.has(u.id)).forEach(u => {
     rows += `<tr><td>User</td><td>${esc(u.userPrincipalName || u.displayName)}</td><td style="color:var(--danger)">Delete</td></tr>`;
   });
@@ -4539,19 +4721,22 @@ function updateCleanupPreview() {
   const selectedUsers = deleteUsers ? selectedUserIds.size : 0;
   const selectedGroups = deleteGroups ? selectedGroupIds.size : 0;
   const rbacPrincipals = removeRbac ? (selectedUserIds.size + selectedGroupIds.size) : 0;
+  const ghCount = removeGithub ? users.filter(u => selectedUserIds.has(u.id) && u.userPrincipalName).length : 0;
   document.getElementById('cu-blastSummary').innerHTML =
     `Blast radius: <span style="color:var(--danger)">${selectedUsers} user(s)</span>, ` +
     `<span style="color:var(--danger)">${selectedGroups} group(s)</span>, ` +
     `<span style="color:var(--warn)">${removeRbac ? subs.length : 0} subscription(s)</span>, ` +
-    `<span style="color:var(--warn)">${removeRbac ? subs.length * rbacPrincipals : 0} potential RBAC principal/subscription touch(es)</span>. ` +
-    `<span style="color:var(--success)">Saved hack state will be archived, not deleted.</span>`;
+    `<span style="color:var(--warn)">${removeRbac ? subs.length * rbacPrincipals : 0} RBAC touch(es)</span>` +
+    (ghCount ? `, <span style="color:var(--warn)">${ghCount} GitHub removal(s)</span>` : '') +
+    `. <span style="color:var(--success)">Saved hack state will be archived, not deleted.</span>`;
   document.getElementById('cu-previewTable').classList.remove('hidden');
 }
 
 function checkCleanupConfirm() {
   const prefix = document.getElementById('cu-confirmPrefix').textContent.trim() || document.getElementById('cu-prefix').value.trim();
   const input = document.getElementById('cu-confirmInput').value.trim();
-  const ok = !!_cuDiscovery && !!prefix && input === prefix;
+  const understood = document.getElementById('cu-understandCheck') ? document.getElementById('cu-understandCheck').checked : true;
+  const ok = !!_cuDiscovery && !!prefix && input === prefix && understood;
   document.getElementById('cu-btnCleanup').disabled = !ok;
   return ok;
 }
@@ -4865,12 +5050,21 @@ function _renderManagedHackState(state) {
     const ed = new Date(deleteDate);
     endDateSpan.textContent = ed.toLocaleString() + ' (UTC: ' + String(deleteDate).substring(0,19) + ')';
     endDateSpan.style.color = '#c62828';
-    const endInput = document.getElementById('mh-endDateInput');
-    if (endInput) endInput.value = String(deleteDate).substring(0, 16);
   } else {
     endDateSpan.textContent = 'Not set';
     endDateSpan.style.color = '#888';
   }
+  // Populate Schedule tab date editor inputs
+  const _dtLocal = (v) => v ? String(v).substring(0, 16) : '';
+  const editStart = document.getElementById('mh-editHackStart');
+  const editHack = document.getElementById('mh-editHackDate');
+  const editRo = document.getElementById('mh-editReadonly');
+  const editDel = document.getElementById('mh-editDelete');
+  if (editStart) editStart.value = _dtLocal(lifecycle.hackStartDate);
+  if (editHack) editHack.value = _dtLocal(lifecycle.hackDate);
+  if (editRo) editRo.value = _dtLocal(lifecycle.readonlyDate);
+  if (editDel) editDel.value = _dtLocal(deleteDate);
+  validateMhDateSequence();
   // Populate subscription IDs if saved in state
   const subsArea = document.getElementById('mh-endDateSubs');
   if (subsArea && state.subscriptionIds && state.subscriptionIds.length) {
@@ -4900,8 +5094,8 @@ function _renderManagedHackState(state) {
     body.innerHTML += `<tr>
       <td><code style="font-size:11px;">${esc(u.userPrincipalName)}</code></td>
       <td style="${sCls}">${esc(u.status)}</td>
-      <td style="filter:blur(4px);cursor:pointer;" onclick="this.style.filter=this.style.filter?'':'blur(4px)'">${esc(u.password || '-')}</td>
-      <td style="filter:blur(4px);cursor:pointer;" onclick="this.style.filter=this.style.filter?'':'blur(4px)'">${esc(u.tap || '-')}</td>
+      <td style="filter:blur(4px);cursor:pointer;" onclick="this.style.filter=this.style.filter?'':'blur(4px)'">${esc(u.password || '-')}<button class="copy-btn" style="margin-left:4px" onclick="event.stopPropagation();navigator.clipboard.writeText('${esc(u.password||'').replace(/'/g,'&#39;')}').then(()=>toast('Copied','success'))" title="Copy password">⧉</button></td>
+      <td style="filter:blur(4px);cursor:pointer;" onclick="this.style.filter=this.style.filter?'':'blur(4px)'">${esc(u.tap || '-')}<button class="copy-btn" style="margin-left:4px" onclick="event.stopPropagation();navigator.clipboard.writeText('${esc(u.tap||'').replace(/'/g,'&#39;')}').then(()=>toast('Copied','success'))" title="Copy TAP">⧉</button></td>
       <td style="font-size:11px;" title="${escAttr((u.licenses || []).join(', '))}">${esc(formatLicenseList(u.licenses)) || '-'}</td>
       <td style="font-size:11px;">${grpCell}</td>
       <td style="font-size:11px;">${ghCell}</td>
@@ -5675,12 +5869,55 @@ async function generateAdminGuide() {
 
 // ──────────── Scheduler ────────────
 
-async function setHackEndDate() {
+// Date sequence validation helper (used for both setup + manage)
+function _validateDateSequence(ids, timelineId, errorId) {
+  const labels = { hackStart: 'Start', hackDate: 'Hack', readonly: 'Read-Only', delete: 'Delete' };
+  const vals = ids.map(id => ({ id, val: document.getElementById(id).value }));
+  const filled = vals.filter(v => v.val);
+  // Build timeline
+  const timeline = document.getElementById(timelineId);
+  const errEl = document.getElementById(errorId);
+  if (filled.length < 2) { timeline.innerHTML = ''; errEl.style.display = 'none'; return true; }
+  let html = '';
+  let valid = true;
+  for (let i = 0; i < filled.length; i++) {
+    const label = labels[filled[i].id.split('-').pop().replace('HackStart','hackStart').replace('HackDate','hackDate').replace('Readonly','readonly').replace('Delete','delete').replace('editHackStart','hackStart').replace('editHackDate','hackDate').replace('editReadonly','readonly').replace('editDelete','delete')] || filled[i].id;
+    const dt = new Date(filled[i].val);
+    const cls = (i > 0 && dt <= new Date(filled[i - 1].val)) ? 'dt-step dt-invalid' : 'dt-step';
+    if (cls.includes('dt-invalid')) valid = false;
+    if (i > 0) html += '<span class="dt-arrow">→</span>';
+    html += `<span class="${cls}">${label}: ${dt.toLocaleDateString()}</span>`;
+  }
+  timeline.innerHTML = html;
+  if (!valid) { errEl.textContent = '⚠ Dates are out of order. Expected: Start → Hack → Read-Only → Delete.'; errEl.style.display = 'block'; }
+  else { errEl.style.display = 'none'; }
+  return valid;
+}
+
+function validateEpDateSequence() {
+  return _validateDateSequence(
+    ['ep-hackStartDate', 'ep-hackDate', 'ep-readonlyDate', 'ep-deleteDate'],
+    'ep-dateTimeline', 'ep-dateSeqError'
+  );
+}
+
+function validateMhDateSequence() {
+  return _validateDateSequence(
+    ['mh-editHackStart', 'mh-editHackDate', 'mh-editReadonly', 'mh-editDelete'],
+    'mh-dateTimeline', 'mh-dateSeqError'
+  );
+}
+
+async function saveHackDates() {
   if (!_managedHackState) { toast('Load a hack first', 'danger'); return; }
   if (_managedHackState.isArchived || _managedHackState.archivedAt) { toast('Archived hacks are report-only', 'warn'); return; }
-  const input = document.getElementById('mh-endDateInput').value;
-  if (!input) { toast('Select an end date & time', 'danger'); return; }
-  const endDate = new Date(input).toISOString();
+  const hackStartDate = document.getElementById('mh-editHackStart').value;
+  const hackDate = document.getElementById('mh-editHackDate').value;
+  const readonlyDate = document.getElementById('mh-editReadonly').value;
+  const deleteDate = document.getElementById('mh-editDelete').value;
+  if (!deleteDate) { toast('Delete / End Date is required for scheduling', 'danger'); return; }
+  if (!validateMhDateSequence()) { toast('Fix date sequence before saving', 'danger'); return; }
+  const endDate = new Date(deleteDate).toISOString();
   const prefix = _managedHackState.prefix.replace(/-$/, '');
   const creds = getSPNCreds();
   if (!creds.tenant_id) { toast('Enter SPN credentials', 'danger'); return; }
@@ -5690,13 +5927,27 @@ async function setHackEndDate() {
     const res = await fetch(`${API}/hack-state/${encodeURIComponent(prefix)}/set-end-date`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...creds, endDate, subscriptionIds }),
+      body: JSON.stringify({
+        ...creds, endDate, subscriptionIds,
+        hackStartDate: hackStartDate ? new Date(hackStartDate).toISOString() : '',
+        hackDate: hackDate ? new Date(hackDate).toISOString() : '',
+        readonlyDate: readonlyDate ? new Date(readonlyDate).toISOString() : '',
+        deleteDate: endDate,
+      }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Failed');
-    toast(`End date set: ${endDate.substring(0, 19)}`, 'success');
-    // Update displayed end date
+    toast('Dates saved successfully', 'success');
+    // Refresh state display
+    const lifecycleDate = (v) => v ? `${new Date(v).toLocaleString()} (UTC: ${String(v).substring(0, 19)})` : 'Not set';
+    if (hackStartDate) { _managedHackState.hackStartDate = new Date(hackStartDate).toISOString(); }
+    if (hackDate) { _managedHackState.hackDate = new Date(hackDate).toISOString(); }
+    if (readonlyDate) { _managedHackState.readonlyDate = new Date(readonlyDate).toISOString(); }
     _managedHackState.endDate = endDate;
+    _managedHackState.deleteDate = endDate;
+    document.getElementById('mh-stHackStart').textContent = lifecycleDate(_managedHackState.hackStartDate);
+    document.getElementById('mh-stHackDate').textContent = lifecycleDate(_managedHackState.hackDate);
+    document.getElementById('mh-stReadonlyDate').textContent = lifecycleDate(_managedHackState.readonlyDate);
     const endDateSpan = document.getElementById('mh-stEndDate');
     endDateSpan.textContent = new Date(endDate).toLocaleString() + ' (UTC: ' + endDate.substring(0,19) + ')';
     endDateSpan.style.color = '#c62828';
@@ -5713,7 +5964,6 @@ async function clearHackEndDate() {
   const creds = getSPNCreds();
   if (!creds.tenant_id) { toast('Enter SPN credentials', 'danger'); return; }
   try {
-    // Set end date to empty string to clear it
     const res = await fetch(`${API}/hack-state/${encodeURIComponent(prefix)}/set-end-date`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -5722,10 +5972,12 @@ async function clearHackEndDate() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Failed');
     _managedHackState.endDate = '';
+    _managedHackState.deleteDate = '';
     document.getElementById('mh-stEndDate').textContent = 'Not set';
     document.getElementById('mh-stEndDate').style.color = '#888';
-    document.getElementById('mh-endDateInput').value = '';
-    toast('End date cleared', 'success');
+    document.getElementById('mh-editDelete').value = '';
+    validateMhDateSequence();
+    toast('Delete date cleared', 'success');
   } catch (e) {
     toast('Error: ' + e.message, 'danger');
   }

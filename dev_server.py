@@ -304,9 +304,19 @@ def _scheduler_cleanup(prefix, tenant_id, client_id, client_secret, subscription
         tp = MsalTokenProvider(AzureConfig(tenant_id=tenant_id, client_id=client_id, client_secret=client_secret))
         async with GraphClient(tp) as g:
             discovered = await DiscoveryService(g).discover(prefix)
-        user_ids = [u["id"] for u in discovered.get("users", [])]
+        users = discovered.get("users", [])
+        user_ids = [u["id"] for u in users]
         group_ids = [gr["id"] for gr in discovered.get("groups", [])]
         principal_ids = user_ids + group_ids
+        # Remove from GitHub EMU groups BEFORE deleting Entra users
+        user_emails = [u.get("userPrincipalName", "") for u in users if u.get("userPrincipalName")]
+        if user_emails:
+            try:
+                from onedrive_provisioner.github_emu import GitHubEnabler
+                async with GitHubEnabler() as gh:
+                    await gh.disable_users(user_emails, with_copilot=True, trigger_sync=True)
+            except Exception:
+                pass  # GitHub cleanup is best-effort during scheduled cleanup
         # Remove RBAC role assignments from Azure subscriptions
         if sub_ids and principal_ids:
             async with RbacService(tp) as rbac:
@@ -526,6 +536,8 @@ class DevHandler(SimpleHTTPRequestHandler):
             self._handle_entra_start()
         elif self.path == "/api/github-enable":
             self._handle_github_start()
+        elif self.path == "/api/github-disable":
+            self._handle_github_disable()
         elif self.path == "/api/tenant-info":
             self._handle_tenant_info()
         elif self.path == "/api/subscriptions":
@@ -1022,6 +1034,36 @@ class DevHandler(SimpleHTTPRequestHandler):
                 self._send_json({"error": "Session not found"}, 404)
                 return
             self._send_json(s)
+
+    def _handle_github_disable(self):
+        import re as _re
+        data = self._read_json()
+        raw_emails = data.get("emails") or []
+        if isinstance(raw_emails, str):
+            raw_emails = [e for e in _re.split(r"[\s,;]+", raw_emails) if e]
+        emails = [str(e).strip() for e in raw_emails if str(e).strip()]
+        if not emails:
+            self._send_json({"error": "Provide at least one email in 'emails'"}, 400)
+            return
+        with_copilot = bool(data.get("withCopilot", False))
+        with_ghas = bool(data.get("withGhas", False))
+        use_legacy = bool(data.get("useLegacyGroups", False))
+        trigger_sync = bool(data.get("triggerSync", True))
+        try:
+            from onedrive_provisioner.github_emu import GitHubEnabler
+            async def _go():
+                async with GitHubEnabler() as gh:
+                    return await gh.disable_users(
+                        emails,
+                        with_copilot=with_copilot,
+                        with_ghas=with_ghas,
+                        use_legacy=use_legacy,
+                        trigger_sync=trigger_sync,
+                    )
+            result = asyncio.run(_go())
+            self._send_json(result)
+        except Exception as exc:
+            self._send_json({"error": str(exc)}, 500)
 
     # ── Tenant info / Permissions / Discovery / Cleanup / Read-only ──
 
