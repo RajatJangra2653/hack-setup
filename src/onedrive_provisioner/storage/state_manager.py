@@ -194,8 +194,11 @@ class HackStateManager:
                 "tapExpires": u.get("tapExpires", ""),
                 "licenses": u.get("licenses", []),
                 "groups": u.get("groups", []),
+                "groupFailures": u.get("groupFailures", []),
                 "isAdmin": u.get("isAdmin", False),
                 "message": u.get("message", ""),
+                "github": u.get("github"),
+                "githubUsername": (u.get("github") or {}).get("githubUsername") if isinstance(u.get("github"), dict) else None,
                 "provisionedAt": now,
                 "lastTapRegenAt": None,
                 "lastLicenseUpdateAt": None,
@@ -295,4 +298,22 @@ class HackStateManager:
                 "licenses": lr.get("licenses", []),
                 "lastLicenseUpdateAt": now,
             })
+        return self.merge_users(prefix, updates)
+
+    def update_user_groups(
+        self,
+        prefix: str,
+        group_results: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Update group memberships for users after repair."""
+        now = datetime.now(timezone.utc).isoformat()
+        updates = []
+        for gr in group_results:
+            upd: Dict[str, Any] = {
+                "userPrincipalName": gr["userPrincipalName"],
+                "groups": gr.get("groups", []),
+                "groupFailures": gr.get("groupFailures", []),
+                "lastGroupRepairAt": now,
+            }
+            updates.append(upd)
         return self.merge_users(prefix, updates)

@@ -25,6 +25,16 @@ from typing import Any, Dict, List
 
 from flask import Flask, request, jsonify, send_from_directory
 
+# ── Load .env (best-effort — only if python-dotenv is installed) ──
+try:
+    from dotenv import load_dotenv  # type: ignore
+    _env_path = os.path.join(os.path.dirname(__file__), ".env")
+    if os.path.isfile(_env_path):
+        load_dotenv(_env_path, override=False)
+        print(f"[ENV] Loaded {_env_path}")
+except ImportError:
+    pass
+
 # ── Add src to path ──
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
@@ -198,6 +208,11 @@ def _scheduler_cleanup(prefix: str, tenant_id: str, client_id: str, client_secre
 _entra_sessions: Dict[str, Dict[str, Any]] = {}
 _entra_lock = threading.Lock()
 _MAX_ENTRA_SESSIONS = 100
+
+# ── In-memory GitHub-enable sessions ──
+_github_sessions: Dict[str, Dict[str, Any]] = {}
+_github_lock = threading.Lock()
+_MAX_GITHUB_SESSIONS = 100
 
 # ── In-memory generated docs store ──
 _generated_docs: Dict[str, Dict[str, Any]] = {}
@@ -776,6 +791,125 @@ def provision_users_list():
     return jsonify(out)
 
 
+# ────────────────────── GitHub EMU enablement ──────────────────────
+
+def _run_github_enable(session_id: str, emails: List[str], with_copilot: bool,
+                       with_ghas: bool, use_legacy: bool, group_override: str | None,
+                       trigger_sync: bool):
+    """Background worker: add users to GitHub-EMU group + trigger on-demand sync."""
+    from onedrive_provisioner.github_emu import GitHubEnabler
+
+    def _set(**kw):
+        with _github_lock:
+            s = _github_sessions.get(session_id)
+            if s:
+                s.update(kw)
+                s["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+    partial: List[dict] = []
+
+    def _on_done(result, done, total):
+        partial.append(result.to_dict())
+        with _github_lock:
+            s = _github_sessions.get(session_id)
+            if s:
+                s["processed"] = done
+                s["total"] = total
+                s["partial_results"] = list(partial)
+                s["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+    async def _go():
+        async with GitHubEnabler() as gh:
+            return await gh.enable_users(
+                emails,
+                with_copilot=with_copilot,
+                with_ghas=with_ghas,
+                use_legacy=use_legacy,
+                group_id_override=group_override,
+                trigger_sync=trigger_sync,
+                progress_cb=_on_done,
+            )
+
+    try:
+        configure_logging("INFO")
+        report = asyncio.run(_go())
+        _set(status="completed", result=report.to_dict(),
+             processed=report.total, total=report.total)
+    except Exception as exc:
+        _set(status="failed", error=str(exc))
+
+
+@app.route("/api/github-enable", methods=["POST"])
+def github_enable_start():
+    """Start a GitHub EMU enablement job for a list of user emails.
+
+    Body: {
+        "emails": ["alice@x.com", ...],
+        "withCopilot": false,
+        "withGhas": false,
+        "useLegacyGroups": false,
+        "groupIdOverride": null,
+        "triggerSync": true
+    }
+
+    Credentials are hardcoded server-side (separate broker tenant).
+    """
+    data = request.get_json(silent=True) or {}
+    raw_emails = data.get("emails") or []
+    if isinstance(raw_emails, str):
+        raw_emails = [e for e in re.split(r"[\s,;]+", raw_emails) if e]
+    emails = [str(e).strip() for e in raw_emails if str(e).strip()]
+    if not emails:
+        return jsonify({"error": "Provide at least one email in 'emails'"}), 400
+
+    with_copilot = bool(data.get("withCopilot", False))
+    with_ghas = bool(data.get("withGhas", False))
+    use_legacy = bool(data.get("useLegacyGroups", False))
+    group_override = (data.get("groupIdOverride") or "").strip() or None
+    trigger_sync = bool(data.get("triggerSync", True))
+
+    session_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    session = {
+        "id": session_id,
+        "status": "running",
+        "created_at": now,
+        "updated_at": now,
+        "total": len(emails),
+        "processed": 0,
+        "withCopilot": with_copilot,
+        "withGhas": with_ghas,
+        "useLegacyGroups": use_legacy,
+        "groupIdOverride": group_override,
+        "partial_results": [],
+        "result": None,
+        "error": None,
+    }
+    with _github_lock:
+        if len(_github_sessions) >= _MAX_GITHUB_SESSIONS:
+            oldest = min(_github_sessions, key=lambda k: _github_sessions[k]["created_at"])
+            del _github_sessions[oldest]
+        _github_sessions[session_id] = session
+
+    threading.Thread(
+        target=_run_github_enable,
+        args=(session_id, emails, with_copilot, with_ghas, use_legacy,
+              group_override, trigger_sync),
+        daemon=True,
+    ).start()
+
+    return jsonify({"session_id": session_id, "status": "running"}), 202
+
+
+@app.route("/api/github-enable/<session_id>", methods=["GET"])
+def github_enable_status(session_id):
+    with _github_lock:
+        s = _github_sessions.get(session_id)
+        if not s:
+            return jsonify({"error": "Session not found"}), 404
+        return jsonify(s)
+
+
 # ────────────────────── Tenant info / Permissions / Discovery / Cleanup / Read-only ──────────────────────
 
 def _make_token_provider(t, c, s):
@@ -1330,6 +1464,118 @@ async def _async_regenerate_tap(t, c, s, *, state, target_upns, tap_lifetime):
                 "tap": tap.get("temporaryAccessPass", "") if tap else "",
                 "tapExpires": tap.get("startDateTime", "") if tap else "",
                 "status": "ok" if tap else "failed",
+            })
+    return results
+
+
+@app.route("/api/hack-state/<prefix>/repair-groups", methods=["POST"])
+def repair_groups(prefix):
+    """Verify and repair group memberships for all users in a hack.
+
+    Body: { tenant_id, client_id, client_secret }
+    For every user that has a userId, checks whether they are actually
+    a member of each expected group and re-adds any missing memberships.
+    """
+    data = request.get_json(silent=True) or {}
+    creds = _extract_creds(data)
+    if not creds:
+        return jsonify({"error": "Missing SPN credentials"}), 400
+
+    mgr = _get_state_manager()
+    if not mgr:
+        return jsonify({"error": "Storage not configured"}), 503
+    state = mgr.get_state(prefix)
+    if not state:
+        return jsonify({"error": f"No state found for prefix '{prefix}'"}), 404
+    if _is_archived_state(state):
+        return jsonify({"error": "Archived hacks are report-only."}), 409
+
+    try:
+        results = asyncio.run(_async_repair_groups(*creds, state=state))
+        mgr.update_user_groups(prefix, results)
+        repaired = sum(1 for r in results if r.get("repaired"))
+        return jsonify({"results": results, "repairedUsers": repaired, "totalChecked": len(results)})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+async def _async_repair_groups(t, c, s, *, state):
+    from onedrive_provisioner.entra.group_service import GroupService
+    tp = _make_token_provider(t, c, s)
+    results = []
+    # Build group name → id lookup from state
+    group_map = {}
+    config = state.get("config", {})
+    hack_prefix = config.get("prefix") or state.get("prefix", "")
+    async with GraphClient(tp) as g:
+        group_svc = GroupService(g, hack_name=state.get("hackName", ""))
+        # Resolve all group names mentioned in user records
+        all_group_names = set()
+        for u in state.get("users", []):
+            all_group_names.update(u.get("groups", []))
+            all_group_names.update(u.get("groupFailures", []))  # also retry failed ones
+        # Also add expected groups from config (team groups + admin group)
+        mode = config.get("mode", "team")
+        teams = int(config.get("teams", 0))
+        if mode == "team" and teams > 0:
+            for t_idx in range(1, teams + 1):
+                gn = f"{hack_prefix.rstrip('-')}-t{t_idx:02d}-group"
+                all_group_names.add(gn)
+        if int(config.get("adminUsers", 0)) > 0:
+            all_group_names.add(f"{hack_prefix.rstrip('-')}-admins")
+
+        for name in all_group_names:
+            grp = await group_svc.get_by_name(name)
+            if grp:
+                group_map[name] = grp["id"]
+
+        for u in state.get("users", []):
+            uid = u.get("userId", "")
+            upn = u.get("userPrincipalName", "")
+            if not uid:
+                continue
+            is_admin = u.get("isAdmin", False)
+            expected_groups = set(u.get("groups", [])) | set(u.get("groupFailures", []))
+
+            # Also add the expected group based on naming convention
+            if not is_admin and mode == "team":
+                # Parse team from UPN: e.g. prefix-t01-u01@domain → t01
+                local = upn.split("@")[0] if "@" in upn else upn
+                parts = local.replace(hack_prefix.rstrip("-") + "-", "").split("-")
+                if parts and parts[0].startswith("t"):
+                    team_grp = f"{hack_prefix.rstrip('-')}-{parts[0]}-group"
+                    expected_groups.add(team_grp)
+            elif is_admin:
+                admin_grp = f"{hack_prefix.rstrip('-')}-admins"
+                expected_groups.add(admin_grp)
+
+            current_groups = []
+            still_failed = []
+            any_repaired = False
+
+            for grp_name in sorted(expected_groups):
+                gid = group_map.get(grp_name)
+                if not gid:
+                    still_failed.append(grp_name)
+                    continue
+                is_member = await group_svc.verify_member(gid, uid)
+                if is_member:
+                    current_groups.append(grp_name)
+                else:
+                    # Try to re-add
+                    added = await group_svc.add_member(gid, uid)
+                    if added:
+                        current_groups.append(grp_name)
+                        any_repaired = True
+                    else:
+                        still_failed.append(grp_name)
+
+            results.append({
+                "userPrincipalName": upn,
+                "groups": current_groups,
+                "groupFailures": still_failed,
+                "repaired": any_repaired,
+                "status": "repaired" if any_repaired else ("ok" if not still_failed else "failed"),
             })
     return results
 

@@ -126,6 +126,13 @@ class EntraConfig:
     hack_name: str = ""           # e.g. "NYC Esri GCC Hack — Apr 2026"
     created_by: str = ""          # free-form identifier of who ran provisioning
     concurrency: int = 6          # surfaced from API into orchestrator
+    # GitHub EMU enablement (uses hardcoded broker creds in github_emu module)
+    enable_github: bool = False
+    enable_github_copilot: bool = False
+    enable_github_ghas: bool = False
+    enable_github_for_admins: bool = False
+    github_use_legacy_groups: bool = False
+    github_group_id_override: Optional[str] = None
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "EntraConfig":
@@ -149,6 +156,12 @@ class EntraConfig:
             hack_name=d.get("hackName", "") or "",
             created_by=d.get("createdBy", "") or "",
             concurrency=int(d.get("concurrency", 6)),
+            enable_github=bool(d.get("enableGithub", False)),
+            enable_github_copilot=bool(d.get("enableGithubCopilot", False)),
+            enable_github_ghas=bool(d.get("enableGithubGhas", False)),
+            enable_github_for_admins=bool(d.get("enableGithubForAdmins", False)),
+            github_use_legacy_groups=bool(d.get("githubUseLegacyGroups", False)),
+            github_group_id_override=d.get("githubGroupIdOverride") or None,
         )
 
 
@@ -172,8 +185,10 @@ class UserProvisionResult:
     tap_expires: Optional[str] = None
     licenses: List[str] = field(default_factory=list)
     groups: List[str] = field(default_factory=list)
+    group_failures: List[str] = field(default_factory=list)  # groups that failed to add
     is_admin: bool = False
     message: Optional[str] = None
+    github: Optional[Dict[str, Any]] = None  # GitHub EMU enablement result, when requested
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -185,8 +200,10 @@ class UserProvisionResult:
             "tapExpires": self.tap_expires,
             "licenses": self.licenses,
             "groups": self.groups,
+            "groupFailures": self.group_failures,
             "isAdmin": self.is_admin,
             "message": self.message,
+            "github": self.github,
         }
 
 

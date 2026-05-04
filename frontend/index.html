@@ -424,6 +424,7 @@
         <div class="tab" data-view="manage" onclick="switchView('manage')"><small>05 Monitor</small>Manage & report</div>
         <div class="tab" data-view="readonly" onclick="switchView('readonly')"><small>06 Freeze</small>Read-only</div>
         <div class="tab" data-view="cleanup" onclick="switchView('cleanup')"><small>07 Finish</small>Cleanup</div>
+        <div class="tab" data-view="github" onclick="switchView('github')"><small>Add-on</small>GitHub access</div>
         <div class="tab" data-view="scheduler" onclick="switchView('scheduler')"><small>Automation</small>Scheduler</div>
         <div class="tab" data-view="chat" onclick="switchView('chat')"><small>Assist</small>AI helper</div>
         <div class="tab" data-view="help" onclick="switchView('help')"><small>Docs</small>Help</div>
@@ -695,7 +696,34 @@
           <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="ep-createTeamGroups" checked> Create team groups</label>
           <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="ep-createAdminGroup" checked> Create admin group</label>
           <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="ep-assignAdminRole"> Assign Global Reader to admins <span class="hint">(tenant-wide, opt-in)</span></label>
+          <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="ep-isGcc"> Is this a GCC account setup? <span class="hint">(uses the GCC-flavored admin guide on export)</span></label>
           <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="ep-dryRun"> Dry run</label>
+        </div>
+
+        <div class="form-group" style="margin-top:4px;padding:10px 12px;background:#f7f9fc;border:1px solid var(--border);border-radius:6px;">
+          <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:600;">
+            <input type="checkbox" id="ep-enableGithub" onchange="_toggleGithubSubOptions('ep')"> 🐙 Enable GitHub access
+          </label>
+          <div class="hint" style="margin:4px 0 8px 22px;">Adds each provisioned user to a GitHub-EMU-backed Entra group and triggers an on-demand sync. Uses a separate broker tenant (credentials are configured server-side).</div>
+          <div id="ep-githubSubs" style="margin-left:22px;display:none;flex-direction:column;gap:8px;">
+            <div style="display:flex;flex-wrap:wrap;gap:14px;">
+              <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;font-size:13px;"><input type="checkbox" id="ep-enableGithubCopilot"> Include GitHub Copilot</label>
+              <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;font-size:13px;"><input type="checkbox" id="ep-enableGithubGhas"> Include GHAS <span class="hint">(optional, overrides Copilot group)</span></label>
+              <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;font-size:13px;"><input type="checkbox" id="ep-enableGithubForAdmins"> Include admin users</label>
+            </div>
+            <details style="font-size:12px;color:var(--muted);">
+              <summary style="cursor:pointer;user-select:none;">Advanced: target group</summary>
+              <div style="margin-top:6px;padding:8px 10px;background:#fff;border:1px solid var(--border);border-radius:4px;">
+                <label style="display:flex;align-items:flex-start;gap:6px;margin:0;font-weight:400;font-size:13px;">
+                  <input type="checkbox" id="ep-githubUseLegacyGroups" style="margin-top:3px;">
+                  <span>
+                    Use the original <code>83311b9f…</code> / <code>bb0215fb…</code> Entra groups instead of the current <code>public-sector-hacks</code> groups (<code>3c92ccf9…</code> / <code>8e075647…</code>).
+                    <br><span class="hint">Leave unchecked unless you've been told to use the older groups for backwards compatibility.</span>
+                  </span>
+                </label>
+              </div>
+            </details>
+          </div>
         </div>
 
         <div id="ep-preview" class="hint" style="margin-top:8px;font-family:var(--font-mono);font-size:12px;"></div>
@@ -739,6 +767,11 @@
             <div id="ep-subPicker" class="subscription-picker hidden"></div>
           </div>
           <div class="form-group" style="min-width:160px;">
+            <label for="ep-budgetPerTeam">Budget per team ($)</label>
+            <input type="number" id="ep-budgetPerTeam" placeholder="e.g. 300" min="0" step="50" oninput="updateProvisionPreview()" />
+            <div class="hint">Azure budget allocated to each team. Shows in the generated Admin Guide.</div>
+          </div>
+          <div class="form-group" style="min-width:160px;">
             <label for="ep-rbacRole">RBAC Role <span class="hint" style="font-weight:400;">(optional)</span></label>
             <select id="ep-rbacRole">
               <option value="">— none —</option>
@@ -772,9 +805,9 @@
         </div>
 
         <div class="actions" style="margin-top:20px;padding-top:16px;border-top:2px solid var(--border);">
-          <button class="btn btn-secondary" onclick="withBusy(this, runPreflight)">🛡 Pre-flight check</button>
-          <button id="ep-btnStart" class="btn btn-primary" onclick="withBusy(this, startProvision)" style="padding:12px 32px;font-size:15px;">▶ Setup Hack</button>
-          <button class="btn btn-secondary" onclick="showScheduleHackDialog()" style="border-color:var(--primary);color:var(--primary);">📅 Schedule Hack</button>
+          <button class="btn btn-secondary" onclick="withBusy(this, runPreflight)" style="padding:12px 24px;font-size:15px;">🛡 Run Pre-flight Check</button>
+          <button id="ep-btnStart" class="btn btn-primary" onclick="withBusy(this, startProvision)" style="padding:12px 32px;font-size:15px;" disabled title="Run pre-flight check first">▶ Setup Hack</button>
+          <button id="ep-btnSchedule" class="btn btn-secondary" onclick="showScheduleHackDialog()" style="border-color:var(--primary);color:var(--primary);" disabled title="Run pre-flight check first">📅 Schedule Hack</button>
           <span id="ep-spinner" class="hidden"><span class="spinner"></span></span>
           <span id="ep-progress" class="hint"></span>
         </div>
@@ -1187,7 +1220,7 @@
           <div data-tab-content="mh-users">
             <div class="results-scroll" style="max-height:400px;">
               <table>
-                <thead><tr><th>UPN</th><th>Status</th><th>Password</th><th>TAP</th><th>Licenses</th><th>Groups</th></tr></thead>
+                <thead><tr><th>UPN</th><th>Status</th><th>Password</th><th>TAP</th><th>Licenses</th><th>Groups</th><th>GitHub</th></tr></thead>
                 <tbody id="mh-usersBody"></tbody>
               </table>
             </div>
@@ -1244,6 +1277,59 @@
               </div>
               <button class="btn btn-primary" data-archived-disabled="true" onclick="withBusy(this, assignLicensesToHack)">📦 Assign Licenses</button>
               <span id="mh-licSpinner" class="hidden"><span class="spinner"></span></span>
+            </div>
+
+            <div class="card" style="margin-top:10px;">
+              <h4>🐙 Enable GitHub Access</h4>
+              <p class="hint">Add users to a GitHub-EMU-backed Entra group and trigger an on-demand provisioning sync. External users are auto-invited as guests. Uses a separate broker tenant — no SPN credentials required from this screen.</p>
+              <div class="form-group">
+                <label for="mh-ghEmails">User emails <span class="hint" style="font-weight:400;">(blank = all non-admin users in loaded hack)</span></label>
+                <textarea id="mh-ghEmails" rows="3" placeholder="alice@contoso.com, bob@contoso.com (one per line or comma-separated)"></textarea>
+              </div>
+              <div class="form-group" style="display:flex;flex-wrap:wrap;gap:14px;">
+                <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;font-size:13px;"><input type="checkbox" id="mh-ghCopilot" checked> Include GitHub Copilot</label>
+                <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;font-size:13px;"><input type="checkbox" id="mh-ghGhas"> Include GHAS <span class="hint">(optional — overrides Copilot)</span></label>
+                <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;font-size:13px;"><input type="checkbox" id="mh-ghTriggerSync" checked> Trigger sync after add</label>
+              </div>
+              <details style="font-size:12px;color:var(--muted);margin-bottom:10px;">
+                <summary style="cursor:pointer;user-select:none;">Advanced: target group</summary>
+                <div style="margin-top:6px;padding:8px 10px;background:#fff;border:1px solid var(--border);border-radius:4px;">
+                  <label style="display:flex;align-items:flex-start;gap:6px;margin:0;font-weight:400;font-size:13px;">
+                    <input type="checkbox" id="mh-ghLegacy" style="margin-top:3px;">
+                    <span>
+                      Use the original <code>83311b9f…</code> / <code>bb0215fb…</code> Entra groups instead of the current <code>public-sector-hacks</code> groups (<code>3c92ccf9…</code> / <code>8e075647…</code>).
+                      <br><span class="hint">Leave unchecked unless you've been told to use the older groups for backwards compatibility.</span>
+                    </span>
+                  </label>
+                </div>
+              </details>
+              <button class="btn btn-primary" data-archived-disabled="true" onclick="withBusy(this, enableGithubForHack)">🐙 Enable GitHub</button>
+              <span id="mh-ghSpinner" class="hidden"><span class="spinner"></span></span>
+              <div id="mh-ghResultBox" class="hidden" style="margin-top:12px;">
+                <div id="mh-ghSummary" style="font-weight:600;margin-bottom:6px;"></div>
+                <div class="results-scroll" style="max-height:260px;">
+                  <table>
+                    <thead><tr><th>Email</th><th>GitHub username</th><th>Status</th><th>Sync</th><th>Message</th></tr></thead>
+                    <tbody id="mh-ghBody"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <div class="card" style="margin-top:10px;">
+              <h4>🔧 Repair Group Memberships</h4>
+              <p class="hint">Verify that every user is actually a member of their expected Entra security group. Any missing memberships are re-added automatically.</p>
+              <button class="btn btn-primary" data-archived-disabled="true" onclick="withBusy(this, repairGroupsForHack)">🔧 Verify &amp; Repair Groups</button>
+              <span id="mh-grpRepairSpinner" class="hidden"><span class="spinner"></span></span>
+              <div id="mh-grpRepairResultBox" class="hidden" style="margin-top:12px;">
+                <div id="mh-grpRepairSummary" style="font-weight:600;margin-bottom:6px;"></div>
+                <div class="results-scroll" style="max-height:260px;">
+                  <table>
+                    <thead><tr><th>UPN</th><th>Groups</th><th>Failures</th><th>Status</th></tr></thead>
+                    <tbody id="mh-grpRepairBody"></tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -1339,6 +1425,88 @@
       </div>
 
     </div><!-- /view-manage -->
+
+    <!-- ────────── GitHub Access View ────────── -->
+    <div id="view-github" class="hidden">
+      <h2>🐙 Enable GitHub access</h2>
+      <p class="hint">Add users to a GitHub-EMU-backed Entra group and trigger an on-demand provisioning sync. Works for an existing hack (loaded from blob state) or any free-form list of emails. Uses a separate broker tenant — no SPN credentials required here.</p>
+
+      <div class="card">
+        <div class="tabs" style="margin-bottom:12px;">
+          <div class="tab active" data-tab="gh-existing" onclick="switchTab(this)">From existing hack</div>
+          <div class="tab" data-tab="gh-new" onclick="switchTab(this)">From email list</div>
+        </div>
+
+        <!-- ── Existing hack mode ── -->
+        <div data-tab-content="gh-existing">
+          <div class="row">
+            <div class="form-group" style="flex:2;">
+              <label for="gh-prefix">Hack prefix</label>
+              <div style="display:flex;gap:6px;">
+                <input type="text" id="gh-prefix" placeholder="e.g. nyc-esri-gcc-" style="flex:1;" />
+                <button class="btn btn-primary btn-sm" type="button" onclick="withBusy(this, ghLoadHackForEnable)">📥 Load</button>
+              </div>
+              <div class="hack-picker-row">
+                <select id="gh-hackSelect" onchange="applyHackPrefixSelect('gh-hackSelect','gh-prefix')">
+                  <option value="">— Select active hack —</option>
+                </select>
+                <button class="btn btn-secondary btn-sm" type="button" onclick="withBusy(this, () => loadHackPrefixSelect('gh-hackSelect','gh-prefix', { includeArchived: false, force: true }))">↻</button>
+              </div>
+              <div class="hint">Loads users from saved hack state. Defaults to participants only — toggle below to include admins.</div>
+            </div>
+          </div>
+          <div id="gh-hackInfo" class="hidden" style="margin-top:8px;padding:8px 12px;background:#f7f9fc;border:1px solid var(--border);border-radius:6px;font-size:13px;"></div>
+        </div>
+
+        <!-- ── Free-form emails mode ── -->
+        <div data-tab-content="gh-new" class="hidden">
+          <div class="form-group">
+            <label for="gh-newEmails">User emails</label>
+            <textarea id="gh-newEmails" rows="6" placeholder="alice@contoso.com&#10;bob@contoso.com&#10;external.user@partner.com" style="font-family:monospace;font-size:13px;"></textarea>
+            <div class="hint">One email per line, or comma-separated. External users (different domain than the broker tenant) are auto-invited as guests before being added.</div>
+          </div>
+        </div>
+
+        <!-- ── Shared options ── -->
+        <hr class="section-divider">
+        <div class="section-label">Options</div>
+        <div class="form-group" style="display:flex;flex-wrap:wrap;gap:14px;">
+          <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;font-size:13px;"><input type="checkbox" id="gh-optCopilot" checked> Include GitHub Copilot</label>
+          <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;font-size:13px;"><input type="checkbox" id="gh-optGhas"> Include GHAS <span class="hint">(optional — overrides Copilot)</span></label>
+          <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;font-size:13px;" data-mode="existing"><input type="checkbox" id="gh-optIncludeAdmins"> Include admin users <span class="hint">(existing-hack mode)</span></label>
+          <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;font-size:13px;"><input type="checkbox" id="gh-optTriggerSync" checked> Trigger sync after add</label>
+        </div>
+        <details style="font-size:12px;color:var(--muted);margin-bottom:10px;">
+          <summary style="cursor:pointer;user-select:none;">Advanced: target group</summary>
+          <div style="margin-top:6px;padding:8px 10px;background:#fff;border:1px solid var(--border);border-radius:4px;">
+            <label style="display:flex;align-items:flex-start;gap:6px;margin:0;font-weight:400;font-size:13px;">
+              <input type="checkbox" id="gh-optLegacy" style="margin-top:3px;">
+              <span>
+                Use the original <code>83311b9f…</code> / <code>bb0215fb…</code> Entra groups instead of the current <code>public-sector-hacks</code> groups (<code>3c92ccf9…</code> / <code>8e075647…</code>).
+                <br><span class="hint">Leave unchecked unless you've been told to use the older groups for backwards compatibility.</span>
+              </span>
+            </label>
+          </div>
+        </details>
+
+        <button class="btn btn-primary" onclick="withBusy(this, runGithubEnable)">🐙 Enable GitHub</button>
+        <span id="gh-spinner" class="hidden" style="margin-left:8px;"><span class="spinner"></span></span>
+
+        <div id="gh-resultBox" class="hidden" style="margin-top:14px;">
+          <div id="gh-summary" style="font-weight:600;margin-bottom:6px;"></div>
+          <div class="actions" style="margin-bottom:6px;">
+            <button class="btn btn-secondary btn-sm" type="button" onclick="ghDownloadResultsCsv()">📄 Export CSV</button>
+            <button class="btn btn-secondary btn-sm" type="button" onclick="ghCopyHandlesToClipboard()">📋 Copy GitHub handles</button>
+          </div>
+          <div class="results-scroll" style="max-height:380px;">
+            <table>
+              <thead><tr><th>Email</th><th>GitHub username</th><th>Status</th><th>Sync</th><th>Message</th></tr></thead>
+              <tbody id="gh-resultBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div><!-- /view-github -->
 
     <!-- ────────── Scheduler View ────────── -->
     <div id="view-scheduler" class="hidden">
@@ -2483,6 +2651,7 @@ function switchView(name) {
     manage: 'Operate & report',
     readonly: 'Freeze workspace',
     cleanup: 'Cleanup safely',
+    github: 'Enable GitHub access',
     scheduler: 'Automation scheduler',
     chat: 'AI helper',
     help: 'Help & docs'
@@ -2495,6 +2664,7 @@ function switchView(name) {
     manage: 'Load saved hack state, regenerate TAPs, add licenses, export user data, and create cost reports.',
     readonly: 'Freeze participant workspaces when submissions close so judges can review content safely.',
     cleanup: 'Remove hack users, groups, RBAC assignments, and licenses, then archive saved state for future reports.',
+    github: 'Add users to GitHub-EMU groups and trigger sync. Works with an existing hack or a free-form list of emails.',
     scheduler: 'Review queued provision, read-only, and cleanup jobs for the full hack lifecycle.',
     chat: 'Ask the assistant to inspect saved hacks, generate reports, or explain next actions.',
     help: 'Use the guide for setup instructions, field meanings, and operational safety checks.'
@@ -2514,12 +2684,12 @@ function switchView(name) {
   if (activeStepHint) activeStepHint.textContent = hints[name] || 'Select a lifecycle action to continue.';
   const secureConnectionCard = document.getElementById('secureConnectionCard');
   if (secureConnectionCard) secureConnectionCard.classList.toggle('hidden', !['tenant-setup', 'provision'].includes(name));
-  ['upload','provision','permissions','readonly','cleanup','manage','scheduler','chat','tenant-setup','help'].forEach(v => {
+  ['upload','provision','permissions','readonly','cleanup','manage','scheduler','chat','tenant-setup','help','github'].forEach(v => {
     const el = document.getElementById('view-' + v);
     if (el) el.classList.toggle('hidden', v !== name);
   });
   if (name === 'provision') updateProvisionPreview();
-  if (['permissions', 'readonly', 'cleanup', 'manage', 'scheduler'].includes(name)) refreshHackPrefixPickers();
+  if (['permissions', 'readonly', 'cleanup', 'manage', 'scheduler', 'github'].includes(name)) refreshHackPrefixPickers();
   if (name === 'scheduler') loadAllScheduledJobs();
 }
 
@@ -2769,6 +2939,13 @@ function _epCfg() {
     createdBy: (document.getElementById('ep-createdBy')||{}).value || '',
     initialPassword: (document.getElementById('ep-password')||{}).value || '',
     forceChangePassword: document.getElementById('ep-forceChangePwd').checked,
+    isGcc: document.getElementById('ep-isGcc').checked,
+    budgetPerTeam: parseFloat(document.getElementById('ep-budgetPerTeam').value) || undefined,
+    enableGithub: document.getElementById('ep-enableGithub').checked,
+    enableGithubCopilot: document.getElementById('ep-enableGithubCopilot').checked,
+    enableGithubGhas: document.getElementById('ep-enableGithubGhas').checked,
+    enableGithubForAdmins: document.getElementById('ep-enableGithubForAdmins').checked,
+    githubUseLegacyGroups: document.getElementById('ep-githubUseLegacyGroups').checked,
     hackStartDate: lifecycle.hackStartDate,
     hackDate: lifecycle.hackDate,
     readonlyDate: lifecycle.readonlyDate,
@@ -2784,7 +2961,17 @@ function _validateHackPrefix(prefix) {
   return '';
 }
 
+let _preflightPassed = false;
+function _resetPreflightGate() {
+  _preflightPassed = false;
+  const btn = document.getElementById('ep-btnStart');
+  const sch = document.getElementById('ep-btnSchedule');
+  if (btn) { btn.disabled = true; btn.title = 'Run pre-flight check first'; }
+  if (sch) { sch.disabled = true; sch.title = 'Run pre-flight check first'; }
+}
+
 async function runPreflight() {
+  _resetPreflightGate();
   const creds = getCreds();
   if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
   if (!(await _ensureTenantDetected())) { toast('Could not detect tenant domain', 'danger'); return; }
@@ -2819,10 +3006,20 @@ async function runPreflight() {
       return `<div class="pf-row"><div class="pf-status ${cls}">${esc(c.status)}</div>` +
              `<div><strong>${esc(c.name)}</strong><div style="color:var(--muted);font-size:12px;">${esc(c.detail||'')}</div>${items}</div></div>`;
     }).join('') || '<div class="hint">No checks.</div>';
-    document.getElementById('ep-btnStart').disabled = (overall === 'blocked');
-    if (overall === 'blocked') toast('Pre-flight is blocked — fix issues above before provisioning', 'danger');
-    else if (overall === 'warnings') toast('Pre-flight passed with warnings — review then proceed', 'warn');
-    else toast('Pre-flight clear — safe to provision', 'success');
+    if (overall === 'blocked') {
+      _preflightPassed = false;
+      document.getElementById('ep-btnStart').disabled = true;
+      document.getElementById('ep-btnSchedule').disabled = true;
+      toast('Pre-flight is blocked — fix issues above before provisioning', 'danger');
+    } else {
+      _preflightPassed = true;
+      document.getElementById('ep-btnStart').disabled = false;
+      document.getElementById('ep-btnStart').title = '';
+      document.getElementById('ep-btnSchedule').disabled = false;
+      document.getElementById('ep-btnSchedule').title = '';
+      if (overall === 'warnings') toast('Pre-flight passed with warnings — review then proceed', 'warn');
+      else toast('Pre-flight clear — safe to provision', 'success');
+    }
   } catch (e) {
     summary.innerHTML = `<span class="pf-status pf-blocked">ERROR</span>`;
     list.innerHTML = `<div style="color:var(--danger)">${esc(e.message)}</div>`;
@@ -2902,6 +3099,8 @@ function validatePassword(pwd) {
 }
 
 function updateProvisionPreview() {
+  // Any config change invalidates a prior preflight pass
+  if (_preflightPassed) _resetPreflightGate();
   const c = _epCfg();
   const teamsInput = document.getElementById('ep-teams');
   const teamsLabel = document.getElementById('ep-teams-label');
@@ -2928,6 +3127,10 @@ function updateProvisionPreview() {
 }
 
 async function startProvision() {
+  if (!_preflightPassed) {
+    toast('Run pre-flight check first — it must pass before provisioning', 'danger');
+    return;
+  }
   const creds = getCreds();
   if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
   const pwdVal = (document.getElementById('ep-password') || {}).value || '';
@@ -3027,6 +3230,10 @@ function showScheduleHackDialog() {
 
 /* Schedule hack for a future date */
 async function scheduleHack() {
+  if (!_preflightPassed) {
+    toast('Run pre-flight check first — it must pass before scheduling', 'danger');
+    return;
+  }
   const creds = getCreds();
   if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
   if (!(await _ensureTenantDetected())) { toast('Could not detect tenant domain', 'danger'); return; }
@@ -3671,6 +3878,7 @@ async function refreshHackPrefixPickers(force = false) {
     loadHackPrefixSelect('ro-hackSelect', 'ro-prefix', { force }),
     loadHackPrefixSelect('cu-hackSelect', 'cu-prefix', { force }),
     loadHackPrefixSelect('mh-hackSelect', 'mh-prefix', { includeArchived: true, force }),
+    loadHackPrefixSelect('gh-hackSelect', 'gh-prefix', { force }),
     _loadHackPrefixes(force),
   ]);
 }
@@ -4643,13 +4851,27 @@ function _renderManagedHackState(state) {
   body.innerHTML = '';
   for (const u of (state.users || [])) {
     const sCls = u.status === 'created' ? 'color:var(--success)' : u.status === 'failed' ? 'color:var(--danger)' : 'color:var(--muted)';
+    const ghName = u.githubUsername || (u.github && u.github.githubUsername) || '';
+    const ghStatus = (u.github && u.github.status) || '';
+    const ghCell = ghName
+      ? `<code style="font-size:11px;">${esc(ghName)}</code>${ghStatus ? `<div class="hint" style="font-size:10px;">${esc(ghStatus)}</div>` : ''}`
+      : '<span class="hint">—</span>';
+    const grpOk = (u.groups || []);
+    const grpFail = (u.groupFailures || []);
+    let grpCell = grpOk.map(g => `<span style="color:var(--success);">${esc(g)}</span>`).join(', ');
+    if (grpFail.length) {
+      if (grpCell) grpCell += ', ';
+      grpCell += grpFail.map(g => `<span style="color:var(--danger);" title="Failed to add">✗ ${esc(g)}</span>`).join(', ');
+    }
+    if (!grpCell) grpCell = '-';
     body.innerHTML += `<tr>
       <td><code style="font-size:11px;">${esc(u.userPrincipalName)}</code></td>
       <td style="${sCls}">${esc(u.status)}</td>
       <td style="filter:blur(4px);cursor:pointer;" onclick="this.style.filter=this.style.filter?'':'blur(4px)'">${esc(u.password || '-')}</td>
       <td style="filter:blur(4px);cursor:pointer;" onclick="this.style.filter=this.style.filter?'':'blur(4px)'">${esc(u.tap || '-')}</td>
       <td style="font-size:11px;" title="${escAttr((u.licenses || []).join(', '))}">${esc(formatLicenseList(u.licenses)) || '-'}</td>
-      <td style="font-size:11px;">${(u.groups || []).map(esc).join(', ') || '-'}</td>
+      <td style="font-size:11px;">${grpCell}</td>
+      <td style="font-size:11px;">${ghCell}</td>
     </tr>`;
   }
 
@@ -4741,6 +4963,275 @@ async function assignLicensesToHack() {
   }
 }
 
+function _toggleGithubSubOptions(prefix) {
+  const cb = document.getElementById(prefix + '-enableGithub');
+  const subs = document.getElementById(prefix + '-githubSubs');
+  if (subs) subs.style.display = cb && cb.checked ? '' : 'none';
+}
+
+async function enableGithubForHack() {
+  let emails = document.getElementById('mh-ghEmails').value.trim();
+  let emailList = emails ? emails.split(/[\s,;]+/).map(s => s.trim()).filter(Boolean) : [];
+  if (!emailList.length) {
+    if (!_managedHackState || !Array.isArray(_managedHackState.users)) {
+      toast('Enter emails or load a hack first', 'danger'); return;
+    }
+    emailList = _managedHackState.users
+      .filter(u => !u.isAdmin)
+      .map(u => u.userPrincipalName)
+      .filter(Boolean);
+  }
+  if (!emailList.length) { toast('No users to enable', 'danger'); return; }
+
+  const body = {
+    emails: emailList,
+    withCopilot: document.getElementById('mh-ghCopilot').checked,
+    withGhas: document.getElementById('mh-ghGhas').checked,
+    useLegacyGroups: document.getElementById('mh-ghLegacy').checked,
+    triggerSync: document.getElementById('mh-ghTriggerSync').checked,
+  };
+
+  const spin = document.getElementById('mh-ghSpinner');
+  const box = document.getElementById('mh-ghResultBox');
+  const summary = document.getElementById('mh-ghSummary');
+  const bodyEl = document.getElementById('mh-ghBody');
+  spin.classList.remove('hidden');
+  box.classList.remove('hidden');
+  summary.textContent = `Enabling GitHub for ${emailList.length} user(s)…`;
+  bodyEl.innerHTML = '';
+
+  try {
+    const startResp = await fetch(`${API}/github-enable`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const startData = await startResp.json();
+    if (!startResp.ok) throw new Error(startData.error || `HTTP ${startResp.status}`);
+    const sessionId = startData.session_id;
+
+    let session = null;
+    while (true) {
+      await new Promise(r => setTimeout(r, 2000));
+      const r = await fetch(`${API}/github-enable/${encodeURIComponent(sessionId)}`);
+      session = await r.json();
+      if (!r.ok) throw new Error(session.error || `HTTP ${r.status}`);
+      summary.textContent = `Processing ${session.processed || 0}/${session.total || emailList.length}…`;
+      _renderGithubResults(bodyEl, session.partial_results || []);
+      if (session.status === 'completed' || session.status === 'failed') break;
+    }
+
+    if (session.status === 'failed') {
+      summary.textContent = 'Failed: ' + (session.error || 'unknown error');
+      toast('GitHub enable failed: ' + (session.error || ''), 'danger');
+      return;
+    }
+    const rep = session.result || {};
+    summary.textContent = `Done: added=${rep.added||0}, already-member=${rep.alreadyMember||0}, invited=${rep.invited||0}, failed=${rep.failed||0}, syncs triggered=${rep.syncTriggered||0}`;
+    _renderGithubResults(bodyEl, rep.results || []);
+    toast('GitHub enable complete', 'success');
+  } catch (e) {
+    summary.textContent = 'Error: ' + e.message;
+    toast('GitHub enable failed: ' + e.message, 'danger');
+  } finally {
+    spin.classList.add('hidden');
+  }
+}
+
+async function repairGroupsForHack() {
+  if (!_managedHackState) { toast('Load a hack first', 'danger'); return; }
+  if (_managedHackState.isArchived || _managedHackState.archivedAt) { toast('Archived hacks are report-only', 'warn'); return; }
+  const creds = getCreds();
+  if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
+  const prefix = _managedHackState.prefix.replace(/-$/, '');
+  const spin = document.getElementById('mh-grpRepairSpinner');
+  const box = document.getElementById('mh-grpRepairResultBox');
+  const summaryEl = document.getElementById('mh-grpRepairSummary');
+  const tbody = document.getElementById('mh-grpRepairBody');
+  spin.classList.remove('hidden');
+  box.classList.remove('hidden');
+  summaryEl.textContent = 'Verifying group memberships…';
+  tbody.innerHTML = '';
+  try {
+    const data = await postJsonWithServerConfirmation(
+      `${API}/hack-state/${encodeURIComponent(prefix)}/repair-groups`,
+      { ...creds },
+      { title: 'Confirm group repair' },
+    );
+    const results = data.results || [];
+    const repaired = data.repairedUsers || 0;
+    const total = data.totalChecked || 0;
+    const failCount = results.filter(r => r.status === 'failed').length;
+    summaryEl.textContent = `Checked ${total} user(s): ${repaired} repaired` + (failCount ? `, ${failCount} still failing` : ', all groups OK');
+    for (const r of results) {
+      const sCls = r.status === 'ok' ? 'color:var(--success)' : r.status === 'repaired' ? 'color:#e67e22' : 'color:var(--danger)';
+      tbody.innerHTML += `<tr>
+        <td><code style="font-size:11px;">${esc(r.userPrincipalName || '')}</code></td>
+        <td style="font-size:11px;">${(r.groups || []).map(esc).join(', ') || '-'}</td>
+        <td style="font-size:11px;color:var(--danger);">${(r.groupFailures || []).map(esc).join(', ') || '-'}</td>
+        <td style="${sCls}">${esc(r.status || '')}</td>
+      </tr>`;
+    }
+    if (repaired > 0) toast(`Repaired group memberships for ${repaired} user(s)`, 'success');
+    else if (failCount > 0) toast(`${failCount} user(s) still have group failures`, 'danger');
+    else toast('All group memberships verified OK', 'success');
+    // Reload state to reflect updated groups
+    await loadHackState();
+  } catch (e) {
+    summaryEl.textContent = 'Error: ' + e.message;
+    toast('Group repair failed: ' + e.message, 'danger');
+  } finally {
+    spin.classList.add('hidden');
+  }
+}
+
+function _renderGithubResults(tbody, results) {
+  tbody.innerHTML = '';
+  for (const r of results) {
+    const ok = r.status === 'added' || r.status === 'already-member' || r.status === 'invited';
+    const sCls = ok ? 'color:var(--success)' : 'color:var(--danger)';
+    tbody.innerHTML += `<tr>
+      <td><code style="font-size:11px;">${esc(r.email || '')}</code></td>
+      <td><code style="font-size:11px;">${esc(r.githubUsername || '')}</code></td>
+      <td style="${sCls}">${esc(r.status || '')}</td>
+      <td>${r.syncTriggered ? '✓' : '—'}</td>
+      <td style="font-size:11px;color:var(--muted);">${esc(r.message || '')}</td>
+    </tr>`;
+  }
+}
+
+// ─────────────── Standalone GitHub Access view ───────────────
+let _ghLoadedHack = null;        // currently loaded hack-state for "existing" mode
+let _ghLastResults = [];         // last batch of GitHubEnableResult dicts
+
+function _ghActiveMode() {
+  // active sub-tab inside the GitHub view
+  const t = document.querySelector('#view-github .tab.active');
+  return t && t.dataset.tab === 'gh-new' ? 'new' : 'existing';
+}
+
+async function ghLoadHackForEnable() {
+  const prefix = (document.getElementById('gh-prefix').value || '').trim();
+  if (!prefix) { toast('Enter or pick a hack prefix', 'danger'); return; }
+  const info = document.getElementById('gh-hackInfo');
+  info.classList.remove('hidden');
+  info.textContent = 'Loading hack state…';
+  try {
+    const cleanPrefix = prefix.replace(/-$/, '');
+    const r = await fetch(`${API}/hack-state/${encodeURIComponent(cleanPrefix)}`);
+    const state = await r.json();
+    if (!r.ok) throw new Error(state.error || `HTTP ${r.status}`);
+    _ghLoadedHack = state;
+    const total = (state.users || []).length;
+    const admins = (state.users || []).filter(u => u.isAdmin).length;
+    const participants = total - admins;
+    info.innerHTML = `<strong>${esc(state.hackName || state.prefix || prefix)}</strong> · domain <code>${esc(state.domain || '')}</code> · ${participants} participant(s), ${admins} admin(s).`;
+    toast('Hack loaded', 'success');
+  } catch (e) {
+    _ghLoadedHack = null;
+    info.textContent = 'Load failed: ' + e.message;
+    toast('Load failed: ' + e.message, 'danger');
+  }
+}
+
+async function runGithubEnable() {
+  const mode = _ghActiveMode();
+  let emails = [];
+  if (mode === 'existing') {
+    if (!_ghLoadedHack || !Array.isArray(_ghLoadedHack.users)) {
+      toast('Load a hack first (or switch to “From email list”)', 'danger'); return;
+    }
+    const includeAdmins = document.getElementById('gh-optIncludeAdmins').checked;
+    emails = _ghLoadedHack.users
+      .filter(u => includeAdmins || !u.isAdmin)
+      .map(u => u.userPrincipalName)
+      .filter(Boolean);
+  } else {
+    const raw = document.getElementById('gh-newEmails').value || '';
+    emails = raw.split(/[\s,;]+/).map(s => s.trim()).filter(Boolean);
+  }
+  if (!emails.length) { toast('No emails to process', 'danger'); return; }
+
+  const body = {
+    emails,
+    withCopilot: document.getElementById('gh-optCopilot').checked,
+    withGhas: document.getElementById('gh-optGhas').checked,
+    useLegacyGroups: document.getElementById('gh-optLegacy').checked,
+    triggerSync: document.getElementById('gh-optTriggerSync').checked,
+  };
+
+  const spin = document.getElementById('gh-spinner');
+  const box = document.getElementById('gh-resultBox');
+  const summary = document.getElementById('gh-summary');
+  const tbody = document.getElementById('gh-resultBody');
+  spin.classList.remove('hidden');
+  box.classList.remove('hidden');
+  summary.textContent = `Enabling GitHub for ${emails.length} user(s)…`;
+  tbody.innerHTML = '';
+  _ghLastResults = [];
+
+  try {
+    const startResp = await fetch(`${API}/github-enable`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const startData = await startResp.json();
+    if (!startResp.ok) throw new Error(startData.error || `HTTP ${startResp.status}`);
+    const sessionId = startData.session_id;
+
+    let session = null;
+    while (true) {
+      await new Promise(r => setTimeout(r, 2000));
+      const r = await fetch(`${API}/github-enable/${encodeURIComponent(sessionId)}`);
+      session = await r.json();
+      if (!r.ok) throw new Error(session.error || `HTTP ${r.status}`);
+      summary.textContent = `Processing ${session.processed || 0}/${session.total || emails.length}…`;
+      _renderGithubResults(tbody, session.partial_results || []);
+      if (session.status === 'completed' || session.status === 'failed') break;
+    }
+
+    if (session.status === 'failed') {
+      summary.textContent = 'Failed: ' + (session.error || 'unknown error');
+      toast('GitHub enable failed', 'danger');
+      return;
+    }
+    const rep = session.result || {};
+    _ghLastResults = rep.results || [];
+    summary.textContent = `Done: added=${rep.added||0}, already-member=${rep.alreadyMember||0}, invited=${rep.invited||0}, failed=${rep.failed||0}, syncs triggered=${rep.syncTriggered||0}`;
+    _renderGithubResults(tbody, _ghLastResults);
+    toast('GitHub enable complete', 'success');
+  } catch (e) {
+    summary.textContent = 'Error: ' + e.message;
+    toast('GitHub enable failed: ' + e.message, 'danger');
+  } finally {
+    spin.classList.add('hidden');
+  }
+}
+
+function ghDownloadResultsCsv() {
+  if (!_ghLastResults.length) { toast('No results to export', 'warn'); return; }
+  const rows = [['email','githubUsername','status','syncTriggered','message']];
+  for (const r of _ghLastResults) {
+    rows.push([r.email||'', r.githubUsername||'', r.status||'', r.syncTriggered?'yes':'no', r.message||'']);
+  }
+  const csv = '\ufeff' + rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `github-enable-${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+}
+
+async function ghCopyHandlesToClipboard() {
+  if (!_ghLastResults.length) { toast('No results to copy', 'warn'); return; }
+  const text = _ghLastResults.map(r => r.githubUsername).filter(Boolean).join('\n');
+  try {
+    await navigator.clipboard.writeText(text);
+    toast('Copied GitHub handles', 'success');
+  } catch (e) {
+    toast('Copy failed: ' + e.message, 'danger');
+  }
+}
+
 function _showActionResult(title, results, type) {
   const card = document.getElementById('mh-actionResult');
   card.classList.remove('hidden');
@@ -4761,12 +5252,18 @@ function _showActionResult(title, results, type) {
 function downloadManagedHackExcel() {
   if (!_managedHackState || !_managedHackState.users) { toast('No data', 'warn'); return; }
   const users = _managedHackState.users;
+  const hasGithub = users.some(u => u.githubUsername || (u.github && u.github.githubUsername));
   const headers = ['userPrincipalName','password','tap','tapExpires','status','licenses','groups','isAdmin','userId'];
+  if (hasGithub) headers.push('githubUsername','githubStatus');
   const xmlEsc = (s) => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   const headerRow = `<Row>${headers.map(h => `<Cell><Data ss:Type="String">${xmlEsc(h)}</Data></Cell>`).join('')}</Row>`;
   const dataRows = users.map(u => {
     const cells = [u.userPrincipalName, u.password||'', u.tap||'', u.tapExpires||'', u.status,
       (u.licenses||[]).join('|'), (u.groups||[]).join('|'), u.isAdmin?'yes':'no', u.userId||''];
+    if (hasGithub) {
+      const gh = u.github || {};
+      cells.push(u.githubUsername || gh.githubUsername || '', gh.status || '');
+    }
     return `<Row>${cells.map(v => `<Cell><Data ss:Type="String">${xmlEsc(v)}</Data></Cell>`).join('')}</Row>`;
   }).join('');
   const xml = `<?xml version="1.0"?>\n<?mso-application progid="Excel.Sheet"?>\n<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">\n <Worksheet ss:Name="Users"><Table>${headerRow}${dataRows}</Table></Worksheet>\n</Workbook>`;
@@ -4780,10 +5277,18 @@ function downloadManagedHackExcel() {
 function downloadManagedHackCsv() {
   if (!_managedHackState || !_managedHackState.users) { toast('No data', 'warn'); return; }
   const users = _managedHackState.users;
-  const rows = [['userPrincipalName','password','tap','tapExpires','status','licenses','groups','isAdmin','userId']];
+  const hasGithub = users.some(u => u.githubUsername || (u.github && u.github.githubUsername));
+  const header = ['userPrincipalName','password','tap','tapExpires','status','licenses','groups','isAdmin','userId'];
+  if (hasGithub) header.push('githubUsername','githubStatus');
+  const rows = [header];
   for (const u of users) {
-    rows.push([u.userPrincipalName, u.password||'', u.tap||'', u.tapExpires||'', u.status,
-      (u.licenses||[]).join('|'), (u.groups||[]).join('|'), u.isAdmin?'yes':'no', u.userId||'']);
+    const row = [u.userPrincipalName, u.password||'', u.tap||'', u.tapExpires||'', u.status,
+      (u.licenses||[]).join('|'), (u.groups||[]).join('|'), u.isAdmin?'yes':'no', u.userId||''];
+    if (hasGithub) {
+      const gh = u.github || {};
+      row.push(u.githubUsername || gh.githubUsername || '', gh.status || '');
+    }
+    rows.push(row);
   }
   const csv = '\ufeff' + rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\r\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });

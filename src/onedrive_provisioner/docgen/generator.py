@@ -23,7 +23,7 @@ from docx.oxml import OxmlElement
 
 from onedrive_provisioner.entra.models import license_display_name
 
-from .templates import get_sections_for_licenses
+from .templates import get_sections_for_licenses, get_license_description
 
 # Default screenshots directory (relative to project root)
 _DEFAULT_SCREENSHOTS = os.path.join(
@@ -54,7 +54,9 @@ class DocGenerator:
         self._add_section_header(doc, "Environment Access and Licensing Summary")
         self._add_user_access_structure(doc, state)
         self._add_license_allocation(doc, state)
+        self._add_budget_allocation(doc, state)
         self._add_trainer_note(doc)
+        self._add_license_descriptions(doc, state)
         self._add_section_header(doc, "Access Guide: Overview & Login Instructions")
         self._add_access_intro(doc)
         self._add_access_sections(doc, state)
@@ -157,6 +159,15 @@ class DocGenerator:
                 f"A total of {total} users are organized into {teams} teams"
                 + (f", with {users_per_team} users per team." if users_per_team else ".")
             , style="List Bullet")
+            # Subscription mapping
+            sub_ids = state.get("subscriptionIds") or config.get("subscriptionIds") or []
+            if isinstance(sub_ids, str):
+                sub_ids = [s.strip() for s in sub_ids.split(",") if s.strip()]
+            if sub_ids:
+                doc.add_paragraph(
+                    f"Each team has access to one dedicated Azure subscription.",
+                    style="List Bullet",
+                )
         else:
             doc.add_paragraph(
                 f"A total of {total} users have been provisioned in flat mode.",
@@ -164,10 +175,32 @@ class DocGenerator:
             )
 
         if admins:
+            sub_ids = state.get("subscriptionIds") or config.get("subscriptionIds") or []
+            if isinstance(sub_ids, str):
+                sub_ids = [s.strip() for s in sub_ids.split(",") if s.strip()]
+            sub_count = len(sub_ids) if sub_ids else teams
+            suffix = f" access across all {sub_count} subscriptions." if sub_count else "."
             doc.add_paragraph(
-                f"Additionally, {admins} admin{'s are' if admins > 1 else ' is'} created.",
+                f"Additionally, {admins} admin{'s have' if admins > 1 else ' has'}"
+                + suffix,
                 style="List Bullet",
             )
+
+        # Subscription table
+        sub_ids = state.get("subscriptionIds") or config.get("subscriptionIds") or []
+        if isinstance(sub_ids, str):
+            sub_ids = [s.strip() for s in sub_ids.split(",") if s.strip()]
+        sub_names = state.get("subscriptionNames") or config.get("subscriptionNames") or []
+        if sub_ids:
+            doc.add_paragraph(
+                "Subscriptions in Use:",
+                style="List Bullet",
+            )
+            table = doc.add_table(rows=len(sub_ids), cols=1)
+            table.style = "Table Grid"
+            for i, sid in enumerate(sub_ids):
+                name = sub_names[i] if i < len(sub_names) else sid
+                table.rows[i].cells[0].text = name
 
     # ──────────── License Allocation ────────────
 
@@ -201,6 +234,65 @@ class DocGenerator:
             row = table.add_row()
             row.cells[0].text = license_display_name(lic)
             row.cells[1].text = str(count)
+
+    # ──────────── Azure Budget Allocation ────────────
+
+    @staticmethod
+    def _add_budget_allocation(doc: Document, state: Dict[str, Any]) -> None:
+        config = state.get("config", {})
+        budget_per_team = config.get("budgetPerTeam") or state.get("budgetPerTeam")
+        total_budget = config.get("totalBudget") or state.get("totalBudget")
+        currency = config.get("budgetCurrency") or state.get("budgetCurrency") or "USD"
+
+        # Try to compute total from per-team * teams
+        teams = int(config.get("teams", 0))
+        if budget_per_team and not total_budget and teams:
+            try:
+                total_budget = float(budget_per_team) * teams
+            except (ValueError, TypeError):
+                pass
+
+        if not budget_per_team and not total_budget:
+            return  # no budget info — skip section entirely
+
+        doc.add_heading("Azure Budget Allocation", level=2)
+
+        sym = "$" if currency.upper() == "USD" else f"{currency} "
+
+        if budget_per_team:
+            doc.add_paragraph(
+                f"{sym}{budget_per_team} per team",
+                style="List Bullet",
+            )
+        if total_budget:
+            doc.add_paragraph(
+                f"Total Azure budget: {sym}{total_budget}",
+            )
+
+    # ──────────── License Descriptions ────────────
+
+    @staticmethod
+    def _add_license_descriptions(doc: Document, state: Dict[str, Any]) -> None:
+        """Add a 'Licenses' section with short description for each assigned license."""
+        users = state.get("users", [])
+        sku_set: set = set()
+        for u in users:
+            for lic in u.get("licenses", []):
+                sku_set.add(lic)
+
+        if not sku_set:
+            return
+
+        doc.add_heading("Licenses", level=2)
+
+        for sku in sorted(sku_set):
+            friendly = license_display_name(sku)
+            desc = get_license_description(sku)
+            p = doc.add_paragraph(style="List Bullet")
+            run_name = p.add_run(friendly)
+            run_name.bold = True
+            if desc:
+                p.add_run(f"\n{desc}")
 
     # ──────────── Trainer Note ────────────
 
@@ -246,7 +338,10 @@ class DocGenerator:
             )
             return
 
-        sections = get_sections_for_licenses(all_licenses)
+        config = state.get("config", {})
+        is_gcc = bool(config.get("isGcc", False))
+
+        sections = get_sections_for_licenses(all_licenses, is_gcc=is_gcc)
         for _title, builder in sections:
             builder(doc, self._screenshots_dir)
 
@@ -290,6 +385,18 @@ class DocGenerator:
         doc.add_paragraph(
             'Urgent requests must use subject: "Immediate Support Required"'
         )
+
+        doc.add_paragraph("")
+        p = doc.add_paragraph()
+        p.add_run("Email Support: ")
+        from .templates import _add_hyperlink
+        _add_hyperlink(p, "mailto:cloudlabs-support@spektrasystems.com",
+                       "cloudlabs-support@spektrasystems.com")
+
+        p2 = doc.add_paragraph()
+        p2.add_run("For Live Chat Support: ")
+        _add_hyperlink(p2, "https://cloudlabs.ai/ms-support",
+                       "https://cloudlabs.ai/ms-support")
 
         doc.add_paragraph("")
         p = doc.add_paragraph("This document was auto-generated by the Spektra hack setup system.")

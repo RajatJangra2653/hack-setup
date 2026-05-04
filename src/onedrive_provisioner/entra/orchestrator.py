@@ -21,6 +21,7 @@ from .naming import admin_group_name, generate_user_plans, team_group_name
 from .role_service import RoleService
 from .tap_service import TapService
 from .user_service import UserService
+from ..github_emu import GitHubEnabler
 
 logger = get_logger(__name__)
 
@@ -84,6 +85,12 @@ class EntraOrchestrator:
             tap_svc = TapService(g, lifetime_minutes=cfg.tap_lifetime)
             role_svc = RoleService(g)
 
+            # Optional: GitHub EMU enabler (separate tenant, hardcoded creds)
+            github_enabler: Optional[GitHubEnabler] = None
+            if cfg.enable_github:
+                github_enabler = GitHubEnabler()
+                await github_enabler.__aenter__()
+
             # 1) Pre-create / lookup groups
             group_map, groups_created = await self._ensure_groups(cfg, plans, group_svc)
 
@@ -104,6 +111,25 @@ class EntraOrchestrator:
                         group_svc, role_svc, group_map, sku_ids,
                         list(license_map.keys()),
                     )
+                    if github_enabler is not None and res.status != Status.FAILED and res.user_id:
+                        if plan.is_admin and not cfg.enable_github_for_admins:
+                            pass  # skip admins unless explicitly enabled
+                        else:
+                            try:
+                                gh = await github_enabler.enable_user(
+                                    res.user_principal_name,
+                                    with_copilot=cfg.enable_github_copilot,
+                                    with_ghas=cfg.enable_github_ghas,
+                                    use_legacy=cfg.github_use_legacy_groups,
+                                    group_id_override=cfg.github_group_id_override,
+                                )
+                                res.github = gh.to_dict()
+                            except Exception as gh_exc:
+                                res.github = {
+                                    "email": res.user_principal_name,
+                                    "status": "failed",
+                                    "message": str(gh_exc),
+                                }
                 async with done_lock:
                     done += 1
                     if on_user_done:
@@ -116,6 +142,12 @@ class EntraOrchestrator:
             results = await asyncio.gather(
                 *(_worker(p) for p in plans), return_exceptions=False
             )
+
+            if github_enabler is not None:
+                try:
+                    await github_enabler.__aexit__(None, None, None)
+                except Exception:
+                    pass
 
         return self._build_report(
             plans, results,
@@ -148,6 +180,9 @@ class EntraOrchestrator:
                     created += 1
             except GraphError as exc:
                 logger.error("entra.group.ensure_failed", name=name, msg=str(exc))
+        # Allow Entra directory replication to settle if new groups were created
+        if created > 0:
+            await asyncio.sleep(2.0)
         return out, created
 
     # ------------------------------------------------------------------
@@ -206,14 +241,20 @@ class EntraOrchestrator:
         if plan.team and cfg.create_team_groups:
             grp_name = team_group_name(cfg, plan.team)
             grp = group_map.get(grp_name)
-            if grp and await group_svc.add_member(grp["id"], user_id):
-                result.groups.append(grp_name)
+            if grp:
+                if await group_svc.add_member(grp["id"], user_id):
+                    result.groups.append(grp_name)
+                else:
+                    result.group_failures.append(grp_name)
 
         if plan.is_admin and cfg.create_admin_group:
             grp_name = admin_group_name(cfg)
             grp = group_map.get(grp_name)
-            if grp and await group_svc.add_member(grp["id"], user_id):
-                result.groups.append(grp_name)
+            if grp:
+                if await group_svc.add_member(grp["id"], user_id):
+                    result.groups.append(grp_name)
+                else:
+                    result.group_failures.append(grp_name)
 
         # 5) Admin role
         if plan.is_admin and cfg.assign_admin_role:
