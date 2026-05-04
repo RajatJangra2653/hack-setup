@@ -82,3 +82,24 @@ class UserService:
             return existing, False, None
         user, password = await self.create(plan)
         return user, True, password
+
+    async def reset_password(
+        self, user_id: str, *, password: Optional[str] = None,
+        force_change: bool = False,
+    ) -> Optional[str]:
+        """Reset password for an existing user. Returns new password or None on failure."""
+        new_pw = password or generate_password()
+        body = {
+            "passwordProfile": {
+                "forceChangePasswordNextSignIn": force_change,
+                "password": new_pw,
+            },
+        }
+        try:
+            await self._g.patch(f"/users/{user_id}", json=body)
+            logger.info("entra.user.password_reset", user_id=user_id)
+            return new_pw
+        except GraphError as exc:
+            logger.warning("entra.user.password_reset_failed", user_id=user_id,
+                           status=exc.status, code=exc.code, msg=str(exc))
+            return None

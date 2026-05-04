@@ -300,6 +300,22 @@ class HackStateManager:
             })
         return self.merge_users(prefix, updates)
 
+    def update_user_passwords(
+        self,
+        prefix: str,
+        password_results: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Update passwords for users after reset."""
+        now = datetime.now(timezone.utc).isoformat()
+        updates = []
+        for pr in password_results:
+            updates.append({
+                "userPrincipalName": pr["userPrincipalName"],
+                "password": pr.get("password", ""),
+                "lastPasswordResetAt": now,
+            })
+        return self.merge_users(prefix, updates)
+
     def update_user_groups(
         self,
         prefix: str,

@@ -1468,6 +1468,76 @@ async def _async_regenerate_tap(t, c, s, *, state, target_upns, tap_lifetime):
     return results
 
 
+@app.route("/api/hack-state/<prefix>/reset-password", methods=["POST"])
+def reset_password(prefix):
+    """Reset password for selected users in a hack.
+
+    Body: { tenant_id, client_id, client_secret,
+            users?: [upn1, upn2, ...],  // omit for all non-admin users
+            password?: "custom"  // omit for random per-user passwords
+          }
+    """
+    data = request.get_json(silent=True) or {}
+    creds = _extract_creds(data)
+    if not creds:
+        return jsonify({"error": "Missing SPN credentials"}), 400
+
+    mgr = _get_state_manager()
+    if not mgr:
+        return jsonify({"error": "Storage not configured"}), 503
+    state = mgr.get_state(prefix)
+    if not state:
+        return jsonify({"error": f"No state found for prefix '{prefix}'"}), 404
+    if _is_archived_state(state):
+        return jsonify({"error": "Archived hacks are report-only."}), 409
+
+    target_upns = data.get("users")
+    custom_password = data.get("password")  # None = random per user
+    target_count = sum(
+        1 for user in state.get("users", [])
+        if user.get("userId") and (not target_upns or user.get("userPrincipalName") in target_upns)
+    )
+    confirmation_needed = _require_confirmation("reset_password", {
+        "prefix": state.get("prefix") or prefix,
+        "resourceCount": target_count,
+        "targetUserCount": target_count,
+        "subscriptionCount": 0,
+    }, data)
+    if confirmation_needed:
+        return confirmation_needed
+
+    try:
+        results = asyncio.run(_async_reset_password(
+            *creds, state=state, target_upns=target_upns,
+            custom_password=custom_password))
+        mgr.update_user_passwords(prefix, results)
+        return jsonify({"results": results, "updatedUsers": len(results)})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+async def _async_reset_password(t, c, s, *, state, target_upns, custom_password):
+    from onedrive_provisioner.entra.user_service import UserService
+    tp = _make_token_provider(t, c, s)
+    results = []
+    async with GraphClient(tp) as g:
+        user_svc = UserService(g)
+        for u in state.get("users", []):
+            upn = u.get("userPrincipalName", "")
+            uid = u.get("userId", "")
+            if not uid:
+                continue
+            if target_upns and upn not in target_upns:
+                continue
+            new_pw = await user_svc.reset_password(uid, password=custom_password)
+            results.append({
+                "userPrincipalName": upn,
+                "password": new_pw or "",
+                "status": "ok" if new_pw else "failed",
+            })
+    return results
+
+
 @app.route("/api/hack-state/<prefix>/repair-groups", methods=["POST"])
 def repair_groups(prefix):
     """Verify and repair group memberships for all users in a hack.

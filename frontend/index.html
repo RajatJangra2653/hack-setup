@@ -1250,7 +1250,24 @@
             </div>
 
             <div class="card" style="margin-top:10px;">
-              <h4>📦 Assign Additional Licenses</h4>
+              <h4>� Reset Password</h4>
+              <p class="hint">Reset passwords for all (or selected) users. Leave "Custom password" blank to generate a random strong password per user.</p>
+              <div class="row">
+                <div class="form-group">
+                  <label for="mh-resetPwCustom">Custom password (optional)</label>
+                  <input type="text" id="mh-resetPwCustom" placeholder="Leave blank for random" />
+                </div>
+                <div class="form-group">
+                  <label for="mh-resetPwUsers">Users (blank = all)</label>
+                  <textarea id="mh-resetPwUsers" rows="2" placeholder="user1@domain.com, user2@domain.com (blank = all users)"></textarea>
+                </div>
+              </div>
+              <button class="btn btn-primary" data-archived-disabled="true" onclick="withBusy(this, resetPasswordForHack)">🔒 Reset Password</button>
+              <span id="mh-resetPwSpinner" class="hidden"><span class="spinner"></span></span>
+            </div>
+
+            <div class="card" style="margin-top:10px;">
+              <h4>�📦 Assign Additional Licenses</h4>
               <p class="hint">Assign new licenses to users in this hack. Admins are excluded unless the option below is enabled.</p>
               <div class="form-group">
                 <label>Licenses to assign</label>
@@ -4949,6 +4966,32 @@ async function regenTapForHack() {
   }
 }
 
+async function resetPasswordForHack() {
+  if (!_managedHackState) { toast('Load a hack first', 'danger'); return; }
+  if (_managedHackState.isArchived || _managedHackState.archivedAt) { toast('Archived hacks are report-only', 'warn'); return; }
+  const creds = getCreds();
+  if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
+  const prefix = _managedHackState.prefix.replace(/-$/, '');
+  const customPw = document.getElementById('mh-resetPwCustom').value.trim() || undefined;
+  const usersText = document.getElementById('mh-resetPwUsers').value.trim();
+  const users = usersText ? usersText.split(/[\r\n,]+/).map(s => s.trim()).filter(Boolean) : undefined;
+  document.getElementById('mh-resetPwSpinner').classList.remove('hidden');
+  try {
+    const data = await postJsonWithServerConfirmation(
+      `${API}/hack-state/${encodeURIComponent(prefix)}/reset-password`,
+      { ...creds, password: customPw, users },
+      { title: 'Confirm password reset' },
+    );
+    _showActionResult('Password Reset', data.results || [], 'password');
+    toast(`Reset password for ${data.updatedUsers} user(s)`, 'success');
+    await loadHackState();
+  } catch (e) {
+    toast('Password reset failed: ' + e.message, 'danger');
+  } finally {
+    document.getElementById('mh-resetPwSpinner').classList.add('hidden');
+  }
+}
+
 async function assignLicensesToHack() {
   if (!_managedHackState) { toast('Load a hack first', 'danger'); return; }
   if (_managedHackState.isArchived || _managedHackState.archivedAt) { toast('Archived hacks are report-only', 'warn'); return; }
@@ -5303,7 +5346,7 @@ function _showActionResult(title, results, type) {
   body.innerHTML = '';
   for (const r of results) {
     const sCls = r.status === 'ok' ? 'color:var(--success)' : 'color:var(--danger)';
-    const detail = type === 'tap' ? (r.tap || '-') : formatLicenseList(r.licenses);
+    const detail = type === 'tap' ? (r.tap || '-') : type === 'password' ? (r.password || '-') : formatLicenseList(r.licenses);
     body.innerHTML += `<tr>
       <td><code style="font-size:11px;">${esc(r.userPrincipalName)}</code></td>
       <td style="${sCls}">${esc(r.status)}</td>

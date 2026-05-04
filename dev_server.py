@@ -545,6 +545,9 @@ class DevHandler(SimpleHTTPRequestHandler):
         elif self.path.startswith("/api/hack-state/") and self.path.endswith("/regenerate-tap"):
             prefix = self.path.replace("/api/hack-state/", "").replace("/regenerate-tap", "")
             self._handle_hack_regenerate_tap(prefix)
+        elif self.path.startswith("/api/hack-state/") and self.path.endswith("/reset-password"):
+            prefix = self.path.replace("/api/hack-state/", "").replace("/reset-password", "")
+            self._handle_hack_reset_password(prefix)
         elif self.path.startswith("/api/hack-state/") and self.path.endswith("/assign-licenses"):
             prefix = self.path.replace("/api/hack-state/", "").replace("/assign-licenses", "")
             self._handle_hack_assign_licenses(prefix)
@@ -1105,6 +1108,58 @@ class DevHandler(SimpleHTTPRequestHandler):
                 return results
             results = asyncio.run(_run())
             mgr.update_user_taps(prefix, results)
+            self._send_json({"results": results, "updatedUsers": len(results)})
+        except Exception as exc:
+            self._send_json({"error": str(exc)}, 500)
+
+    def _handle_hack_reset_password(self, prefix):
+        data = self._read_json()
+        creds = self._creds(data)
+        if not creds:
+            self._send_json({"error": "Missing SPN credentials"}, 400); return
+        mgr = _get_state_manager()
+        if not mgr:
+            self._send_json({"error": "Storage not configured"}, 503); return
+        state = mgr.get_state(prefix)
+        if not state:
+            self._send_json({"error": f"No state found for prefix '{prefix}'"}, 404); return
+        if _is_archived_state(state):
+            self._send_json({"error": "Archived hacks are report-only."}, 409); return
+        target_upns = data.get("users")
+        custom_password = data.get("password")
+        target_count = sum(
+            1 for user in state.get("users", [])
+            if user.get("userId") and (not target_upns or user.get("userPrincipalName") in target_upns)
+        )
+        if self._confirmation_required("reset_password", {
+            "prefix": state.get("prefix") or prefix,
+            "resourceCount": target_count,
+            "targetUserCount": target_count,
+            "subscriptionCount": 0,
+        }, data):
+            return
+        t, c, s = creds
+        try:
+            from onedrive_provisioner.entra.user_service import UserService
+            tp = MsalTokenProvider(AzureConfig(tenant_id=t, client_id=c, client_secret=s))
+            async def _run():
+                results = []
+                async with GraphClient(tp) as g:
+                    user_svc = UserService(g)
+                    for u in state.get("users", []):
+                        upn = u.get("userPrincipalName", "")
+                        uid = u.get("userId", "")
+                        if not uid: continue
+                        if target_upns and upn not in target_upns: continue
+                        new_pw = await user_svc.reset_password(uid, password=custom_password)
+                        results.append({
+                            "userPrincipalName": upn,
+                            "password": new_pw or "",
+                            "status": "ok" if new_pw else "failed",
+                        })
+                return results
+            results = asyncio.run(_run())
+            mgr.update_user_passwords(prefix, results)
             self._send_json({"results": results, "updatedUsers": len(results)})
         except Exception as exc:
             self._send_json({"error": str(exc)}, 500)
