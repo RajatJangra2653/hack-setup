@@ -1,0 +1,22 @@
+/* ── Unified Design Tokens ── */
+:root {
+  --primary: #2563eb;
+  --primary-dark: #1d4ed8;
+  --primary-soft: #dbeafe;
+  --success: #16a34a;
+  --danger: #dc2626;
+  --warn: #f59e0b;
+  --bg: #eef4ff;
+  --card: rgba(255,255,255,.94);
+  --text: #0f172a;
+  --muted: #64748b;
+  --border: #dbe3ef;
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --radius: var(--radius-lg);
+  --shadow-sm: 0 8px 24px rgba(15, 23, 42, .08);
+  --shadow-md: 0 18px 50px rgba(15, 23, 42, .14);
+  --gradient: linear-gradient(135deg, #0f172a 0%, #1d4ed8 48%, #06b6d4 100%);
+  --font-mono: 'Cascadia Code', 'Fira Code', 'Consolas', 'Courier New', monospace;
+}
