@@ -102,10 +102,13 @@ def tenant_admin_url(upn_or_domain: str) -> str:
     """Derive the SharePoint admin URL from a UPN or domain.
 
     Example:  user@WWPS319.onmicrosoft.com  ->  https://WWPS319-admin.sharepoint.com
+    For GCC tenants (.us/.gov domains), returns .sharepoint.us.
     """
     if "@" in upn_or_domain:
         domain = upn_or_domain.split("@", 1)[1]
     else:
         domain = upn_or_domain
+    domain_lower = domain.lower()
     tenant_name = domain.split(".")[0]
-    return f"https://{tenant_name}-admin.sharepoint.com"
+    suffix = "us" if (domain_lower.endswith(".us") or domain_lower.endswith(".gov") or "gcc" in domain_lower) else "com"
+    return f"https://{tenant_name}-admin.sharepoint.{suffix}"

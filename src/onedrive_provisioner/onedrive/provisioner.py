@@ -22,13 +22,14 @@ from ..logging_setup import get_logger
 
 logger = get_logger(__name__)
 
-# Codes commonly seen while a personal site is being spun up.
+# Codes commonly seen while a personal site is being spun up (lowercased for
+# case-insensitive comparison — Graph error codes aren't case-stable).
 _PROVISIONING_CODES = {
-    "ResourceNotFound",
-    "itemNotFound",
-    "mysiteNotFound",
-    "mysiteURLGenerationInProgress",
-    "userMysiteNotFound",
+    "resourcenotfound",
+    "itemnotfound",
+    "mysitenotfound",
+    "mysiteurlgenerationinprogress",
+    "usermysitenotfound",
 }
 
 # Dummy file used to kick-start provisioning via a write operation.
@@ -85,7 +86,7 @@ class OneDriveProvisioner:
                 last_err = exc
                 triggers_provisioning = (
                     exc.status == 404
-                    or (exc.code or "") in _PROVISIONING_CODES
+                    or (exc.code or "").lower() in _PROVISIONING_CODES
                     or exc.status == 503
                 )
                 if not triggers_provisioning or attempt == self._max_attempts:

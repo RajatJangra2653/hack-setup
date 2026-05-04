@@ -29,6 +29,14 @@ MUTATION_TOOLS = {
     "set_hack_end_date",
     "schedule_hack_provision",
     "cancel_scheduled_job",
+    "enable_github_access",
+    "disable_github_access",
+    "assign_rbac_permissions",
+    "apply_readonly",
+    "reset_user_password",
+    "modify_hack_dates",
+    "repair_groups",
+    "repair_licenses",
 }
 
 SECRET_KEYS = {
@@ -516,4 +524,346 @@ class ToolExecutor:
                        "Use the /api/generate-doc endpoint to download it.",
             "filename": filename,
             "size_bytes": len(doc_bytes),
+        }
+
+    def _tool_enable_github_access(self, prefix: str, **kwargs) -> Any:
+        """Add hack users to GitHub-EMU Entra groups and trigger sync."""
+        mgr = self._get_mgr()
+        if not mgr:
+            return {"error": "Storage not configured"}
+        state = mgr.get_state(prefix)
+        if not state:
+            return {"error": f"No state found for prefix '{prefix}'"}
+
+        include_admins = bool(kwargs.get("includeAdmins", False))
+        with_copilot = bool(kwargs.get("withCopilot", False))
+        with_ghas = bool(kwargs.get("withGhas", False))
+
+        emails = []
+        for u in state.get("users", []):
+            if u.get("isAdmin") and not include_admins:
+                continue
+            upn = u.get("userPrincipalName", "")
+            if upn:
+                emails.append(upn)
+
+        if not emails:
+            return {"error": "No users found in hack state"}
+
+        async def _run():
+            from onedrive_provisioner.github_emu import GitHubEnabler
+            async with GitHubEnabler() as gh:
+                return await gh.enable_users(
+                    emails,
+                    with_copilot=with_copilot,
+                    with_ghas=with_ghas,
+                    trigger_sync=True,
+                )
+
+        result = asyncio.run(_run())
+        return {
+            "message": f"GitHub access enabled for {len(emails)} users from '{prefix}'",
+            "emailCount": len(emails),
+            "withCopilot": with_copilot,
+            "withGhas": with_ghas,
+            "result": result,
+        }
+
+    def _tool_disable_github_access(self, prefix: str, **kwargs) -> Any:
+        """Remove hack users from GitHub-EMU groups and trigger sync."""
+        mgr = self._get_mgr()
+        if not mgr:
+            return {"error": "Storage not configured"}
+        state = mgr.get_state(prefix)
+        if not state:
+            return {"error": f"No state found for prefix '{prefix}'"}
+
+        with_copilot = bool(kwargs.get("withCopilot", False))
+        with_ghas = bool(kwargs.get("withGhas", False))
+
+        emails = [u.get("userPrincipalName", "") for u in state.get("users", []) if u.get("userPrincipalName")]
+        if not emails:
+            return {"error": "No users found in hack state"}
+
+        async def _run():
+            from onedrive_provisioner.github_emu import GitHubEnabler
+            async with GitHubEnabler() as gh:
+                return await gh.disable_users(
+                    emails,
+                    with_copilot=with_copilot,
+                    with_ghas=with_ghas,
+                    trigger_sync=True,
+                )
+
+        result = asyncio.run(_run())
+        return {
+            "message": f"GitHub access disabled for {len(emails)} users from '{prefix}'",
+            "emailCount": len(emails),
+            "result": result,
+        }
+
+    def _tool_assign_rbac_permissions(self, prefix: str, subscriptionIds: list, **kwargs) -> Any:
+        """Assign RBAC role on subscriptions to hack groups/users."""
+        role = kwargs.get("role", "Reader")
+        target_scope = kwargs.get("targetScope", "teams")
+        tp = _make_tp(self._creds)
+
+        async def _run():
+            from onedrive_provisioner.entra.rbac_service import RbacService
+            # Discover principals
+            async with GraphClient(tp) as g:
+                discovered = await DiscoveryService(g).discover(prefix)
+
+            # Select principals based on target scope
+            principals = []
+            groups = discovered.get("groups", [])
+            users = discovered.get("users", [])
+
+            if target_scope in ("teams", "teams-admins"):
+                principals.extend(
+                    {"id": g["id"], "type": "Group", "displayName": g.get("displayName", "")}
+                    for g in groups if g.get("id")
+                )
+            elif target_scope == "admins":
+                principals.extend(
+                    {"id": g["id"], "type": "Group", "displayName": g.get("displayName", "")}
+                    for g in groups if g.get("id") and "admin" in g.get("displayName", "").lower()
+                )
+            elif target_scope == "users":
+                principals.extend(
+                    {"id": u["id"], "type": "User", "displayName": u.get("userPrincipalName", "")}
+                    for u in users if u.get("id")
+                )
+
+            if not principals:
+                return {"error": f"No principals found for scope '{target_scope}' with prefix '{prefix}'"}
+
+            async with RbacService(tp) as rbac:
+                results = []
+                for sub_id in subscriptionIds:
+                    for p in principals:
+                        try:
+                            ok = await rbac.assign_role(sub_id, p["id"], role)
+                            results.append({
+                                "subscription": sub_id,
+                                "principal": p["displayName"],
+                                "role": role,
+                                "status": "assigned" if ok else "already_exists",
+                            })
+                        except Exception as exc:
+                            results.append({
+                                "subscription": sub_id,
+                                "principal": p["displayName"],
+                                "role": role,
+                                "status": "failed",
+                                "error": str(exc),
+                            })
+                return results
+
+        results = asyncio.run(_run())
+        return {
+            "message": f"RBAC '{role}' assignment completed for '{prefix}' on {len(subscriptionIds)} subscription(s)",
+            "results": results,
+        }
+
+    def _tool_apply_readonly(self, prefix: str, subscriptionIds: list, **kwargs) -> Any:
+        """Apply read-only mode: remove Owner/Contributor, grant Reader."""
+        mode = kwargs.get("mode", "team")
+        tp = _make_tp(self._creds)
+
+        async def _run():
+            from onedrive_provisioner.entra.rbac_service import RbacService
+            async with GraphClient(tp) as g:
+                discovered = await DiscoveryService(g).discover(prefix)
+
+            if mode == "flat":
+                principals = [
+                    {"id": u["id"], "type": "User", "displayName": u.get("userPrincipalName", "")}
+                    for u in discovered.get("users", []) if u.get("id")
+                ]
+            else:
+                principals = [
+                    {"id": g["id"], "type": "Group", "displayName": g.get("displayName", "")}
+                    for g in discovered.get("groups", []) if g.get("id")
+                ]
+
+            results = []
+            async with RbacService(tp) as rbac:
+                for sub_id in subscriptionIds:
+                    for p in principals:
+                        try:
+                            removed = await rbac.remove_write_roles(sub_id, p["id"])
+                            reader_ok = await rbac.assign_role(sub_id, p["id"], "Reader")
+                            results.append({
+                                "subscription": sub_id,
+                                "principal": p["displayName"],
+                                "removedRoles": removed,
+                                "readerAssigned": reader_ok,
+                                "status": "ok",
+                            })
+                        except Exception as exc:
+                            results.append({
+                                "subscription": sub_id,
+                                "principal": p["displayName"],
+                                "status": "failed",
+                                "error": str(exc),
+                            })
+            return results
+
+        results = asyncio.run(_run())
+        return {
+            "message": f"Read-only mode applied for '{prefix}' on {len(subscriptionIds)} subscription(s)",
+            "results": results,
+        }
+
+    def _tool_reset_user_password(self, prefix: str, **kwargs) -> Any:
+        """Reset passwords for users in a saved hack."""
+        mgr = self._get_mgr()
+        if not mgr:
+            return {"error": "Storage not configured"}
+        state = mgr.get_state(prefix)
+        if not state:
+            return {"error": f"No state found for prefix '{prefix}'"}
+
+        target_upns = kwargs.get("users")
+        custom_password = kwargs.get("password")
+        tp = _make_tp(self._creds)
+
+        async def _run():
+            from onedrive_provisioner.entra.user_service import UserService
+            results = []
+            async with GraphClient(tp) as g:
+                user_svc = UserService(g)
+                for u in state.get("users", []):
+                    upn = u.get("userPrincipalName", "")
+                    uid = u.get("userId", "")
+                    if not uid:
+                        continue
+                    if target_upns and upn not in target_upns:
+                        continue
+                    new_pw = await user_svc.reset_password(uid, password=custom_password)
+                    results.append({
+                        "userPrincipalName": upn,
+                        "password": new_pw or "",
+                        "status": "ok" if new_pw else "failed",
+                    })
+            return results
+
+        results = asyncio.run(_run())
+        mgr.update_user_passwords(prefix, results)
+        return {"results": results, "updatedUsers": len(results)}
+
+    def _tool_modify_hack_dates(self, prefix: str, deleteDate: str, **kwargs) -> Any:
+        """Update lifecycle dates and reschedule automation for a hack."""
+        from onedrive_provisioner.scheduler import HackScheduler
+        mgr = self._get_mgr()
+        if not mgr:
+            return {"error": "Storage not configured"}
+        state = mgr.get_state(prefix)
+        if not state:
+            return {"error": f"No state found for prefix '{prefix}'"}
+
+        hack_start = kwargs.get("hackStartDate", "")
+        hack_date = kwargs.get("hackDate", "")
+        readonly_date = kwargs.get("readonlyDate", "")
+        sub_ids = kwargs.get("subscriptionIds") or []
+
+        scheduler = HackScheduler(
+            get_state_manager=self._get_mgr,
+            run_provision=lambda *a: None,
+            run_cleanup=lambda *a: None,
+            run_readonly=lambda *a, **kw: None,
+        )
+        t, c, s = self._creds
+        jobs = scheduler.set_hack_end_date(
+            prefix, deleteDate,
+            {"tenant_id": t, "client_id": c, "client_secret": s},
+            subscription_ids=sub_ids,
+            readonly_date=readonly_date or None,
+            mode=kwargs.get("mode", "team"),
+            metadata={
+                "hackStartDate": hack_start,
+                "hackDate": hack_date,
+                "deleteDate": deleteDate,
+            },
+        )
+        return {
+            "message": f"Dates updated for '{prefix}'",
+            "hackStartDate": hack_start,
+            "hackDate": hack_date,
+            "readonlyDate": readonly_date,
+            "deleteDate": deleteDate,
+            "jobs": [j.to_dict() for j in jobs],
+        }
+
+    def _tool_repair_groups(self, prefix: str) -> Any:
+        """Verify and repair group memberships for users in a hack."""
+        mgr = self._get_mgr()
+        if not mgr:
+            return {"error": "Storage not configured"}
+        state = mgr.get_state(prefix)
+        if not state:
+            return {"error": f"No state found for prefix '{prefix}'"}
+
+        tp = _make_tp(self._creds)
+
+        async def _run():
+            from onedrive_provisioner.entra.group_service import GroupService
+            async with GraphClient(tp) as g:
+                gs = GroupService(g)
+                return await gs.repair_memberships(state)
+
+        result = asyncio.run(_run())
+        return {
+            "message": f"Group repair completed for '{prefix}'",
+            "result": result,
+        }
+
+    def _tool_repair_licenses(self, prefix: str) -> Any:
+        """Re-assign expected licenses to users missing them."""
+        mgr = self._get_mgr()
+        if not mgr:
+            return {"error": "Storage not configured"}
+        state = mgr.get_state(prefix)
+        if not state:
+            return {"error": f"No state found for prefix '{prefix}'"}
+
+        tp = _make_tp(self._creds)
+        expected_licenses = state.get("config", {}).get("licenses") or []
+        if not expected_licenses:
+            return {"message": "No licenses configured for this hack — nothing to repair."}
+
+        async def _run():
+            from onedrive_provisioner.entra.license_service import LicenseService
+            results = []
+            async with GraphClient(tp) as g:
+                lic_svc = LicenseService(g)
+                sku_map = await lic_svc.resolve(expected_licenses)
+                sku_ids = [sid for (sid, _) in sku_map.values()]
+                if not sku_ids:
+                    return [{"error": "Could not resolve any license SKUs"}]
+                for u in state.get("users", []):
+                    uid = u.get("userId", "")
+                    upn = u.get("userPrincipalName", "")
+                    if not uid:
+                        continue
+                    try:
+                        assigned = await lic_svc.assign(uid, sku_ids)
+                        results.append({
+                            "userPrincipalName": upn,
+                            "status": "repaired" if assigned else "already_ok",
+                        })
+                    except Exception as exc:
+                        results.append({
+                            "userPrincipalName": upn,
+                            "status": "failed",
+                            "error": str(exc),
+                        })
+            return results
+
+        results = asyncio.run(_run())
+        repaired = sum(1 for r in results if r.get("status") == "repaired")
+        return {
+            "message": f"License repair completed for '{prefix}': {repaired} user(s) repaired",
+            "results": results,
         }

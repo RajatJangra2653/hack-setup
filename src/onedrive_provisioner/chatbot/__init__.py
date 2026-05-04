@@ -320,6 +320,135 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "enable_github_access",
+            "description": "Privileged mutation: add hack users to GitHub-EMU-backed Entra groups and trigger on-demand sync. Uses a separate broker tenant (configured server-side). Disabled unless CHATBOT_ENABLE_MUTATION_TOOLS=true.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prefix": {"type": "string", "description": "The hack prefix — users are resolved from saved state"},
+                    "withCopilot": {"type": "boolean", "description": "Include GitHub Copilot group (default false)"},
+                    "withGhas": {"type": "boolean", "description": "Include GHAS group (default false)"},
+                    "includeAdmins": {"type": "boolean", "description": "Include admin users (default false)"},
+                },
+                "required": ["prefix"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "disable_github_access",
+            "description": "Privileged mutation: remove hack users from GitHub-EMU groups and trigger sync for deprovisioning. Disabled unless CHATBOT_ENABLE_MUTATION_TOOLS=true.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prefix": {"type": "string", "description": "The hack prefix — users are resolved from saved state"},
+                    "withCopilot": {"type": "boolean", "description": "Also remove from Copilot group (default false)"},
+                    "withGhas": {"type": "boolean", "description": "Also remove from GHAS group (default false)"},
+                },
+                "required": ["prefix"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "assign_rbac_permissions",
+            "description": "Privileged mutation: assign an Azure RBAC role (Reader/Contributor/Owner) on subscriptions to hack groups or users. Disabled unless CHATBOT_ENABLE_MUTATION_TOOLS=true.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prefix": {"type": "string", "description": "The hack prefix to discover groups/users"},
+                    "subscriptionIds": {"type": "array", "items": {"type": "string"}, "description": "Azure subscription IDs to assign the role on"},
+                    "role": {"type": "string", "enum": ["Reader", "Contributor", "Owner"], "description": "RBAC role to assign (default Reader)"},
+                    "targetScope": {"type": "string", "enum": ["teams", "teams-admins", "admins", "users"], "description": "Which principals to assign to (default teams)"},
+                },
+                "required": ["prefix", "subscriptionIds"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "apply_readonly",
+            "description": "Privileged mutation: switch hack to read-only mode — removes Owner/Contributor role assignments and grants only Reader access on listed subscriptions. Disabled unless CHATBOT_ENABLE_MUTATION_TOOLS=true.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prefix": {"type": "string", "description": "The hack prefix"},
+                    "subscriptionIds": {"type": "array", "items": {"type": "string"}, "description": "Subscription IDs to apply read-only on (required)"},
+                    "mode": {"type": "string", "enum": ["team", "flat"], "description": "team = operate on groups, flat = operate on individual users (default team)"},
+                },
+                "required": ["prefix", "subscriptionIds"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "reset_user_password",
+            "description": "Privileged mutation: reset passwords for users in a saved hack. Disabled unless CHATBOT_ENABLE_MUTATION_TOOLS=true.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prefix": {"type": "string", "description": "The hack prefix"},
+                    "users": {"type": "array", "items": {"type": "string"}, "description": "Specific UPNs to reset (omit for all non-admin users)"},
+                    "password": {"type": "string", "description": "Custom password (omit for random per-user passwords)"},
+                },
+                "required": ["prefix"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "modify_hack_dates",
+            "description": "Privileged mutation: update lifecycle dates (hack start, hack day, read-only, delete/end) for a saved hack and reschedule lifecycle automation. Disabled unless CHATBOT_ENABLE_MUTATION_TOOLS=true.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prefix": {"type": "string", "description": "The hack prefix"},
+                    "hackStartDate": {"type": "string", "description": "ISO datetime for hack start (optional)"},
+                    "hackDate": {"type": "string", "description": "ISO datetime for hack day (optional)"},
+                    "readonlyDate": {"type": "string", "description": "ISO datetime for read-only mode (optional)"},
+                    "deleteDate": {"type": "string", "description": "ISO datetime for auto-cleanup/delete (required)"},
+                    "subscriptionIds": {"type": "array", "items": {"type": "string"}, "description": "Subscription IDs for RBAC cleanup (optional)"},
+                },
+                "required": ["prefix", "deleteDate"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "repair_groups",
+            "description": "Privileged mutation: verify and repair group memberships for all users in a hack — re-adds any missing memberships. Disabled unless CHATBOT_ENABLE_MUTATION_TOOLS=true.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prefix": {"type": "string", "description": "The hack prefix"},
+                },
+                "required": ["prefix"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "repair_licenses",
+            "description": "Privileged mutation: re-assign licenses to users in a hack who are missing expected licenses. Disabled unless CHATBOT_ENABLE_MUTATION_TOOLS=true.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prefix": {"type": "string", "description": "The hack prefix"},
+                },
+                "required": ["prefix"],
+            },
+        },
+    },
 ]
 
 READ_ONLY_TOOL_NAMES = {
@@ -352,6 +481,12 @@ You help users with:
 5. **Cleanup** — Removing hack resources
 6. **Documentation** — Generating Admin/Trainer Guide documents for hacks
 7. **Scheduling** — Setting auto-cleanup end dates for hacks, scheduling future hack provisioning, managing scheduled jobs
+8. **GitHub EMU Access** — Enabling/disabling GitHub Enterprise Managed User access (with optional Copilot and GHAS)
+9. **Read-Only Mode** — Switching hack subscriptions to read-only by removing write roles and granting Reader
+10. **Password Reset** — Resetting passwords for hack users
+11. **Date Management** — Modifying hack lifecycle dates (start, hack day, read-only, delete) and rescheduling automation
+12. **Group Repair** — Verifying and repairing missing group memberships for hack users
+13. **License Repair** — Re-assigning expected licenses to users who are missing them
 
 Key concepts:
 - A "hack" is a hackathon event identified by a prefix (e.g. "nyc-esri-gcc-")

@@ -1,4 +1,4 @@
-"""Scheduler engine: background thread that checks for due jobs every 60 seconds.
+"""Scheduler engine: background thread that checks for due jobs every hour.
 
 Jobs are persisted in Azure Blob Storage under `_scheduler/jobs.json`.
 Two job types:

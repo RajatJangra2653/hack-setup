@@ -64,9 +64,19 @@ class Orchestrator:
                             pass  # never let callback errors break the pipeline
                 return result
 
-            results = await asyncio.gather(
-                *(_worker(u) for u in target_users), return_exceptions=False
+            raw_results = await asyncio.gather(
+                *(_worker(u) for u in target_users), return_exceptions=True
             )
+            results: list[UserResult] = []
+            for i, r in enumerate(raw_results):
+                if isinstance(r, Exception):
+                    results.append(UserResult(
+                        user=target_users[i],
+                        status=Status.FAILED,
+                        message=str(r),
+                    ))
+                else:
+                    results.append(r)
 
         succeeded = sum(1 for r in results if r.status == Status.SUCCESS)
         failed = sum(1 for r in results if r.status == Status.FAILED)
@@ -81,27 +91,41 @@ class Orchestrator:
 
     # ------------------------------------------------------------- internal
     async def _enqueue_sites(self, users: List[str]) -> None:
-        """Pre-provision: call Request-SPOPersonalSite equivalent API."""
-        # Extract tenant name from first UPN (e.g. "user@WWPS319.onmicrosoft.com" -> "WWPS319")
+        """Pre-provision: call Request-SPOPersonalSite equivalent API.
+
+        Groups users by domain so multi-domain tenants get per-domain
+        enqueue calls with the correct SharePoint admin URL.
+        """
         emails_with_domain = [u for u in users if "@" in u]
         if not emails_with_domain:
             return
-        domain = emails_with_domain[0].split("@", 1)[1]
-        # Handle both "tenant.onmicrosoft.com" and "custom.com"
-        tenant_name = domain.split(".")[0]
 
-        logger.info(
-            "orchestrator.enqueue_sites",
-            count=len(emails_with_domain),
-            tenant_name=tenant_name,
-        )
-        ok = await OneDriveProvisioner.enqueue_personal_sites(
-            self._token_provider, emails_with_domain, tenant_name,
-        )
-        if ok:
+        # Bucket users by tenant name (first label of their domain)
+        buckets: dict[str, list[str]] = {}
+        for email in emails_with_domain:
+            domain = email.split("@", 1)[1]
+            tenant_name = domain.split(".")[0]
+            buckets.setdefault(tenant_name, []).append(email)
+
+        any_ok = False
+        for tenant_name, bucket_emails in buckets.items():
+            logger.info(
+                "orchestrator.enqueue_sites",
+                count=len(bucket_emails),
+                tenant_name=tenant_name,
+            )
+            ok = await OneDriveProvisioner.enqueue_personal_sites(
+                self._token_provider, bucket_emails, tenant_name,
+            )
+            if ok:
+                any_ok = True
+
+        if any_ok:
             logger.info("orchestrator.enqueue_sites_done", success=True)
             # Give SharePoint a moment to start processing the queue
-            await asyncio.sleep(5)
+            await asyncio.sleep(self.cfg.execution.enqueue_delay
+                                if hasattr(self.cfg.execution, 'enqueue_delay')
+                                else 5)
         else:
             logger.warning(
                 "orchestrator.enqueue_sites_skipped",
@@ -158,14 +182,14 @@ class Orchestrator:
 
         Returns (tenant_name, suffix) where suffix is 'com' or 'us'.
         For GCC tenants, the SharePoint URL ends in .sharepoint.us.
-        We default to .com; orchestrator-level enqueue tries both.
         """
         if "@" not in user:
             return None, "com"
-        domain = user.split("@", 1)[1]
+        domain = user.split("@", 1)[1].lower()
         tenant_name = domain.split(".")[0]
-        # Heuristic: GCC tenants usually have .gov in domain or are recognized
-        # by tenant ID. Default to .com — fallback handled inside provisioner.
+        # GCC tenants use .sharepoint.us — detect via domain suffix or keywords
+        if domain.endswith(".us") or domain.endswith(".gov") or "gcc" in domain:
+            return tenant_name, "us"
         return tenant_name, "com"
 
     async def _pipeline(
@@ -183,7 +207,7 @@ class Orchestrator:
 
         try:
             source = build_source(spec)
-        except (FileNotFoundError, ValueError) as exc:
+        except (FileNotFoundError, ValueError, PermissionError, IsADirectoryError, OSError) as exc:
             result.status = Status.FAILED
             result.message = f"source: {exc}"
             return result

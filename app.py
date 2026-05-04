@@ -65,21 +65,25 @@ FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "frontend")
 
 # ── Blob Storage state persistence ──
 _state_mgr: HackStateManager | None = None
+_state_mgr_lock = threading.Lock()
 
 def _get_state_manager() -> HackStateManager | None:
     global _state_mgr
     if _state_mgr is not None:
         return _state_mgr
-    conn_str = os.environ.get("AZURE_STORAGE_CONNECTION_STRING", "")
-    if not conn_str:
-        return None
-    try:
-        client = BlobStateClient("", connection_string=conn_str)
-        _state_mgr = HackStateManager(client)
-        return _state_mgr
-    except Exception as exc:
-        print(f"[WARN] Could not init blob state manager: {exc}")
-        return None
+    with _state_mgr_lock:
+        if _state_mgr is not None:
+            return _state_mgr
+        conn_str = os.environ.get("AZURE_STORAGE_CONNECTION_STRING", "")
+        if not conn_str:
+            return None
+        try:
+            client = BlobStateClient("", connection_string=conn_str)
+            _state_mgr = HackStateManager(client)
+            return _state_mgr
+        except Exception as exc:
+            print(f"[WARN] Could not init blob state manager: {exc}")
+            return None
 
 app = Flask(__name__, static_folder=None)
 app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # 200 MB upload limit
@@ -95,22 +99,26 @@ _prov_lock = threading.Lock()
 
 # ── Scheduler singleton ──
 _hack_scheduler: HackScheduler | None = None
+_scheduler_lock = threading.Lock()
 
 def _get_scheduler() -> HackScheduler | None:
     global _hack_scheduler
     if _hack_scheduler is not None:
         return _hack_scheduler
-    mgr = _get_state_manager()
-    if not mgr:
-        return None
-    _hack_scheduler = HackScheduler(
-        get_state_manager=_get_state_manager,
-        run_provision=_scheduler_provision,
-        run_cleanup=_scheduler_cleanup,
-        run_readonly=_scheduler_readonly,
-    )
-    _hack_scheduler.start()
-    return _hack_scheduler
+    with _scheduler_lock:
+        if _hack_scheduler is not None:
+            return _hack_scheduler
+        mgr = _get_state_manager()
+        if not mgr:
+            return None
+        _hack_scheduler = HackScheduler(
+            get_state_manager=_get_state_manager,
+            run_provision=_scheduler_provision,
+            run_cleanup=_scheduler_cleanup,
+            run_readonly=_scheduler_readonly,
+        )
+        _hack_scheduler.start()
+        return _hack_scheduler
 
 
 def _scheduler_provision(cfg_dict: dict, tenant_id: str, client_id: str, client_secret: str):
@@ -309,6 +317,7 @@ def _run_job(job_id, users, source_dir, destination, dry_run, concurrency,
             partial_results.append(user_result)
             ok = sum(1 for r in partial_results if r.status.value == "success")
             fail = sum(1 for r in partial_results if r.status.value == "failed")
+            skip = sum(1 for r in partial_results if r.status.value in ("skipped", "dry_run"))
             with _jobs_lock:
                 j = _jobs.get(job_id)
                 if j:
@@ -320,7 +329,7 @@ def _run_job(job_id, users, source_dir, destination, dry_run, concurrency,
                         "total": total,
                         "succeeded": ok,
                         "failed": fail,
-                        "skipped": done_count - ok - fail,
+                        "skipped": skip,
                         "results": [r.to_dict() for r in partial_results],
                     }
 
@@ -1453,6 +1462,33 @@ def get_hack_versions(prefix):
         return jsonify({"error": "Storage not configured"}), 503
     versions = mgr.list_versions(prefix)
     return jsonify(versions)
+
+
+@app.route("/api/hack-state/<prefix>/config", methods=["PATCH"])
+def patch_hack_config(prefix):
+    """Patch config flags on an existing hack state (e.g. mark enableGithub=true).
+
+    Body: { "enableGithub": true, ... }
+    Only whitelisted config keys are accepted.
+    """
+    mgr = _get_state_manager()
+    if not mgr:
+        return jsonify({"error": "Storage not configured"}), 503
+    state = mgr.get_state(prefix)
+    if not state:
+        return jsonify({"error": f"No state found for prefix '{prefix}'"}), 404
+
+    ALLOWED_KEYS = {"enableGithub", "enableGithubCopilot", "enableGithubGhas", "enableGithubForAdmins"}
+    data = request.get_json(silent=True) or {}
+    updates = {k: v for k, v in data.items() if k in ALLOWED_KEYS}
+    if not updates:
+        return jsonify({"error": f"No valid config keys. Allowed: {sorted(ALLOWED_KEYS)}"}), 400
+
+    cfg = state.get("config") or {}
+    cfg.update(updates)
+    state["config"] = cfg
+    mgr.save_state(prefix, state)
+    return jsonify({"ok": True, "updatedKeys": list(updates.keys()), "config": cfg})
 
 
 @app.route("/api/hack-state/<prefix>/regenerate-tap", methods=["POST"])

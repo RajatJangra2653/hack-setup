@@ -5,18 +5,27 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Spektra hack setup</title>
   <style>
+    /* ── Unified Design Tokens ── */
     :root {
-      --primary: #0078d4;
-      --primary-dark: #106ebe;
-      --success: #107c10;
-      --danger: #d13438;
-      --warn: #ffb900;
-      --bg: #f3f2f1;
-      --card: #ffffff;
-      --text: #323130;
-      --muted: #605e5c;
-      --border: #edebe9;
-      --radius: 8px;
+      --primary: #2563eb;
+      --primary-dark: #1d4ed8;
+      --primary-soft: #dbeafe;
+      --success: #16a34a;
+      --danger: #dc2626;
+      --warn: #f59e0b;
+      --bg: #eef4ff;
+      --card: rgba(255,255,255,.94);
+      --text: #0f172a;
+      --muted: #64748b;
+      --border: #dbe3ef;
+      --radius-sm: 6px;
+      --radius-md: 12px;
+      --radius-lg: 18px;
+      --radius: var(--radius-lg);
+      --shadow-sm: 0 8px 24px rgba(15, 23, 42, .08);
+      --shadow-md: 0 18px 50px rgba(15, 23, 42, .14);
+      --gradient: linear-gradient(135deg, #0f172a 0%, #1d4ed8 48%, #06b6d4 100%);
+      --font-mono: 'Cascadia Code', 'Fira Code', 'Consolas', 'Courier New', monospace;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); line-height: 1.5; }
@@ -101,17 +110,36 @@
     .btn.is-busy[disabled] { opacity: .85; }
     @keyframes spin { to { transform: rotate(360deg); } }
 
+    /* ── Operation progress bar ── */
+    .op-progress { display: none; margin-top: 10px; }
+    .op-progress.active { display: block; }
+    .op-progress-track { height: 6px; background: #eef0f4; border-radius: 3px; overflow: hidden; }
+    .op-progress-fill { height: 100%; width: 0%; border-radius: 3px; transition: width .35s ease; }
+    .op-progress-fill.indeterminate { width: 30%; animation: opIndeterminate 1.5s ease-in-out infinite; background: linear-gradient(90deg, var(--primary), #5b8def); }
+    .op-progress-fill.determinate { background: linear-gradient(90deg, var(--primary), #5b8def); }
+    .op-progress-fill.op-success { background: var(--success); width: 100% !important; }
+    .op-progress-fill.op-fail { background: var(--danger); }
+    .op-progress-text { font-size: 12px; color: var(--muted); margin-top: 4px; display: flex; align-items: center; gap: 6px; }
+    .op-progress-text .spinner { width: 12px; height: 12px; border-width: 2px; }
+    @keyframes opIndeterminate { 0% { margin-left: 0; width: 30%; } 50% { margin-left: 40%; width: 40%; } 100% { margin-left: 70%; width: 30%; } }
+
+    #toast-container {
+      position: fixed; bottom: 20px; right: 20px; z-index: 9999;
+      display: flex; flex-direction: column-reverse; gap: 8px;
+      pointer-events: none; max-width: 480px;
+    }
     .toast {
-      position: fixed; bottom: 20px; right: 20px; padding: 12px 20px;
-      border-radius: 6px; color: #fff; font-size: 14px; z-index: 1000;
-      animation: slideIn .3s ease; box-shadow: 0 4px 12px rgba(0,0,0,.2);
-      max-width: 420px;
+      position: relative; padding: 12px 20px;
+      border-radius: 8px; color: #fff; font-size: 14px;
+      animation: toastIn .3s ease; box-shadow: 0 4px 16px rgba(0,0,0,.25);
+      max-width: 480px; pointer-events: auto;
     }
     .toast-success { background: var(--success); }
-    .toast-error { background: var(--danger); }
+    .toast-error, .toast-danger { background: var(--danger); }
     .toast-warn { background: #d48300; }
     .toast-info { background: var(--primary); }
-    @keyframes slideIn { from { transform: translateY(40px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    @keyframes toastIn { from { transform: translateY(12px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    @keyframes toastOut { from { opacity: 1; max-height: 80px; } to { opacity: 0; max-height: 0; padding: 0 20px; margin: 0; } }
 
     .modal-backdrop {
       position: fixed; inset: 0; z-index: 2000; display: flex; align-items: center; justify-content: center;
@@ -184,23 +212,6 @@
     .tab:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; border-radius: 4px; }
 
     /* ────────── Lifecycle UX refresh ────────── */
-    :root {
-      --primary: #2563eb;
-      --primary-dark: #1d4ed8;
-      --primary-soft: #dbeafe;
-      --success: #16a34a;
-      --danger: #dc2626;
-      --warn: #f59e0b;
-      --bg: #eef4ff;
-      --card: rgba(255,255,255,.94);
-      --text: #0f172a;
-      --muted: #64748b;
-      --border: #dbe3ef;
-      --radius: 18px;
-      --shadow-sm: 0 8px 24px rgba(15, 23, 42, .08);
-      --shadow-md: 0 18px 50px rgba(15, 23, 42, .14);
-      --gradient: linear-gradient(135deg, #0f172a 0%, #1d4ed8 48%, #06b6d4 100%);
-    }
     body {
       background:
         radial-gradient(circle at 10% 0%, rgba(37,99,235,.18), transparent 32%),
@@ -379,9 +390,336 @@
       .lifecycle-nav { grid-template-columns: 1fr; }
       .card { padding: 18px; }
     }
+
+    /* ════════════════════ THREE-TIER NAV REDESIGN ════════════════════ */
+
+    /* ── Hack Context Bar ── */
+    .hack-context-bar {
+      position: sticky; top: 0; z-index: 900;
+      background: rgba(255,255,255,.92); backdrop-filter: blur(14px) saturate(1.6);
+      border-bottom: 1px solid var(--border);
+      padding: 10px 0;
+      box-shadow: 0 2px 8px rgba(15,23,42,.06);
+    }
+    .hack-context-inner {
+      max-width: 1240px; margin: 0 auto; padding: 0 18px;
+      display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    }
+    .hack-context-label { font-weight: 800; font-size: 13px; color: var(--text); white-space: nowrap; }
+    .hack-context-select { min-width: 240px; max-width: 420px; flex: 1; }
+    .hack-context-meta {
+      display: flex; gap: 12px; align-items: center; font-size: 12px; color: var(--muted); font-weight: 600;
+    }
+    .hack-context-meta .ctx-pill {
+      padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em;
+    }
+    .ctx-pill-active { background: #dcfce7; color: var(--success); border: 1px solid #86efac; }
+    .ctx-pill-archived { background: #f1f5f9; color: var(--muted); border: 1px solid var(--border); }
+    .ctx-pill-scheduled { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+    .hack-context-empty {
+      flex: 1; display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--muted); font-style: italic;
+    }
+    .hack-context-actions { display: flex; gap: 6px; margin-left: auto; }
+    .hack-context-actions .btn { padding: 6px 12px; font-size: 12px; }
+
+    /* ── Global Utility Icons (top-right) ── */
+    .global-utils {
+      display: flex; gap: 4px; align-items: center; margin-left: auto;
+    }
+    .global-util-btn {
+      width: 38px; height: 38px; border-radius: 50%; border: 1px solid rgba(255,255,255,.22);
+      background: rgba(255,255,255,.12); color: #fff; font-size: 18px; cursor: pointer;
+      display: grid; place-items: center; transition: background .15s, transform .12s;
+    }
+    .global-util-btn:hover { background: rgba(255,255,255,.22); transform: scale(1.08); }
+    .global-util-btn.active { background: rgba(255,255,255,.28); box-shadow: 0 0 0 2px rgba(255,255,255,.3); }
+
+    /* ── Primary Lifecycle Stepper ── */
+    .lifecycle-stepper {
+      display: flex; align-items: stretch; gap: 0; padding: 6px 0; overflow-x: auto;
+      -webkit-overflow-scrolling: touch; scrollbar-width: none;
+    }
+    .lifecycle-stepper::-webkit-scrollbar { display: none; }
+    .step-tab {
+      flex: 1; min-width: 120px; position: relative; cursor: pointer;
+      display: flex; flex-direction: column; align-items: center; gap: 4px;
+      padding: 12px 8px 10px; border-radius: var(--radius-md);
+      border: 1px solid transparent; transition: all .15s ease;
+      text-align: center; background: transparent;
+    }
+    .step-tab:hover { background: rgba(37,99,235,.04); border-color: #e2e8f0; }
+    .step-tab.active {
+      background: linear-gradient(135deg, #eff6ff, #e0f2fe);
+      border-color: #bfdbfe; box-shadow: 0 8px 20px rgba(37,99,235,.10);
+    }
+    .step-tab .step-num {
+      font-size: 10px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase;
+      color: var(--muted);
+    }
+    .step-tab.active .step-num { color: var(--primary); }
+    .step-tab .step-label { font-size: 12px; font-weight: 700; color: var(--text); line-height: 1.2; }
+    .step-tab.active .step-label { color: var(--primary-dark); }
+
+    /* Status dots */
+    .step-status {
+      width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--border);
+      background: #fff; margin-bottom: 2px; transition: all .2s;
+    }
+    .step-status.ss-not-started { border-color: #cbd5e1; background: #fff; }
+    .step-status.ss-in-progress { border-color: var(--primary); background: var(--primary); animation: statusPulse 2s ease-in-out infinite; }
+    .step-status.ss-done { border-color: var(--success); background: var(--success); }
+    .step-status.ss-warning { border-color: var(--warn); background: var(--warn); }
+    .step-status.ss-blocked { border-color: var(--danger); background: var(--danger); }
+    .step-status.ss-skipped { border-color: var(--muted); background: var(--muted); }
+    @keyframes statusPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(37,99,235,.3); } 50% { box-shadow: 0 0 0 4px rgba(37,99,235,.1); } }
+
+    /* Step connector line */
+    .step-connector {
+      width: 24px; min-width: 16px; display: flex; align-items: center; justify-content: center;
+      align-self: flex-start; padding-top: 18px;
+    }
+    .step-connector::after {
+      content: ''; display: block; width: 100%; height: 2px;
+      background: var(--border); border-radius: 1px;
+    }
+
+    /* ── Hack-scoped Utility Toolbar ── */
+    .hack-utils-bar {
+      display: flex; gap: 6px; padding: 8px 12px; margin-bottom: 16px;
+      background: rgba(255,255,255,.7); border: 1px solid var(--border);
+      border-radius: var(--radius-md); backdrop-filter: blur(8px);
+      flex-wrap: wrap; align-items: center;
+    }
+    .hack-util-btn {
+      padding: 6px 14px; border-radius: 999px; font-size: 12px; font-weight: 700;
+      border: 1px solid var(--border); background: #fff; color: var(--text);
+      cursor: pointer; transition: all .12s; display: inline-flex; align-items: center; gap: 5px;
+    }
+    .hack-util-btn:hover { border-color: var(--primary); color: var(--primary); background: #f0f4ff; }
+    .hack-util-btn.active { border-color: var(--primary); color: var(--primary); background: #eff6ff; font-weight: 800; }
+    .hack-utils-sep { width: 1px; height: 20px; background: var(--border); margin: 0 4px; }
+
+    /* ════════════════════ WIZARD SYSTEM ════════════════════ */
+    .wizard { position: relative; }
+    .wizard-steps-strip {
+      display: flex; align-items: center; gap: 0; padding: 0 0 16px; margin-bottom: 16px;
+      border-bottom: 1px solid var(--border); overflow-x: auto;
+    }
+    .wizard-step-indicator {
+      display: flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 999px;
+      font-size: 12px; font-weight: 700; white-space: nowrap; cursor: pointer;
+      transition: all .12s;
+    }
+    .wizard-step-indicator .wiz-dot {
+      width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center;
+      font-size: 11px; font-weight: 900; border: 2px solid var(--border);
+      background: #fff; color: var(--muted); transition: all .15s;
+    }
+    .wizard-step-indicator.wiz-completed .wiz-dot { border-color: var(--success); background: var(--success); color: #fff; }
+    .wizard-step-indicator.wiz-done .wiz-dot { border-color: var(--success); background: var(--success); color: #fff; }
+    .wizard-step-indicator.wiz-active .wiz-dot { border-color: var(--primary); background: var(--primary); color: #fff; }
+    .wizard-step-indicator.wiz-active { color: var(--primary); }
+    .wizard-step-indicator.wiz-completed { color: var(--success); }
+    .wizard-step-indicator.wiz-done { color: var(--success); }
+    .wizard-step-connector {
+      width: 28px; height: 2px; background: var(--border); flex-shrink: 0;
+    }
+    .wizard-step-connector.wiz-conn-done { background: var(--success); }
+    .wizard-panel { display: none; animation: wizFadeIn .2s ease; }
+    .wizard-panel.wiz-visible { display: block; }
+    @keyframes wizFadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+    .wizard-actions {
+      display: flex; justify-content: space-between; align-items: center;
+      padding-top: 16px; margin-top: 16px; border-top: 1px solid var(--border);
+    }
+    .wizard-actions .wizard-right { display: flex; gap: 8px; }
+    .wiz-field-error { border-color: var(--danger) !important; box-shadow: 0 0 0 2px rgba(220,38,38,.15) !important; }
+    .wiz-error-msg { color: var(--danger); font-size: 12px; margin-top: 4px; display: none; }
+    .wiz-error-msg.visible { display: block; }
+    @keyframes wizShake { 0%,100%{transform:translateX(0)} 20%{transform:translateX(-4px)} 40%{transform:translateX(4px)} 60%{transform:translateX(-3px)} 80%{transform:translateX(3px)} }
+    .wiz-shake { animation: wizShake .35s ease; }
+
+    /* ── Fieldset cards within wizard ── */
+    .field-group {
+      border: 1px solid #e8edf5; border-radius: var(--radius-md); padding: 16px;
+      margin-bottom: 14px; background: #fafcff;
+    }
+    .field-group-title {
+      font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em;
+      color: var(--primary); margin-bottom: 10px;
+    }
+
+    /* ── Advanced collapsible ── */
+    details.advanced-group { margin-top: 6px; }
+    details.advanced-group > summary {
+      cursor: pointer; user-select: none; font-size: 13px; font-weight: 700;
+      color: var(--muted); padding: 8px 12px; border-radius: var(--radius-sm);
+      border: 1px solid var(--border); background: #f8fbff; list-style: none;
+    }
+    details.advanced-group > summary::before { content: '▶ '; font-size: 10px; }
+    details.advanced-group[open] > summary::before { content: '▼ '; }
+    details.advanced-group > summary::-webkit-details-marker { display: none; }
+    details.advanced-group .advanced-body { padding: 14px 0 0; }
+
+    /* ════════════════════ ACTIVITY DRAWER ════════════════════ */
+    .activity-drawer-backdrop {
+      position: fixed; inset: 0; z-index: 1500; background: rgba(15,23,42,.3);
+      backdrop-filter: blur(2px); display: none;
+    }
+    .activity-drawer-backdrop.open { display: block; }
+    .activity-drawer {
+      position: fixed; top: 0; right: 0; bottom: 0; width: min(420px, 90vw);
+      background: #fff; box-shadow: -8px 0 40px rgba(15,23,42,.18);
+      z-index: 1501; transform: translateX(100%); transition: transform .25s ease;
+      display: flex; flex-direction: column;
+    }
+    .activity-drawer.open { transform: translateX(0); }
+    .activity-drawer-head {
+      padding: 18px 20px; border-bottom: 1px solid var(--border);
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .activity-drawer-head h3 { margin: 0; font-size: 16px; }
+    .activity-drawer-body {
+      flex: 1; overflow-y: auto; padding: 16px 20px;
+    }
+    .activity-item {
+      padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+      margin-bottom: 8px; font-size: 13px;
+    }
+    .activity-item.running { border-left: 3px solid var(--primary); }
+    .activity-item.completed { border-left: 3px solid var(--success); }
+    .activity-item.failed { border-left: 3px solid var(--danger); }
+    .activity-item-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+    .activity-item-title { font-weight: 700; }
+    .activity-item-time { font-size: 11px; color: var(--muted); }
+    .activity-item-status { font-size: 12px; color: var(--muted); }
+    .activity-empty { text-align: center; padding: 40px 20px; color: var(--muted); font-size: 13px; }
+
+    /* ════════════════════ DISABLED TOOLTIP SYSTEM ════════════════════ */
+    .has-disabled-tip { position: relative; display: inline-flex; }
+    .disabled-tip {
+      display: none; position: absolute; bottom: calc(100% + 8px); left: 50%;
+      transform: translateX(-50%); padding: 6px 12px; border-radius: var(--radius-sm);
+      background: #1e293b; color: #fff; font-size: 12px; font-weight: 600;
+      white-space: nowrap; z-index: 100; pointer-events: none;
+      box-shadow: 0 4px 12px rgba(0,0,0,.2);
+    }
+    .disabled-tip::after {
+      content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+      border: 5px solid transparent; border-top-color: #1e293b;
+    }
+    .has-disabled-tip:hover .disabled-tip,
+    .has-disabled-tip:focus-within .disabled-tip { display: block; }
+
+    /* ════════════════════ EMPTY STATES ════════════════════ */
+    .empty-state {
+      text-align: center; padding: 48px 24px; color: var(--muted);
+    }
+    .empty-state-icon { font-size: 48px; margin-bottom: 12px; opacity: .6; }
+    .empty-state-title { font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
+    .empty-state-desc { font-size: 13px; max-width: 400px; margin: 0 auto 16px; line-height: 1.5; }
+    .empty-state-actions { display: flex; gap: 8px; justify-content: center; }
+
+    /* ════════════════════ OUTCOME SUMMARY BANNER ════════════════════ */
+    .outcome-banner {
+      padding: 14px 18px; border-radius: var(--radius-md); margin-bottom: 14px;
+      display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    }
+    .outcome-banner.outcome-success { background: #f0fdf4; border: 1px solid #86efac; color: #166534; }
+    .outcome-banner.outcome-warn, .outcome-banner.outcome-partial { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; }
+    .outcome-banner.outcome-error, .outcome-banner.outcome-fail { background: #fef2f2; border: 1px solid #fca5a5; color: #991b1b; }
+    .outcome-banner-text { flex: 1; font-weight: 700; font-size: 14px; }
+    .outcome-banner-actions { display: flex; gap: 6px; }
+
+    /* ── Clickable stat tiles ── */
+    .stat-tile.clickable { cursor: pointer; transition: border-color .12s, box-shadow .12s; }
+    .stat-tile.clickable:hover { border-color: var(--primary); box-shadow: 0 4px 12px rgba(37,99,235,.12); }
+    .stat-tile.clickable.tile-active { border-color: var(--primary); background: #eff6ff; box-shadow: 0 4px 12px rgba(37,99,235,.15); }
+
+    /* ── Results detail side panel ── */
+    .result-detail-panel {
+      position: fixed; top: 0; right: 0; bottom: 0; width: min(480px, 90vw);
+      background: #fff; box-shadow: -8px 0 40px rgba(15,23,42,.18);
+      z-index: 1501; transform: translateX(100%); transition: transform .25s ease;
+      display: flex; flex-direction: column;
+    }
+    .result-detail-panel.open { transform: translateX(0); }
+    .result-detail-head {
+      padding: 18px 20px; border-bottom: 1px solid var(--border);
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .result-detail-body { flex: 1; overflow-y: auto; padding: 16px 20px; }
+    .result-detail-kv {
+      display: grid; grid-template-columns: 120px 1fr; gap: 6px 12px;
+      padding: 8px 0; border-bottom: 1px solid #f1f5f9; font-size: 13px;
+    }
+    .result-detail-kv dt { color: var(--muted); font-weight: 700; }
+    .result-detail-kv dd { margin: 0; word-break: break-all; }
+
+    /* ════════════════════ TOAST IMPROVEMENTS ════════════════════ */
+    .toast {
+      display: flex; align-items: center; gap: 8px;
+    }
+    .toast-dismiss {
+      border: none; background: none; color: inherit; font-size: 16px; cursor: pointer;
+      opacity: .7; padding: 0 0 0 8px; line-height: 1; flex-shrink: 0;
+    }
+    .toast-dismiss:hover { opacity: 1; }
+    .toast:hover { animation-play-state: paused; }
+
+    /* ════════════════════ ACCESSIBILITY ════════════════════ */
+    *:focus-visible {
+      outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 2px;
+    }
+    .skip-link {
+      position: absolute; top: -40px; left: 0; background: var(--primary);
+      color: #fff; padding: 8px 16px; z-index: 10000; font-weight: 700;
+      transition: top .2s;
+    }
+    .skip-link:focus { top: 0; }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+      .spinner, .btn-spinner { animation: none; opacity: .5; }
+    }
+
+    /* ── Keyboard shortcuts legend ── */
+    .kbd { display: inline-block; padding: 2px 6px; border-radius: 4px; background: #f1f5f9; border: 1px solid #d1d5db; font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--text); }
+
+    /* ── Required field legend ── */
+    .required-legend { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+    .required-legend .req { color: var(--danger); font-weight: 700; }
+
+    /* ── Checkbox tile groups ── */
+    .checkbox-tile-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px;
+    }
+    .checkbox-tile-group { padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: #fafcff; }
+    .checkbox-tile-group-title { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 6px; }
+
+    /* ── Date timeline enrichment ── */
+    .date-timeline-rich {
+      display: flex; align-items: center; gap: 0; margin: 10px 0; padding: 10px 12px;
+      background: #fafcff; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow-x: auto;
+    }
+    .dt-rich-node {
+      display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 80px;
+      text-align: center;
+    }
+    .dt-rich-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--primary); border: 2px solid #fff; box-shadow: 0 0 0 2px var(--primary); }
+    .dt-rich-dot.dt-past { background: var(--success); box-shadow: 0 0 0 2px var(--success); }
+    .dt-rich-dot.dt-future { background: #cbd5e1; box-shadow: 0 0 0 2px #cbd5e1; }
+    .dt-rich-dot.dt-invalid { background: var(--danger); box-shadow: 0 0 0 2px var(--danger); }
+    .dt-rich-label { font-size: 11px; font-weight: 700; color: var(--text); }
+    .dt-rich-date { font-size: 10px; color: var(--muted); }
+    .dt-rich-seg { flex: 1; min-width: 30px; height: 2px; background: var(--border); position: relative; }
+    .dt-rich-seg-label { position: absolute; top: 6px; left: 50%; transform: translateX(-50%); font-size: 10px; color: var(--muted); white-space: nowrap; }
   </style>
 </head>
 <body>
+  <!-- Skip-to-content link for keyboard users -->
+  <a href="#main-content" class="skip-link">Skip to main content</a>
+
   <!-- Global busy indicator -->
   <div id="globalBusy"><span class="spinner"></span> <span id="globalBusyText">Working…</span></div>
 
@@ -402,76 +740,110 @@
     </div>
   </div>
 
+  <!-- ════════════ Activity Drawer ════════════ -->
+  <div id="activityBackdrop" class="activity-drawer-backdrop" onclick="toggleActivityDrawer(false)"></div>
+  <div id="activityDrawer" class="activity-drawer" role="complementary" aria-label="Activity feed">
+    <div class="activity-drawer-head">
+      <h3>Activity</h3>
+      <button class="btn btn-secondary btn-sm" onclick="toggleActivityDrawer(false)">✕ Close</button>
+    </div>
+    <div class="activity-drawer-body" id="activityDrawerBody">
+      <div class="activity-empty">No operations yet. Start a provision, upload, or cleanup to see activity here.</div>
+    </div>
+  </div>
+
+  <!-- ════════════ Result Detail Side Panel ════════════ -->
+  <div id="resultDetailPanel" class="result-detail-panel" role="complementary" aria-label="User details">
+    <div class="result-detail-head">
+      <h3 id="resultDetailTitle">User Details</h3>
+      <button class="btn btn-secondary btn-sm" onclick="closeResultDetail()">✕ Close</button>
+    </div>
+    <div class="result-detail-body" id="resultDetailBody"></div>
+  </div>
+
   <header>
     <div class="container hero-shell">
       <div class="hero-mark">⚡</div>
       <div class="hero-copy">
         <div class="eyebrow">Azure + Microsoft Entra hack lifecycle</div>
         <h1>Spektra HackOps</h1>
-        <p>Plan the event, create identities, grant Azure access, seed OneDrive content, report cost, move to read-only, and clean up from one guided workspace.</p>
       </div>
-      <div class="hero-status">
-        <span>Active step</span>
-        <strong id="activeStepLabel">Plan & provision</strong>
+      <div class="global-utils">
+        <button class="global-util-btn" onclick="switchView('tenant-setup')" title="Tenant readiness" aria-label="Tenant readiness">🔧</button>
+        <button class="global-util-btn" onclick="switchView('chat')" title="AI helper (Ctrl+/)" aria-label="AI helper">🤖</button>
+        <button class="global-util-btn" onclick="switchView('help')" title="Help & docs (?)" aria-label="Help">❓</button>
+        <button class="global-util-btn" onclick="toggleActivityDrawer()" title="Activity feed" aria-label="Activity feed" id="activityToggleBtn" style="position:relative;">📋<span id="activityBadge" class="hidden" style="position:absolute;top:-4px;right:-4px;background:var(--danger);color:#fff;font-size:10px;font-weight:700;min-width:16px;height:16px;border-radius:8px;display:grid;place-items:center;line-height:1;">0</span></button>
       </div>
     </div>
   </header>
 
-  <div class="container app-stage">
-    <section class="lifecycle-overview">
-      <div>
-        <h2>Run a hackathon from kickoff to cleanup</h2>
-        <p>Follow the lifecycle in order, or jump directly to the operation you need. Credentials stay in the browser session and sensitive TAP/password values remain protected in the UI.</p>
-        <div class="quick-metric-grid">
-          <div class="quick-metric"><strong>Secure</strong><span>Credentials stay browser-side</span></div>
-          <div class="quick-metric"><strong>Guided</strong><span>Lifecycle actions in order</span></div>
-          <div class="quick-metric"><strong>Auditable</strong><span>Saved state, reports, and cleanup</span></div>
-        </div>
+  <!-- ═══════════ Persistent Hack Context Bar ═══════════ -->
+  <div class="hack-context-bar" id="hackContextBar">
+    <div class="hack-context-inner">
+      <span class="hack-context-label">Active hack:</span>
+      <select id="globalHackSelect" class="hack-context-select" onchange="applyGlobalHackSelection()">
+        <option value="">— Select saved hack —</option>
+      </select>
+      <button class="btn btn-secondary btn-sm" type="button" onclick="withBusy(this, () => loadGlobalHackSelect(true))">↻</button>
+      <div id="hackContextMeta" class="hack-context-meta" style="display:none;">
+        <span id="hackContextUserCount"></span>
+        <span id="hackContextCountdown"></span>
+        <span id="hackContextStatus" class="ctx-pill"></span>
       </div>
-      <div class="overview-actions">
-        <button class="btn btn-secondary" onclick="switchView('tenant-setup')">Check tenant readiness</button>
-        <button class="btn btn-primary" onclick="switchView('provision')">Start setup</button>
-        <button class="btn btn-secondary" onclick="switchView('manage')">Load saved hack</button>
+      <div id="hackContextEmpty" class="hack-context-empty">
+        No hack selected — pick one or <a href="#" onclick="event.preventDefault();switchView('provision')">create a new setup</a>
       </div>
-    </section>
+    </div>
+  </div>
 
-    <!-- ────────── Lifecycle Switcher ────────── -->
-    <section class="lifecycle-hub">
-      <div class="lifecycle-hub-head">
-        <div>
-          <h3>Hack lifecycle command center</h3>
-          <p>One navigation rail controls the workspace below — no duplicate cards, no horizontal scrollbar.</p>
+  <div class="container app-stage" id="main-content">
+
+    <!-- ═══════════ Primary Lifecycle Stepper ═══════════ -->
+    <section class="lifecycle-hub" role="navigation" aria-label="Hack lifecycle steps">
+      <div class="lifecycle-stepper" id="lifecycleStepper">
+        <div class="step-tab active" data-view="provision" onclick="switchView('provision')" role="tab" aria-selected="true">
+          <div class="step-status ss-not-started" id="stepDot-provision"></div>
+          <span class="step-num">01 Plan</span>
+          <span class="step-label">Setup Hack</span>
         </div>
-        <div class="lifecycle-badge">Recommended flow: left to right</div>
-      </div>
-      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:12px 0;padding:12px;border:1px solid var(--border);border-radius:14px;background:#f8fbff;">
-        <strong>Active hack:</strong>
-        <select id="globalHackSelect" onchange="applyGlobalHackSelection()" style="min-width:280px;max-width:520px;flex:1;">
-          <option value="">— Select saved hack —</option>
-        </select>
-        <button class="btn btn-secondary btn-sm" type="button" onclick="withBusy(this, () => loadGlobalHackSelect(true))">↻ Load hacks</button>
-        <span id="globalHackInfo" class="hint">Pick once; Permissions, Read-only, Cleanup, Manage, and Scheduler will use it.</span>
-      </div>
-      <div class="tabs lifecycle-nav">
-        <div class="tab" data-view="tenant-setup" onclick="switchView('tenant-setup')"><small>01 Prepare</small>Tenant setup</div>
-        <div class="tab active" data-view="provision" onclick="switchView('provision')"><small>02 Plan</small>Setup hack</div>
-        <div class="tab" data-view="permissions" onclick="switchView('permissions')"><small>03 Access</small>Azure RBAC</div>
-        <div class="tab" data-view="upload" onclick="switchView('upload')"><small>04 Content</small>Upload files</div>
-        <div class="tab" data-view="manage" onclick="switchView('manage')"><small>05 Monitor</small>Manage & report</div>
-        <div class="tab" data-view="readonly" onclick="switchView('readonly')"><small>06 Freeze</small>Read-only</div>
-        <div class="tab" data-view="cleanup" onclick="switchView('cleanup')"><small>07 Finish</small>Cleanup</div>
-        <div class="tab" data-view="github" onclick="switchView('github')"><small>Add-on</small>GitHub access</div>
-        <div class="tab" data-view="scheduler" onclick="switchView('scheduler')"><small>Automation</small>Scheduler</div>
-        <div class="tab" data-view="chat" onclick="switchView('chat')"><small>Assist</small>AI helper</div>
-        <div class="tab" data-view="help" onclick="switchView('help')"><small>Docs</small>Help</div>
-      </div>
-      <div class="active-step-panel">
-        <div>
-          <span>Current step</span>
-          <h3 id="activeStepTitle">Plan & provision</h3>
-          <p id="activeStepHint">Define dates, teams, admins, TAP policy, passwords, and licenses before running the hack setup.</p>
+        <div class="step-connector"></div>
+        <div class="step-tab" data-view="permissions" onclick="switchView('permissions')" role="tab" aria-selected="false">
+          <div class="step-status ss-not-started" id="stepDot-permissions"></div>
+          <span class="step-num">02 Access</span>
+          <span class="step-label">Azure RBAC</span>
         </div>
-        <button class="btn btn-secondary" type="button" onclick="scrollToActiveView()">Jump to section</button>
+        <div class="step-connector"></div>
+        <div class="step-tab" data-view="upload" onclick="switchView('upload')" role="tab" aria-selected="false">
+          <div class="step-status ss-not-started" id="stepDot-upload"></div>
+          <span class="step-num">03 Content</span>
+          <span class="step-label">Upload Files</span>
+        </div>
+        <div class="step-connector"></div>
+        <div class="step-tab" data-view="manage" onclick="switchView('manage')" role="tab" aria-selected="false">
+          <div class="step-status ss-not-started" id="stepDot-manage"></div>
+          <span class="step-num">04 Operate</span>
+          <span class="step-label">Manage & Report</span>
+        </div>
+        <div class="step-connector"></div>
+        <div class="step-tab" data-view="readonly" onclick="switchView('readonly')" role="tab" aria-selected="false">
+          <div class="step-status ss-not-started" id="stepDot-readonly"></div>
+          <span class="step-num">05 Freeze</span>
+          <span class="step-label">Read-only</span>
+        </div>
+        <div class="step-connector"></div>
+        <div class="step-tab" data-view="cleanup" onclick="switchView('cleanup')" role="tab" aria-selected="false">
+          <div class="step-status ss-not-started" id="stepDot-cleanup"></div>
+          <span class="step-num">06 Finish</span>
+          <span class="step-label">Cleanup</span>
+        </div>
+      </div>
+
+      <!-- Hack-scoped utility bar -->
+      <div class="hack-utils-bar" id="hackUtilsBar">
+        <button class="hack-util-btn" data-view="github" onclick="switchView('github')">🐙 GitHub Access</button>
+        <button class="hack-util-btn" data-view="scheduler" onclick="switchView('scheduler')">⏰ Scheduler</button>
+        <div class="hack-utils-sep"></div>
+        <button class="hack-util-btn" data-view="tenant-setup" onclick="switchView('tenant-setup')">🔧 Tenant Check</button>
       </div>
     </section>
 
@@ -630,259 +1002,370 @@
 
     </div><!-- /view-upload -->
 
-    <!-- ────────── Provision Users View ────────── -->
+    <!-- ────────── Provision Users View (4-step wizard) ────────── -->
     <div id="view-provision">
 
-      <div class="card">
+      <div class="card wizard" id="setupWizard">
         <h2>Setup Hack</h2>
-        <div class="hint" style="margin-bottom:16px">Create users in your tenant with Temporary Access Passes (TAP), licenses, and group membership.</div>
+        <div class="hint" style="margin-bottom:8px">Create users in your tenant with Temporary Access Passes (TAP), licenses, and group membership.</div>
+        <div class="required-legend"><span class="req">*</span> Required field</div>
 
-        <div class="section-label">User Configuration</div>
-
-        <div class="row">
-          <div class="form-group">
-            <label for="ep-prefix">Hack Prefix</label>
-            <input type="text" id="ep-prefix" placeholder="Auto-derived from hack name" oninput="_prefixEditedManually=true;updateProvisionPreview();validateHackPrefix()" />
-            <div id="ep-prefixValidation" class="prefix-validation"></div>
+        <!-- Wizard step strip -->
+        <div class="wizard-steps-strip" id="wizStepStrip">
+          <div class="wizard-step-indicator wiz-active" data-wiz="1" onclick="goWizStep(1)">
+            <span class="wiz-dot">1</span> Identity
           </div>
-          <div class="form-group">
-            <label for="ep-domain">UPN domain <span class="hint" style="font-weight:400;">(auto-detected if blank)</span></label>
-            <div style="display:flex;gap:6px;">
-              <input type="text" id="ep-domain" placeholder="auto-detect from tenant" style="flex:1;" oninput="updateProvisionPreview()" />
-              <button class="btn btn-secondary btn-sm" type="button" onclick="withBusy(this, autoDetectDomain)">🔄 Detect</button>
+          <div class="wizard-step-connector"></div>
+          <div class="wizard-step-indicator" data-wiz="2" onclick="goWizStep(2)">
+            <span class="wiz-dot">2</span> People
+          </div>
+          <div class="wizard-step-connector"></div>
+          <div class="wizard-step-indicator" data-wiz="3" onclick="goWizStep(3)">
+            <span class="wiz-dot">3</span> Entitlements
+          </div>
+          <div class="wizard-step-connector"></div>
+          <div class="wizard-step-indicator" data-wiz="4" onclick="goWizStep(4)">
+            <span class="wiz-dot">4</span> Schedule & Azure
+          </div>
+          <div class="wizard-step-connector"></div>
+          <div class="wizard-step-indicator" data-wiz="5" onclick="goWizStep(5)">
+            <span class="wiz-dot">5</span> Review
+          </div>
+        </div>
+
+        <!-- ═══ Step 1: Identity ═══ -->
+        <div class="wizard-panel wiz-visible" id="wizPanel1">
+          <div class="field-group">
+            <div class="field-group-title">Hack Identity</div>
+            <div class="row">
+              <div class="form-group">
+                <label for="ep-hackName">Hack name <span style="color:var(--danger)">*</span></label>
+                <input type="text" id="ep-hackName" placeholder="e.g. Acme Hackathon — Apr 2026" required oninput="derivePrefixFromHackName();clearWizFieldError(this)" />
+                <div class="wiz-error-msg" id="ep-hackName-error">Hack name is required</div>
+              </div>
+              <div class="form-group">
+                <label for="ep-createdBy">Created by</label>
+                <input type="text" id="ep-createdBy" placeholder="e.g. you@company.com" />
+              </div>
+            </div>
+            <div class="row">
+              <div class="form-group">
+                <label for="ep-prefix">Hack Prefix <span style="color:var(--danger)">*</span></label>
+                <input type="text" id="ep-prefix" placeholder="Auto-derived from hack name" oninput="_prefixEditedManually=true;updateProvisionPreview();validateHackPrefix();clearWizFieldError(this)" />
+                <div id="ep-prefixValidation" class="prefix-validation"></div>
+                <div class="wiz-error-msg" id="ep-prefix-error">A valid hack prefix is required</div>
+              </div>
+              <div class="form-group">
+                <label for="ep-domain">UPN domain <span class="hint" style="font-weight:400;">(auto-detected if blank)</span></label>
+                <div style="display:flex;gap:6px;">
+                  <input type="text" id="ep-domain" placeholder="auto-detect from tenant" style="flex:1;" oninput="updateProvisionPreview()" />
+                  <button class="btn btn-secondary btn-sm" type="button" onclick="withBusy(this, autoDetectDomain)">🔄 Detect</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="wizard-actions">
+            <div></div>
+            <div class="wizard-right">
+              <button class="btn btn-primary" onclick="goWizStep(2)">Continue →</button>
             </div>
           </div>
         </div>
 
-        <div class="row">
-          <div class="form-group">
-            <label for="ep-mode">Mode</label>
-            <select id="ep-mode" onchange="updateProvisionPreview()">
-              <option value="team">Team-based</option>
-              <option value="flat">Flat (no teams)</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label for="ep-teams" id="ep-teams-label">Teams</label>
-            <input type="number" id="ep-teams" value="2" min="0" max="100" oninput="updateProvisionPreview()" />
-          </div>
-          <div class="form-group">
-            <label for="ep-perTeam" id="ep-perTeam-label">Users per team</label>
-            <input type="number" id="ep-perTeam" value="5" min="0" max="500" oninput="updateProvisionPreview()" />
-          </div>
-          <div class="form-group">
-            <label for="ep-admins">Admin users</label>
-            <input type="number" id="ep-admins" value="1" min="0" max="50" oninput="updateProvisionPreview()" />
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label>Licenses to assign</label>
-          <div class="hint">Select from your tenant's available licenses. By default these go to participant users; enable the admin option below if admins also need M365 apps.</div>
-          <div style="margin-bottom:8px;display:flex;gap:8px;align-items:center;">
-            <button class="btn btn-secondary btn-sm" onclick="withBusy(this, loadTenantLicenses)">🔄 Load from Tenant</button>
-            <span id="ep-licLoading" class="hidden"><span class="spinner" style="width:14px;height:14px;"></span></span>
-          </div>
-          <div id="ep-licenseAvailability" class="hidden" style="margin-bottom:10px;padding:8px 12px;background:#f7f9fc;border:1px solid var(--border);border-radius:6px;font-size:13px;"></div>
-          <div id="ep-licenses" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px 16px;">
-            <span class="hint">Click "Load from Tenant" or enter credentials and detect tenant to see available licenses.</span>
-          </div>
-          <label style="display:flex;align-items:center;gap:6px;margin-top:10px;font-weight:400;font-size:13px;">
-            <input type="checkbox" id="ep-assignLicensesToAdmins"> Assign selected M365 licenses to admin users also
-          </label>
-          <div class="hint" style="margin-top:4px;">Leave unchecked when admins only need Entra admin/RBAC permissions. Check it when admins need apps like Teams, SharePoint/OneDrive, Copilot, Power BI, or Office.</div>
-        </div>
-
-        <div class="row">
-          <div class="form-group">
-            <label for="ep-tapLifetime">TAP lifetime (minutes) <span class="hint" style="font-weight:400;">(0 = use tenant maximum)</span></label>
-            <input type="number" id="ep-tapLifetime" value="0" min="0" max="43200" />
-            <div class="hint" style="margin-top:4px;">Max allowed by tenant will be used if exceeded. 0 = auto-detect maximum.</div>
-          </div>
-          <div class="form-group">
-            <label for="ep-concurrency">Concurrency <span class="hint" style="font-weight:400;">(1–32)</span></label>
-            <input type="number" id="ep-concurrency" value="6" min="1" max="32" />
-            <div class="hint" style="margin-top:4px;">Higher = faster but may hit Graph API throttling (429s). Recommended: 4–8.</div>
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label for="ep-password">Initial Password <span class="hint" style="font-weight:400;">(optional — leave blank for random)</span></label>
-          <div style="display:flex;gap:6px;">
-            <input type="password" id="ep-password" placeholder="Leave blank for auto-generated passwords" style="flex:1;" oninput="validatePassword(this.value)" />
-            <button class="btn btn-secondary btn-sm" type="button" onclick="const i=document.getElementById('ep-password');i.type=i.type==='password'?'text':'password';this.textContent=i.type==='password'?'👁':'🙈'">👁</button>
-          </div>
-          <div id="ep-pwdStrength" class="hidden" style="margin-top:6px;font-size:12px;line-height:1.6;"></div>
-          <div class="hint" style="margin-top:4px;">If set, all users will get this password. If blank, each user gets a unique random password.</div>
-          <label style="display:flex;align-items:center;gap:6px;margin-top:6px;font-weight:400;font-size:13px;"><input type="checkbox" id="ep-forceChangePwd"> Force password change on first login</label>
-        </div>
-
-        <div class="row">
-          <div class="form-group">
-            <label for="ep-hackName">Hack name <span style="color:var(--danger)">*</span> <span class="hint" style="font-weight:400;">(stamped as companyName on each user)</span></label>
-            <input type="text" id="ep-hackName" placeholder="e.g. Acme Hackathon — Apr 2026" required oninput="derivePrefixFromHackName()" />
-          </div>
-          <div class="form-group">
-            <label for="ep-createdBy">Created by <span class="hint" style="font-weight:400;">(your alias / email)</span></label>
-            <input type="text" id="ep-createdBy" placeholder="e.g. you@company.com" />
-          </div>
-        </div>
-
-        <div class="form-group" style="display:flex;flex-wrap:wrap;gap:16px;">
-          <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="ep-skipExisting" checked> Skip existing users</label>
-          <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="ep-createTeamGroups" checked> Create team groups</label>
-          <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="ep-createAdminGroup" checked> Create admin group</label>
-          <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="ep-assignAdminRole"> Assign Global Reader to admins <span class="hint">(tenant-wide, opt-in)</span></label>
-          <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="ep-isGcc"> Is this a GCC account setup? <span class="hint">(uses the GCC-flavored admin guide on export)</span></label>
-          <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="ep-dryRun"> Dry run</label>
-        </div>
-
-        <div class="form-group" style="margin-top:4px;padding:10px 12px;background:#f7f9fc;border:1px solid var(--border);border-radius:6px;">
-          <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:600;">
-            <input type="checkbox" id="ep-enableGithub" onchange="_toggleGithubSubOptions('ep')"> 🐙 Enable GitHub access
-          </label>
-          <div class="hint" style="margin:4px 0 8px 22px;">Adds each provisioned user to a GitHub-EMU-backed Entra group and triggers an on-demand sync. Uses a separate broker tenant (credentials are configured server-side).</div>
-          <div id="ep-githubSubs" style="margin-left:22px;display:none;flex-direction:column;gap:8px;">
-            <div style="display:flex;flex-wrap:wrap;gap:14px;">
-              <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;font-size:13px;"><input type="checkbox" id="ep-enableGithubCopilot"> Include GitHub Copilot</label>
-              <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;font-size:13px;"><input type="checkbox" id="ep-enableGithubGhas"> Include GHAS <span class="hint">(optional, overrides Copilot group)</span></label>
-              <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;font-size:13px;"><input type="checkbox" id="ep-enableGithubForAdmins"> Include admin users</label>
+        <!-- ═══ Step 2: People ═══ -->
+        <div class="wizard-panel" id="wizPanel2">
+          <div class="field-group">
+            <div class="field-group-title">User Configuration</div>
+            <div class="row">
+              <div class="form-group">
+                <label for="ep-mode">Mode</label>
+                <select id="ep-mode" onchange="updateProvisionPreview()">
+                  <option value="team">Team-based</option>
+                  <option value="flat">Flat (no teams)</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="ep-teams" id="ep-teams-label">Teams</label>
+                <input type="number" id="ep-teams" value="2" min="0" max="100" oninput="updateProvisionPreview()" />
+              </div>
+              <div class="form-group">
+                <label for="ep-perTeam" id="ep-perTeam-label">Users per team</label>
+                <input type="number" id="ep-perTeam" value="5" min="0" max="500" oninput="updateProvisionPreview()" />
+              </div>
+              <div class="form-group">
+                <label for="ep-admins">Admin users</label>
+                <input type="number" id="ep-admins" value="1" min="0" max="50" oninput="updateProvisionPreview()" />
+              </div>
             </div>
-            <details style="font-size:12px;color:var(--muted);">
-              <summary style="cursor:pointer;user-select:none;">Advanced: target group</summary>
-              <div style="margin-top:6px;padding:8px 10px;background:#fff;border:1px solid var(--border);border-radius:4px;">
-                <label style="display:flex;align-items:flex-start;gap:6px;margin:0;font-weight:400;font-size:13px;">
-                  <input type="checkbox" id="ep-githubUseLegacyGroups" style="margin-top:3px;">
-                  <span>
-                    Use the original <code>83311b9f…</code> / <code>bb0215fb…</code> Entra groups instead of the current <code>public-sector-hacks</code> groups (<code>3c92ccf9…</code> / <code>8e075647…</code>).
-                    <br><span class="hint">Leave unchecked unless you've been told to use the older groups for backwards compatibility.</span>
-                  </span>
-                </label>
+          </div>
+
+          <div class="field-group">
+            <div class="field-group-title">Password Policy</div>
+            <div class="form-group">
+              <label for="ep-password">Initial Password <span class="hint" style="font-weight:400;">(leave blank for random)</span></label>
+              <div style="display:flex;gap:6px;">
+                <input type="password" id="ep-password" placeholder="Leave blank for auto-generated passwords" style="flex:1;" oninput="validatePassword(this.value)" />
+                <button class="btn btn-secondary btn-sm" type="button" onclick="const i=document.getElementById('ep-password');i.type=i.type==='password'?'text':'password'" aria-label="Toggle password visibility">👁</button>
+              </div>
+              <div id="ep-pwdStrength" class="hidden" style="margin-top:6px;font-size:12px;line-height:1.6;"></div>
+              <div class="hint" style="margin-top:4px;">If set, all users get this password. If blank, each user gets a unique random password.</div>
+              <label style="display:flex;align-items:center;gap:6px;margin-top:6px;font-weight:400;font-size:13px;"><input type="checkbox" id="ep-forceChangePwd"> Force password change on first login</label>
+            </div>
+          </div>
+
+          <div class="field-group">
+            <div class="field-group-title">GitHub Access</div>
+            <div class="form-group" style="margin-bottom:0;">
+              <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:600;">
+                <input type="checkbox" id="ep-enableGithub" onchange="_toggleGithubSubOptions('ep')"> 🐙 Enable GitHub access
+              </label>
+              <div class="hint" style="margin:4px 0 8px 22px;">Adds each provisioned user to a GitHub-EMU-backed Entra group and triggers an on-demand sync.</div>
+              <div id="ep-githubSubs" style="margin-left:22px;display:none;flex-direction:column;gap:8px;">
+                <div style="display:flex;flex-wrap:wrap;gap:14px;">
+                  <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;font-size:13px;"><input type="checkbox" id="ep-enableGithubCopilot"> Include GitHub Copilot</label>
+                  <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;font-size:13px;"><input type="checkbox" id="ep-enableGithubGhas"> Include GHAS</label>
+                  <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;font-size:13px;"><input type="checkbox" id="ep-enableGithubForAdmins"> Include admin users</label>
+                </div>
+                <details class="advanced-group">
+                  <summary>Advanced: target group</summary>
+                  <div class="advanced-body" style="padding:8px 10px;background:#fff;border:1px solid var(--border);border-radius:4px;">
+                    <label style="display:flex;align-items:flex-start;gap:6px;margin:0;font-weight:400;font-size:13px;">
+                      <input type="checkbox" id="ep-githubUseLegacyGroups" style="margin-top:3px;">
+                      <span>Use the original <code>83311b9f…</code> groups instead of <code>public-sector-hacks</code> groups.</span>
+                    </label>
+                  </div>
+                </details>
+              </div>
+            </div>
+          </div>
+
+          <div id="ep-preview" class="hint" style="margin-top:8px;font-family:var(--font-mono);font-size:12px;"></div>
+          <div class="wizard-actions">
+            <button class="btn btn-secondary" onclick="goWizStep(1)">← Back</button>
+            <div class="wizard-right">
+              <button class="btn btn-primary" onclick="goWizStep(3)">Continue →</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ═══ Step 3: Entitlements ═══ -->
+        <div class="wizard-panel" id="wizPanel3">
+          <div class="field-group">
+            <div class="field-group-title">Licenses</div>
+            <div class="form-group">
+              <label>Licenses to assign <span style="color:var(--danger)">*</span></label>
+              <div class="hint">Select from your tenant's available licenses.</div>
+              <div style="margin-bottom:8px;display:flex;gap:8px;align-items:center;">
+                <button class="btn btn-secondary btn-sm" onclick="withBusy(this, loadTenantLicenses)">🔄 Load from Tenant</button>
+                <span id="ep-licLoading" class="hidden"><span class="spinner" style="width:14px;height:14px;"></span></span>
+              </div>
+              <div id="ep-licenseAvailability" class="hidden" style="margin-bottom:10px;padding:8px 12px;background:#f7f9fc;border:1px solid var(--border);border-radius:6px;font-size:13px;"></div>
+              <div id="ep-licenses" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px 16px;">
+                <span class="hint">Click "Load from Tenant" or enter credentials and detect tenant to see available licenses.</span>
+              </div>
+              <label style="display:flex;align-items:center;gap:6px;margin-top:10px;font-weight:400;font-size:13px;">
+                <input type="checkbox" id="ep-assignLicensesToAdmins"> Assign selected M365 licenses to admin users also
+              </label>
+              <div class="hint" style="margin-top:4px;">Leave unchecked when admins only need Entra admin/RBAC permissions.</div>
+            </div>
+          </div>
+
+          <details class="advanced-group">
+            <summary>Advanced options</summary>
+            <div class="advanced-body">
+              <div class="row">
+                <div class="form-group">
+                  <label for="ep-tapLifetime">TAP lifetime (minutes) <span class="hint" style="font-weight:400;">(0 = use tenant maximum)</span></label>
+                  <input type="number" id="ep-tapLifetime" value="0" min="0" max="43200" />
+                  <div class="hint" style="margin-top:4px;">Max allowed by tenant will be used if exceeded.</div>
+                </div>
+                <div class="form-group">
+                  <label for="ep-concurrency">Concurrency <span class="hint" style="font-weight:400;">(1–32)</span></label>
+                  <input type="number" id="ep-concurrency" value="6" min="1" max="32" />
+                  <div class="hint" style="margin-top:4px;">Higher = faster but may hit Graph API throttling. Recommended: 4–8.</div>
+                </div>
+              </div>
+
+              <div class="checkbox-tile-grid" style="margin-top:10px;">
+                <div class="checkbox-tile-group">
+                  <div class="checkbox-tile-group-title">Identity</div>
+                  <label style="display:flex;align-items:center;gap:6px;margin:0;font-size:13px;"><input type="checkbox" id="ep-skipExisting" checked> Skip existing users</label>
+                </div>
+                <div class="checkbox-tile-group">
+                  <div class="checkbox-tile-group-title">Groups</div>
+                  <label style="display:flex;align-items:center;gap:6px;margin:0;font-size:13px;"><input type="checkbox" id="ep-createTeamGroups" checked> Create team groups</label>
+                  <label style="display:flex;align-items:center;gap:6px;margin:4px 0 0;font-size:13px;"><input type="checkbox" id="ep-createAdminGroup" checked> Create admin group</label>
+                </div>
+                <div class="checkbox-tile-group">
+                  <div class="checkbox-tile-group-title">RBAC</div>
+                  <label style="display:flex;align-items:center;gap:6px;margin:0;font-size:13px;"><input type="checkbox" id="ep-assignAdminRole"> Global Reader</label>
+                </div>
+                <div class="checkbox-tile-group">
+                  <div class="checkbox-tile-group-title">Run Mode</div>
+                  <label style="display:flex;align-items:center;gap:6px;margin:0;font-size:13px;"><input type="checkbox" id="ep-isGcc"> GCC tenant</label>
+                  <label style="display:flex;align-items:center;gap:6px;margin:4px 0 0;font-size:13px;"><input type="checkbox" id="ep-dryRun"> Dry run</label>
+                </div>
+              </div>
+            </div>
+          </details>
+
+          <div class="wizard-actions">
+            <button class="btn btn-secondary" onclick="goWizStep(2)">← Back</button>
+            <div class="wizard-right">
+              <button class="btn btn-primary" onclick="goWizStep(4)">Continue →</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ═══ Step 4: Schedule & Azure ═══ -->
+        <div class="wizard-panel" id="wizPanel4">
+          <div class="field-group">
+            <div class="field-group-title">Lifecycle Dates</div>
+            <div class="row">
+              <div class="form-group">
+                <label for="ep-hackStartDate">Hack Start Date/Time <span class="hint" style="font-weight:400;">(PST, optional)</span></label>
+                <input type="datetime-local" id="ep-hackStartDate" onchange="validateEpDateSequence()" />
+              </div>
+              <div class="form-group">
+                <label for="ep-hackDate">Hack Date/Time <span class="hint" style="font-weight:400;">(PST, optional)</span></label>
+                <input type="datetime-local" id="ep-hackDate" onchange="validateEpDateSequence()" />
+              </div>
+            </div>
+            <div class="row">
+              <div class="form-group">
+                <label for="ep-readonlyDate">Read-Only Date/Time <span class="hint" style="font-weight:400;">(PST, optional)</span></label>
+                <input type="datetime-local" id="ep-readonlyDate" onchange="validateEpDateSequence()" />
+              </div>
+              <div class="form-group">
+                <label for="ep-deleteDate">Delete Date/Time <span class="hint" style="font-weight:400;">(PST, optional)</span></label>
+                <input type="datetime-local" id="ep-deleteDate" onchange="validateEpDateSequence()" />
+              </div>
+            </div>
+            <div id="ep-dateTimeline" class="date-timeline"></div>
+            <div id="ep-dateSeqError" style="font-size:12px;color:var(--danger);display:none;"></div>
+          </div>
+
+          <div class="field-group">
+            <div class="field-group-title">Azure Subscriptions & RBAC</div>
+            <div class="row">
+              <div class="form-group" style="flex:1;">
+                <label for="ep-scheduleSubs">Subscription IDs <span class="hint" style="font-weight:400;">(for RBAC, one per line, optional)</span></label>
+                <textarea id="ep-scheduleSubs" rows="2" placeholder="Paste Azure subscription IDs for RBAC assignment / readonly / cleanup"></textarea>
+                <div class="subscription-toolbar">
+                  <button class="btn btn-secondary btn-sm" type="button" onclick="withBusy(this, () => loadAzureSubscriptions('ep'))">🔎 Load available subscriptions</button>
+                  <input type="text" id="ep-subSearch" placeholder="Search loaded subscriptions by name or ID" oninput="renderSubscriptionPicker('ep')" />
+                  <button class="btn btn-secondary btn-sm" type="button" onclick="applySelectedSubscriptions('ep')">Add selected</button>
+                  <button class="btn btn-secondary btn-sm" type="button" onclick="clearSubscriptionSelection('ep')">Clear</button>
+                </div>
+                <div id="ep-subPicker" class="subscription-picker hidden"></div>
+              </div>
+              <div class="form-group" style="min-width:160px;">
+                <label for="ep-budgetPerTeam">Budget per team ($)</label>
+                <input type="number" id="ep-budgetPerTeam" placeholder="e.g. 300" min="0" step="50" oninput="updateProvisionPreview()" />
+                <div class="hint">Azure budget allocated to each team.</div>
+              </div>
+              <div class="form-group" style="min-width:160px;">
+                <label for="ep-rbacRole">RBAC Role <span class="hint" style="font-weight:400;">(optional)</span></label>
+                <select id="ep-rbacRole">
+                  <option value="">— none —</option>
+                  <option value="Reader" selected>Reader</option>
+                  <option value="Contributor">Contributor</option>
+                  <optgroup label="Dangerous — full control">
+                    <option value="Owner">Owner</option>
+                  </optgroup>
+                </select>
+              </div>
+            </div>
+            <details class="advanced-group">
+              <summary>RBAC assignment strategy</summary>
+              <div class="advanced-body">
+                <div class="row">
+                  <div class="form-group">
+                    <label for="ep-rbacStrategy">Auto RBAC assignment strategy</label>
+                    <select id="ep-rbacStrategy">
+                      <option value="all" selected>Every target gets every selected subscription</option>
+                      <option value="one-to-one">Admins all subs; teams/users map in order</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label for="ep-rbacTargetScope">Auto RBAC targets</label>
+                    <select id="ep-rbacTargetScope">
+                      <option value="teams" selected>Team groups only</option>
+                      <option value="teams-admins">Team groups + admin group</option>
+                      <option value="admins">Admin group only</option>
+                      <option value="users">Individual users</option>
+                    </select>
+                  </div>
+                </div>
               </div>
             </details>
           </div>
-        </div>
 
-        <div id="ep-preview" class="hint" style="margin-top:8px;font-family:var(--font-mono);font-size:12px;"></div>
-
-        <hr class="section-divider">
-        <div class="section-label">Lifecycle & Scheduling</div>
-        <!-- Optional lifecycle scheduling (PST) -->
-        <div class="row" style="margin-top:12px;">
-          <div class="form-group">
-            <label for="ep-hackStartDate">Hack Start Date/Time <span class="hint" style="font-weight:400;">(PST, optional)</span></label>
-            <input type="datetime-local" id="ep-hackStartDate" onchange="validateEpDateSequence()" />
-          </div>
-          <div class="form-group">
-            <label for="ep-hackDate">Hack Date/Time <span class="hint" style="font-weight:400;">(PST, optional)</span></label>
-            <input type="datetime-local" id="ep-hackDate" onchange="validateEpDateSequence()" />
-          </div>
-        </div>
-        <div class="row">
-          <div class="form-group">
-            <label for="ep-readonlyDate">Read-Only Mode Date/Time <span class="hint" style="font-weight:400;">(PST, optional)</span></label>
-            <input type="datetime-local" id="ep-readonlyDate" onchange="validateEpDateSequence()" />
-          </div>
-          <div class="form-group">
-            <label for="ep-deleteDate">Delete Date/Time <span class="hint" style="font-weight:400;">(PST, optional)</span></label>
-            <input type="datetime-local" id="ep-deleteDate" onchange="validateEpDateSequence()" />
-          </div>
-        </div>
-        <div id="ep-dateTimeline" class="date-timeline"></div>
-        <div id="ep-dateSeqError" style="font-size:12px;color:var(--danger);display:none;"></div>
-
-        <hr class="section-divider">
-        <div class="section-label">Azure Subscriptions & RBAC</div>
-        <div class="row">
-          <div class="form-group" style="flex:1;">
-            <label for="ep-scheduleSubs">Subscription IDs <span class="hint" style="font-weight:400;">(for RBAC, one per line, optional)</span></label>
-            <textarea id="ep-scheduleSubs" rows="2" placeholder="Paste Azure subscription IDs for RBAC assignment / readonly / cleanup"></textarea>
-            <div class="subscription-toolbar">
-              <button class="btn btn-secondary btn-sm" type="button" onclick="withBusy(this, () => loadAzureSubscriptions('ep'))">🔎 Load available subscriptions</button>
-              <input type="text" id="ep-subSearch" placeholder="Search loaded subscriptions by name or ID" oninput="renderSubscriptionPicker('ep')" />
-              <button class="btn btn-secondary btn-sm" type="button" onclick="applySelectedSubscriptions('ep')">Add selected</button>
-              <button class="btn btn-secondary btn-sm" type="button" onclick="clearSubscriptionSelection('ep')">Clear</button>
+          <div class="wizard-actions">
+            <button class="btn btn-secondary" onclick="goWizStep(3)">← Back</button>
+            <div class="wizard-right">
+              <button class="btn btn-primary" onclick="goWizStep(5)">Review →</button>
             </div>
-            <div id="ep-subPicker" class="subscription-picker hidden"></div>
-          </div>
-          <div class="form-group" style="min-width:160px;">
-            <label for="ep-budgetPerTeam">Budget per team ($)</label>
-            <input type="number" id="ep-budgetPerTeam" placeholder="e.g. 300" min="0" step="50" oninput="updateProvisionPreview()" />
-            <div class="hint">Azure budget allocated to each team. Shows in the generated Admin Guide.</div>
-          </div>
-          <div class="form-group" style="min-width:160px;">
-            <label for="ep-rbacRole">RBAC Role <span class="hint" style="font-weight:400;">(optional)</span></label>
-            <select id="ep-rbacRole">
-              <option value="">— none —</option>
-              <option value="Reader" selected>Reader</option>
-              <option value="Contributor">Contributor</option>
-              <optgroup label="Dangerous — full control">
-                <option value="Owner">Owner</option>
-              </optgroup>
-            </select>
-          </div>
-        </div>
-        <div class="assignment-controls">
-          <div class="form-group">
-            <label for="ep-rbacStrategy">Auto RBAC assignment strategy</label>
-            <select id="ep-rbacStrategy">
-              <option value="all" selected>Every target gets every selected subscription</option>
-              <option value="one-to-one">Admins all subs; teams/users map in order</option>
-            </select>
-            <div class="hint">In one-to-one mode, admin targets receive every subscription; team/user targets map to subscriptions in order.</div>
-          </div>
-          <div class="form-group">
-            <label for="ep-rbacTargetScope">Auto RBAC targets</label>
-            <select id="ep-rbacTargetScope">
-              <option value="teams" selected>Team groups only</option>
-              <option value="teams-admins">Team groups + admin group</option>
-              <option value="admins">Admin group only</option>
-              <option value="users">Individual users</option>
-            </select>
-            <div class="hint">Team groups are recommended because they avoid per-user role sprawl.</div>
           </div>
         </div>
 
-        <!-- Pre-flight banner -->
-        <div id="ep-preflightBanner" class="preflight-banner">
-          ⚠️ Run pre-flight check to validate your setup before provisioning
-        </div>
+        <!-- ═══ Step 5: Review & Launch ═══ -->
+        <div class="wizard-panel" id="wizPanel5">
+          <div id="ep-reviewSummary" class="field-group" style="font-size:13px;"></div>
 
-        <div class="actions" style="margin-top:20px;padding-top:16px;border-top:2px solid var(--border);">
-          <button class="btn btn-primary" onclick="withBusy(this, runPreflight)" style="padding:12px 24px;font-size:15px;">🛡 Run Pre-flight Check</button>
-          <button id="ep-btnStart" class="btn btn-primary" onclick="withBusy(this, startProvision)" style="padding:12px 32px;font-size:15px;" disabled>▶ Provision Now</button>
-          <span class="disabled-reason" id="ep-btnStartReason">Run pre-flight check first</span>
-          <button id="ep-btnSchedule" class="btn btn-secondary" onclick="showScheduleHackDialog()" style="border-color:var(--primary);color:var(--primary);" disabled>⏰ Schedule for Later</button>
-          <span class="disabled-reason" id="ep-btnScheduleReason">Run pre-flight check first</span>
-          <span id="ep-spinner" class="hidden"><span class="spinner"></span></span>
-          <span id="ep-progress" class="hint"></span>
-        </div>
+          <!-- Pre-flight banner -->
+          <div id="ep-preflightBanner" class="preflight-banner">
+            ⚠️ Run pre-flight check to validate your setup before provisioning
+          </div>
 
-        <!-- Schedule Hack dialog -->
-        <div id="ep-scheduleDialog" class="hidden" style="margin-top:14px;padding:16px;border-radius:6px;border:2px solid var(--primary);background:#f0f4ff;">
-          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-            <div class="form-group" style="margin:0;">
-              <label for="ep-scheduleDate" style="font-weight:600;">Provision Date/Time <span class="hint" style="font-weight:400;">(PST)</span></label>
-              <input type="datetime-local" id="ep-scheduleDate" />
+          <div class="actions" style="margin-top:16px;padding-top:16px;border-top:2px solid var(--border);">
+            <button class="btn btn-primary" onclick="withBusy(this, runPreflight)" style="padding:12px 24px;font-size:15px;">🛡 Run Pre-flight Check</button>
+            <div class="has-disabled-tip">
+              <button id="ep-btnStart" class="btn btn-primary" onclick="withBusy(this, startProvision)" style="padding:12px 32px;font-size:15px;" disabled>▶ Provision Now</button>
+              <span class="disabled-tip" id="ep-btnStartTip">Run pre-flight check first</span>
             </div>
-            <button class="btn btn-primary" onclick="withBusy(this, scheduleHack)" style="margin-top:20px;">📅 Schedule</button>
-            <button class="btn btn-secondary btn-sm" onclick="document.getElementById('ep-scheduleDialog').classList.add('hidden')" style="margin-top:20px;">Cancel</button>
+            <span class="disabled-reason" id="ep-btnStartReason">Run pre-flight check first</span>
+            <div class="has-disabled-tip">
+              <button id="ep-btnSchedule" class="btn btn-secondary" onclick="showScheduleHackDialog()" style="border-color:var(--primary);color:var(--primary);" disabled>⏰ Schedule for Later</button>
+              <span class="disabled-tip">Run pre-flight check first</span>
+            </div>
+            <span class="disabled-reason" id="ep-btnScheduleReason">Run pre-flight check first</span>
+            <span id="ep-spinner" class="hidden"><span class="spinner"></span></span>
+            <span id="ep-progress" class="hint"></span>
+          </div>
+
+          <!-- Schedule Hack dialog -->
+          <div id="ep-scheduleDialog" class="hidden" style="margin-top:14px;padding:16px;border-radius:6px;border:2px solid var(--primary);background:#f0f4ff;">
+            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+              <div class="form-group" style="margin:0;">
+                <label for="ep-scheduleDate" style="font-weight:600;">Provision Date/Time <span class="hint" style="font-weight:400;">(PST)</span></label>
+                <input type="datetime-local" id="ep-scheduleDate" />
+              </div>
+              <button class="btn btn-primary" onclick="withBusy(this, scheduleHack)" style="margin-top:20px;">📅 Schedule</button>
+              <button class="btn btn-secondary btn-sm" onclick="document.getElementById('ep-scheduleDialog').classList.add('hidden')" style="margin-top:20px;">Cancel</button>
+            </div>
+          </div>
+
+          <div id="ep-preflightBox" class="hidden" style="margin-top:14px;padding:12px;border-radius:6px;border:1px solid var(--border);background:#fafbfc;">
+            <div id="ep-preflightSummary" style="font-weight:600;margin-bottom:8px;"></div>
+            <div id="ep-preflightChecks" style="font-size:13px;"></div>
+          </div>
+
+          <div class="wizard-actions">
+            <button class="btn btn-secondary" onclick="goWizStep(4)">← Back</button>
+            <div></div>
           </div>
         </div>
 
-        <div id="ep-preflightBox" class="hidden" style="margin-top:14px;padding:12px;border-radius:6px;border:1px solid var(--border);background:#fafbfc;">
-          <div id="ep-preflightSummary" style="font-weight:600;margin-bottom:8px;"></div>
-          <div id="ep-preflightChecks" style="font-size:13px;"></div>
-        </div>
-
+        <!-- Progress card (shown during provisioning, all steps) -->
         <div id="ep-progressCard" class="hidden" style="margin-top:14px;padding:12px;border:1px solid var(--border);border-radius:6px;background:#fff;">
           <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-bottom:10px;">
-            <div class="stat-tile"><div class="stat-label">Total</div><div class="stat-value" id="pg-total">0</div></div>
-            <div class="stat-tile"><div class="stat-label">Created</div><div class="stat-value" style="color:var(--success)" id="pg-created">0</div></div>
-            <div class="stat-tile"><div class="stat-label">Existing</div><div class="stat-value" id="pg-existing">0</div></div>
-            <div class="stat-tile"><div class="stat-label">Failed</div><div class="stat-value" style="color:var(--danger)" id="pg-failed">0</div></div>
-            <div class="stat-tile"><div class="stat-label">TAPs</div><div class="stat-value" id="pg-taps">0</div></div>
-            <div class="stat-tile"><div class="stat-label">Licenses</div><div class="stat-value" id="pg-lics">0</div></div>
+            <div class="stat-tile clickable" onclick="filterProvisionResults('all')"><div class="stat-label">Total</div><div class="stat-value" id="pg-total">0</div></div>
+            <div class="stat-tile clickable" onclick="filterProvisionResults('created')"><div class="stat-label">Created</div><div class="stat-value" style="color:var(--success)" id="pg-created">0</div></div>
+            <div class="stat-tile clickable" onclick="filterProvisionResults('existing')"><div class="stat-label">Existing</div><div class="stat-value" id="pg-existing">0</div></div>
+            <div class="stat-tile clickable" onclick="filterProvisionResults('failed')"><div class="stat-label">Failed</div><div class="stat-value" style="color:var(--danger)" id="pg-failed">0</div></div>
+            <div class="stat-tile clickable" onclick="filterProvisionResults('tap')"><div class="stat-label">TAPs</div><div class="stat-value" id="pg-taps">0</div></div>
+            <div class="stat-tile clickable" onclick="filterProvisionResults('licenses')"><div class="stat-label">Licenses</div><div class="stat-value" id="pg-lics">0</div></div>
           </div>
           <div style="height:14px;background:#eef0f4;border-radius:7px;overflow:hidden;">
             <div id="pg-bar" style="height:100%;width:0%;background:linear-gradient(90deg,var(--primary),#5b8def);transition:width .3s ease;"></div>
@@ -891,7 +1374,9 @@
         </div>
       </div>
 
+      <!-- Results card with outcome banner -->
       <div id="ep-resultCard" class="card hidden">
+        <div id="ep-outcomeBanner" class="outcome-banner hidden"></div>
         <div style="display:flex;justify-content:space-between;align-items:center;">
           <h2 style="margin:0">Setup Results</h2>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -905,7 +1390,8 @@
         <div class="results-scroll" style="max-height:520px;">
           <table id="ep-table">
             <thead><tr>
-              <th>User Principal Name</th><th>Status</th><th>Password</th><th>TAP</th><th>Licenses</th><th>Groups</th><th>Notes</th>
+              <th style="width:30px"><input type="checkbox" id="ep-selectAll" onchange="toggleProvisionSelectAll(this)"></th>
+              <th>Status</th><th>User Principal Name</th><th>Team</th><th>Notes</th><th style="width:50px">Detail</th>
             </tr></thead>
             <tbody id="ep-tbody"></tbody>
           </table>
@@ -988,8 +1474,8 @@
         <div class="actions">
           <button class="btn btn-secondary" onclick="withBusy(this, discoverForPermissions)">🔍 Discover Users / Groups from Hack Prefix</button>
           <button class="btn btn-secondary" onclick="withBusy(this, validateSubscriptions)">✅ Validate Subscriptions</button>
-          <button id="pp-btnAssign" class="btn btn-primary" onclick="withBusy(this, assignPermissions)" disabled>▶ Assign role</button>
           <span id="pp-spinner" class="hidden"><span class="spinner"></span></span>
+          <div id="pp-progress" class="op-progress"><div class="op-progress-track"><div class="op-progress-fill"></div></div><div class="op-progress-text"></div></div>
         </div>
 
         <div id="pp-subValidation" class="hidden" style="margin-top:12px;padding:10px;background:#f7f9fc;border:1px solid var(--border);border-radius:6px;font-size:13px;"></div>
@@ -1016,6 +1502,9 @@
         <div id="pp-discoveryBox" class="hidden" style="margin-top:16px;padding:12px;background:#f7f9fc;border-radius:6px;border:1px solid var(--border);font-size:13px;">
           <div id="pp-discoverySummary" style="font-weight:600;margin-bottom:8px;"></div>
           <div id="pp-discoveryList" style="font-family:var(--font-mono);font-size:12px;max-height:200px;overflow-y:auto;"></div>
+          <div class="actions" style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border);">
+            <button id="pp-btnAssign" class="btn btn-primary" onclick="withBusy(this, assignPermissions)" disabled>▶ Assign role</button>
+          </div>
         </div>
       </div>
 
@@ -1071,8 +1560,8 @@
 
         <div class="actions">
           <button class="btn btn-secondary" onclick="withBusy(this, discoverForReadOnly)">🔍 Discover principals</button>
-          <button id="ro-btnApply" class="btn btn-primary" onclick="confirmReadOnly()" disabled>▶ Apply read-only</button>
           <span id="ro-spinner" class="hidden"><span class="spinner"></span></span>
+          <div id="ro-progress" class="op-progress"><div class="op-progress-track"><div class="op-progress-fill"></div></div><div class="op-progress-text"></div></div>
         </div>
 
         <div id="ro-warning" class="hidden" style="margin-top:12px;padding:12px;background:#fff3e0;border-left:4px solid #f0a500;border-radius:4px;font-size:13px;">
@@ -1086,6 +1575,9 @@
             <label for="ro-confirmInput" style="font-weight:700;">Type the hack name to confirm read-only: <code id="ro-confirmTarget"></code></label>
             <input type="text" id="ro-confirmInput" placeholder="Type exact hack name or prefix" oninput="checkReadOnlyConfirm()" />
             <div class="hint">This extra gate protects against accidental subscription-wide permission downgrades.</div>
+          </div>
+          <div class="actions" style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border);">
+            <button id="ro-btnApply" class="btn btn-primary" onclick="confirmReadOnly()" disabled>▶ Apply read-only</button>
           </div>
         </div>
       </div>
@@ -1162,7 +1654,7 @@
             <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="cu-deleteUsers" checked onchange="updateCleanupPreview();checkCleanupConfirm()"> Delete selected users</label>
             <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="cu-deleteGroups" checked onchange="updateCleanupPreview();checkCleanupConfirm()"> Delete selected groups</label>
             <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="cu-removeRbac" checked onchange="updateCleanupPreview();checkCleanupConfirm()"> Remove RBAC at listed subscriptions</label>
-            <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="cu-removeGithub" checked onchange="updateCleanupPreview();checkCleanupConfirm()"> Remove from GitHub EMU group <span class="hint">(+ trigger sync)</span></label>
+            <label id="cu-removeGithubLabel" style="display:none;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="cu-removeGithub" onchange="updateCleanupPreview();checkCleanupConfirm()"> Remove from GitHub EMU group <span class="hint">(+ trigger sync)</span></label>
           </div>
 
           <div id="cu-blastSummary" style="margin-top:12px;padding:12px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;font-size:13px;font-weight:700;"></div>
@@ -1189,6 +1681,7 @@
           <div class="actions" style="margin-top:10px;">
             <button id="cu-btnCleanup" class="btn btn-danger" onclick="withBusy(this, executeCleanup)" style="background:var(--danger);color:#fff;" disabled>⚠ Confirm &amp; Cleanup</button>
             <span id="cu-spinner" class="hidden"><span class="spinner"></span></span>
+            <div id="cu-progress" class="op-progress"><div class="op-progress-track"><div class="op-progress-fill"></div></div><div class="op-progress-text"></div></div>
           </div>
         </div>
       </div>
@@ -1296,6 +1789,7 @@
               </div>
               <button class="btn btn-primary" data-archived-disabled="true" onclick="withBusy(this, regenTapForHack)">🔑 Regenerate TAP</button>
               <span id="mh-tapSpinner" class="hidden"><span class="spinner"></span></span>
+              <div id="mh-tap-progress" class="op-progress"><div class="op-progress-track"><div class="op-progress-fill"></div></div><div class="op-progress-text"></div></div>
             </div>
 
             <div class="card" style="margin-top:10px;">
@@ -1313,6 +1807,7 @@
               </div>
               <button class="btn btn-primary" data-archived-disabled="true" onclick="withBusy(this, resetPasswordForHack)">🔒 Reset Password</button>
               <span id="mh-resetPwSpinner" class="hidden"><span class="spinner"></span></span>
+              <div id="mh-resetPw-progress" class="op-progress"><div class="op-progress-track"><div class="op-progress-fill"></div></div><div class="op-progress-text"></div></div>
             </div>
 
             <div class="card" style="margin-top:10px;">
@@ -1343,16 +1838,18 @@
               </div>
               <button class="btn btn-primary" data-archived-disabled="true" onclick="withBusy(this, assignLicensesToHack)">📦 Assign Licenses</button>
               <span id="mh-licSpinner" class="hidden"><span class="spinner"></span></span>
+              <div id="mh-lic-progress" class="op-progress"><div class="op-progress-track"><div class="op-progress-fill"></div></div><div class="op-progress-text"></div></div>
             </div>
 
             <div class="card" style="margin-top:10px;">
               <h4>🐙 Enable GitHub Access</h4>
               <p class="hint">Add users to a GitHub-EMU-backed Entra group and trigger an on-demand provisioning sync. External users are auto-invited as guests. Uses a separate broker tenant — no SPN credentials required from this screen.</p>
               <div class="form-group">
-                <label for="mh-ghEmails">User emails <span class="hint" style="font-weight:400;">(blank = all non-admin users in loaded hack)</span></label>
+                <label for="mh-ghEmails">User emails <span class="hint" style="font-weight:400;">(blank = all users from loaded hack)</span></label>
                 <textarea id="mh-ghEmails" rows="3" placeholder="alice@contoso.com, bob@contoso.com (one per line or comma-separated)"></textarea>
               </div>
               <div class="form-group" style="display:flex;flex-wrap:wrap;gap:14px;">
+                <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;font-size:13px;"><input type="checkbox" id="mh-ghIncludeAdmins"> Include admin users</label>
                 <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;font-size:13px;"><input type="checkbox" id="mh-ghCopilot" checked> Include GitHub Copilot</label>
                 <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;font-size:13px;"><input type="checkbox" id="mh-ghGhas"> Include GHAS <span class="hint">(optional — overrides Copilot)</span></label>
                 <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;font-size:13px;"><input type="checkbox" id="mh-ghTriggerSync" checked> Trigger sync after add</label>
@@ -1371,6 +1868,7 @@
               </details>
               <button class="btn btn-primary" data-archived-disabled="true" onclick="withBusy(this, enableGithubForHack)">🐙 Enable GitHub</button>
               <span id="mh-ghSpinner" class="hidden"><span class="spinner"></span></span>
+              <div id="mh-gh-progress" class="op-progress"><div class="op-progress-track"><div class="op-progress-fill"></div></div><div class="op-progress-text"></div></div>
               <div id="mh-ghResultBox" class="hidden" style="margin-top:12px;">
                 <div id="mh-ghSummary" style="font-weight:600;margin-bottom:6px;"></div>
                 <div class="results-scroll" style="max-height:260px;">
@@ -1387,6 +1885,7 @@
               <p class="hint">Verify that every user is actually a member of their expected Entra security group. Any missing memberships are re-added automatically.</p>
               <button class="btn btn-primary" data-archived-disabled="true" onclick="withBusy(this, repairGroupsForHack)">🔧 Verify &amp; Repair Groups</button>
               <span id="mh-grpRepairSpinner" class="hidden"><span class="spinner"></span></span>
+              <div id="mh-grpRepair-progress" class="op-progress"><div class="op-progress-track"><div class="op-progress-fill"></div></div><div class="op-progress-text"></div></div>
               <div id="mh-grpRepairResultBox" class="hidden" style="margin-top:12px;">
                 <div id="mh-grpRepairSummary" style="font-weight:600;margin-bottom:6px;"></div>
                 <div class="results-scroll" style="max-height:260px;">
@@ -1403,6 +1902,7 @@
               <p class="hint">Verify that every user has all expected licenses assigned. Any missing licenses are re-assigned automatically.</p>
               <button class="btn btn-primary" data-archived-disabled="true" onclick="withBusy(this, repairLicensesForHack)">🔧 Verify &amp; Repair Licenses</button>
               <span id="mh-licRepairSpinner" class="hidden"><span class="spinner"></span></span>
+              <div id="mh-licRepair-progress" class="op-progress"><div class="op-progress-track"><div class="op-progress-fill"></div></div><div class="op-progress-text"></div></div>
               <div id="mh-licRepairResultBox" class="hidden" style="margin-top:12px;">
                 <div id="mh-licRepairSummary" style="font-weight:600;margin-bottom:6px;"></div>
                 <div class="results-scroll" style="max-height:260px;">
@@ -1589,6 +2089,7 @@
 
         <button class="btn btn-primary" onclick="withBusy(this, runGithubEnable)">🐙 Enable GitHub</button>
         <span id="gh-spinner" class="hidden" style="margin-left:8px;"><span class="spinner"></span></span>
+        <div id="gh-progress" class="op-progress"><div class="op-progress-track"><div class="op-progress-fill"></div></div><div class="op-progress-text"></div></div>
 
         <div id="gh-resultBox" class="hidden" style="margin-top:14px;">
           <div id="gh-summary" style="font-weight:600;margin-bottom:6px;"></div>
@@ -2041,6 +2542,60 @@ async function withBusy(btn, fn, ...args) {
     btn.disabled = wasDisabled;
     btn.innerHTML = originalHTML;
   }
+}
+
+// ──────────── Operation progress bar helpers ────────────
+function _opEl(id) { return document.getElementById(id + '-progress'); }
+
+function showOpProgress(id, text, pct) {
+  const el = _opEl(id);
+  if (!el) return;
+  el.classList.add('active');
+  const fill = el.querySelector('.op-progress-fill');
+  const txt = el.querySelector('.op-progress-text');
+  fill.className = 'op-progress-fill';
+  if (pct != null && pct >= 0) {
+    fill.classList.add('determinate');
+    fill.style.width = Math.min(pct, 100) + '%';
+  } else {
+    fill.classList.add('indeterminate');
+    fill.style.width = '';
+  }
+  txt.innerHTML = `<span class="spinner"></span> ${_escProgress(text || 'Working…')}`;
+}
+
+function setOpProgress(id, pct, text) {
+  const el = _opEl(id);
+  if (!el) return;
+  const fill = el.querySelector('.op-progress-fill');
+  const txt = el.querySelector('.op-progress-text');
+  fill.className = 'op-progress-fill determinate';
+  fill.style.width = Math.min(pct, 100) + '%';
+  if (text) txt.innerHTML = `<span class="spinner"></span> ${_escProgress(text)}`;
+}
+
+function completeOpProgress(id, text, success) {
+  const el = _opEl(id);
+  if (!el) return;
+  const fill = el.querySelector('.op-progress-fill');
+  const txt = el.querySelector('.op-progress-text');
+  fill.className = 'op-progress-fill ' + (success !== false ? 'op-success' : 'op-fail');
+  fill.style.width = '100%';
+  const icon = success !== false ? '✓' : '✗';
+  txt.innerHTML = `<span style="font-weight:600;">${icon}</span> ${_escProgress(text || 'Done')}`;
+  // Auto-hide after 8 seconds on success
+  if (success !== false) setTimeout(() => hideOpProgress(id), 8000);
+}
+
+function hideOpProgress(id) {
+  const el = _opEl(id);
+  if (el) el.classList.remove('active');
+}
+
+function _escProgress(t) { const d = document.createElement('span'); d.textContent = t; return d.innerHTML; }
+
+function _progressHtml(id) {
+  return `<div id="${id}-progress" class="op-progress"><div class="op-progress-track"><div class="op-progress-fill"></div></div><div class="op-progress-text"></div></div>`;
 }
 
 // ──────────── In-app confirmation modal ────────────
@@ -2552,20 +3107,48 @@ function safeChatLinkUrl(url) {
   return '';
 }
 
+function _getToastContainer() {
+  let c = document.getElementById('toast-container');
+  if (!c) {
+    c = document.createElement('div');
+    c.id = 'toast-container';
+    document.body.appendChild(c);
+  }
+  return c;
+}
+
 function toast(msg, type='success', options={}) {
   const el = document.createElement('div');
   el.className = `toast toast-${type}`;
-  if (options.html) { el.innerHTML = msg; } else { el.textContent = msg; }
-  if (options.duration === 0) {
-    const close = document.createElement('span');
-    close.textContent = ' ✕';
-    close.style.cssText = 'cursor:pointer;margin-left:8px;font-weight:bold;';
-    close.onclick = () => el.remove();
-    el.appendChild(close);
-  } else {
-    setTimeout(() => el.remove(), options.duration || 5000);
+  const textSpan = document.createElement('span');
+  textSpan.style.flex = '1';
+  if (options.html) { textSpan.innerHTML = msg; } else { textSpan.textContent = msg; }
+  el.appendChild(textSpan);
+  // Dismiss button
+  const dismiss = document.createElement('button');
+  dismiss.className = 'toast-dismiss';
+  dismiss.innerHTML = '✕';
+  dismiss.setAttribute('aria-label', 'Dismiss');
+  dismiss.onclick = () => {
+    el.style.animation = 'toastOut .2s ease forwards';
+    setTimeout(() => el.remove(), 200);
+  };
+  el.appendChild(dismiss);
+  if (options.duration !== 0) {
+    let timer = setTimeout(() => {
+      el.style.animation = 'toastOut .2s ease forwards';
+      setTimeout(() => el.remove(), 200);
+    }, options.duration || 5000);
+    // Pause on hover
+    el.addEventListener('mouseenter', () => clearTimeout(timer));
+    el.addEventListener('mouseleave', () => {
+      timer = setTimeout(() => {
+        el.style.animation = 'toastOut .2s ease forwards';
+        setTimeout(() => el.remove(), 200);
+      }, 2000);
+    });
   }
-  document.body.appendChild(el);
+  _getToastContainer().appendChild(el);
   return el;
 }
 
@@ -2811,18 +3394,16 @@ function switchView(name) {
     help: 'Use the guide for setup instructions, field meanings, and operational safety checks.'
   };
   _activeLifecycleView = name;
-  document.querySelectorAll('.tab[data-view]').forEach(t => {
-    t.classList.toggle('active', t.dataset.view === name);
+  // Update stepper tabs
+  document.querySelectorAll('.step-tab[data-view]').forEach(t => {
+    const isActive = t.dataset.view === name;
+    t.classList.toggle('active', isActive);
+    t.setAttribute('aria-selected', isActive ? 'true' : 'false');
   });
-  document.querySelectorAll('.lifecycle-card[data-lifecycle-view]').forEach(card => {
-    card.classList.toggle('is-active', card.dataset.lifecycleView === name);
+  // Update hack utility bar buttons
+  document.querySelectorAll('.hack-util-btn[data-view]').forEach(b => {
+    b.classList.toggle('active', b.dataset.view === name);
   });
-  const activeStepLabel = document.getElementById('activeStepLabel');
-  if (activeStepLabel) activeStepLabel.textContent = labels[name] || 'Hack lifecycle';
-  const activeStepTitle = document.getElementById('activeStepTitle');
-  if (activeStepTitle) activeStepTitle.textContent = labels[name] || 'Hack lifecycle';
-  const activeStepHint = document.getElementById('activeStepHint');
-  if (activeStepHint) activeStepHint.textContent = hints[name] || 'Select a lifecycle action to continue.';
   const secureConnectionCard = document.getElementById('secureConnectionCard');
   if (secureConnectionCard) secureConnectionCard.classList.toggle('hidden', !['tenant-setup', 'provision'].includes(name));
   ['upload','provision','permissions','readonly','cleanup','manage','scheduler','chat','tenant-setup','help','github'].forEach(v => {
@@ -3370,6 +3951,7 @@ async function pollProvision() {
         renderProvisionRows(_entraReport.users || []);
         renderProvisionStats(s, _entraReport);
         _updateProgressCard(_entraReport.totalUsers || 0, _entraReport.totalUsers || 0, _entraReport.users || []);
+        showOutcomeBanner(_entraReport);
       }
       if (s.status === 'failed') {
         toast('Provisioning failed: ' + (s.error || 'Unknown'), 'danger');
@@ -3598,26 +4180,79 @@ function renderProvisionRows(users) {
     const color = u.status === 'created' ? 'var(--success)'
                 : u.status === 'failed' ? 'var(--danger)'
                 : u.status === 'existing' ? 'var(--muted)' : '#888';
-    const tap = u.tap ? `<code style="font-size:11px">${esc(u.tap)}</code><button class="copy-btn" style="margin-left:4px" onclick="navigator.clipboard.writeText('${esc(u.tap).replace(/'/g,'&#39;')}').then(()=>toast('Copied','success'))" title="Copy TAP">⧉</button>` : '<span class="hint">—</span>';
-    const pwId = `pw_${i}`;
-    const pw = u.password
-      ? `<code id="${pwId}" style="font-size:11px;filter:blur(4px);cursor:pointer;" onclick="this.style.filter=this.style.filter?'':'blur(4px)'" title="Click to reveal/hide">${esc(u.password)}</code>
-         <button class="btn btn-secondary btn-sm" style="padding:1px 6px;font-size:10px;margin-left:4px" onclick="navigator.clipboard.writeText('${esc(u.password).replace(/'/g, '&#39;')}').then(()=>toast('Password copied','success'))">⧉</button>`
-      : '<span class="hint">—</span>';
-    const licText = formatLicenseList(u.licenses);
-    const lic = licText ? esc(licText) : '<span class="hint">—</span>';
-    const grpText = (u.groups || []).join(', ');
-    const grp = grpText ? esc(grpText) : '<span class="hint">—</span>';
-    return `<tr>
-      <td><code style="font-size:12px">${esc(u.userPrincipalName)}</code>${u.isAdmin ? ' <span class="hint">[admin]</span>' : ''}</td>
+    const team = _teamFromUpn(u.userPrincipalName);
+    return `<tr style="cursor:pointer;" onclick="showUserDetail(${i})">
+      <td onclick="event.stopPropagation()"><input type="checkbox" class="ep-row-check" data-index="${i}"></td>
       <td><span style="color:${color};font-weight:600">${esc(u.status)}</span></td>
-      <td>${pw}</td>
-      <td>${tap}</td>
-      <td style="font-size:12px">${lic}</td>
-      <td style="font-size:12px">${grp}</td>
+      <td><code style="font-size:12px">${esc(u.userPrincipalName)}</code>${u.isAdmin ? ' <span class="hint">[admin]</span>' : ''}</td>
+      <td style="font-size:12px">${esc(team)}</td>
       <td style="font-size:12px;color:var(--muted)">${esc(u.message || '')}</td>
+      <td><button class="btn btn-secondary btn-sm" style="padding:1px 6px;font-size:10px;" onclick="event.stopPropagation();showUserDetail(${i})">→</button></td>
     </tr>`;
-  }).join('') || '<tr><td colspan="7" class="empty">No users yet…</td></tr>';
+  }).join('') || '<tr><td colspan="6" class="empty">No users yet…</td></tr>';
+}
+
+function showUserDetail(index) {
+  const users = _entraUsersForExport();
+  const u = users[index];
+  if (!u) return;
+  const tap = u.tap ? `<code>${esc(u.tap)}</code> <button class="btn btn-secondary btn-sm" style="padding:1px 6px;font-size:10px;" onclick="navigator.clipboard.writeText('${esc(u.tap).replace(/'/g,'&#39;')}').then(()=>toast('Copied','success'))">⧉</button>` : '—';
+  const pw = u.password ? `<code style="filter:blur(4px);cursor:pointer;" onclick="this.style.filter=this.style.filter?'':'blur(4px)'">${esc(u.password)}</code> <button class="btn btn-secondary btn-sm" style="padding:1px 6px;font-size:10px;" onclick="navigator.clipboard.writeText('${esc(u.password).replace(/'/g,'&#39;')}').then(()=>toast('Copied','success'))">⧉</button>` : '—';
+  const licText = formatLicenseList(u.licenses);
+  const grpText = (u.groups || []).join(', ');
+  const html = `
+    <table style="width:100%;border-collapse:collapse;">
+      <tr><td style="padding:6px 12px 6px 0;font-weight:600;color:var(--muted);">Status</td><td>${esc(u.status)}</td></tr>
+      <tr><td style="padding:6px 12px 6px 0;font-weight:600;color:var(--muted);">UPN</td><td><code>${esc(u.userPrincipalName)}</code></td></tr>
+      <tr><td style="padding:6px 12px 6px 0;font-weight:600;color:var(--muted);">Password</td><td>${pw}</td></tr>
+      <tr><td style="padding:6px 12px 6px 0;font-weight:600;color:var(--muted);">TAP</td><td>${tap}</td></tr>
+      ${u.tapExpires ? '<tr><td style="padding:6px 12px 6px 0;font-weight:600;color:var(--muted);">TAP Expires</td><td>' + esc(u.tapExpires) + '</td></tr>' : ''}
+      <tr><td style="padding:6px 12px 6px 0;font-weight:600;color:var(--muted);">Licenses</td><td>${licText ? esc(licText) : '—'}</td></tr>
+      <tr><td style="padding:6px 12px 6px 0;font-weight:600;color:var(--muted);">Groups</td><td>${grpText ? esc(grpText) : '—'}</td></tr>
+      <tr><td style="padding:6px 12px 6px 0;font-weight:600;color:var(--muted);">Admin</td><td>${u.isAdmin ? 'Yes' : 'No'}</td></tr>
+      ${u.message ? '<tr><td style="padding:6px 12px 6px 0;font-weight:600;color:var(--muted);">Notes</td><td>' + esc(u.message) + '</td></tr>' : ''}
+      ${u.userId ? '<tr><td style="padding:6px 12px 6px 0;font-weight:600;color:var(--muted);">Object ID</td><td><code style="font-size:11px;">' + esc(u.userId) + '</code></td></tr>' : ''}
+    </table>`;
+  showResultDetail(u.userPrincipalName, html);
+}
+
+function toggleProvisionSelectAll(el) {
+  document.querySelectorAll('.ep-row-check').forEach(cb => { cb.checked = el.checked; });
+}
+
+function filterProvisionResults(filter) {
+  const users = _entraUsersForExport();
+  if (filter === 'all' || !filter) {
+    renderProvisionRows(users);
+  } else if (filter === 'tap') {
+    renderProvisionRows(users.filter(u => u.tap));
+  } else if (filter === 'licenses') {
+    renderProvisionRows(users.filter(u => u.licenses && u.licenses.length));
+  } else {
+    renderProvisionRows(users.filter(u => u.status === filter));
+  }
+}
+
+function showOutcomeBanner(report) {
+  const banner = document.getElementById('ep-outcomeBanner');
+  if (!banner) return;
+  const total = report.totalUsers || 0;
+  const created = report.created || 0;
+  const failed = report.failed || 0;
+  if (failed === 0 && created > 0) {
+    banner.className = 'outcome-banner outcome-success';
+    banner.innerHTML = `✅ All ${created} users provisioned successfully`;
+  } else if (failed > 0 && created > 0) {
+    banner.className = 'outcome-banner outcome-warn';
+    banner.innerHTML = `⚠️ ${created} created, ${failed} failed — review details below`;
+  } else if (failed > 0) {
+    banner.className = 'outcome-banner outcome-error';
+    banner.innerHTML = `❌ Provisioning failed for ${failed} users`;
+  } else {
+    banner.className = 'outcome-banner';
+    banner.innerHTML = `ℹ️ ${total} users processed`;
+  }
+  banner.classList.remove('hidden');
 }
 
 function _entraUsersForExport() {
@@ -3940,12 +4575,21 @@ function setActiveHack(prefix, options = {}) {
     const sel = document.getElementById(id);
     if (sel) sel.value = value;
   }
-  const info = document.getElementById('globalHackInfo');
+  const info = document.getElementById('hackContextMeta');
+  const emptyEl = document.getElementById('hackContextEmpty');
   const hack = _findSavedHack(value);
   if (info) {
-    info.textContent = value
-      ? `${hack && hack.hackName ? hack.hackName + ' · ' : ''}${hack && hack.totalUsers != null ? hack.totalUsers + ' users · ' : ''}${value}`
-      : 'Pick once; Permissions, Read-only, Cleanup, Manage, and Scheduler will use it.';
+    if (value) {
+      info.classList.remove('hidden');
+      if (emptyEl) emptyEl.classList.add('hidden');
+      const ctxCount = document.getElementById('hackContextUserCount');
+      const ctxStatus = document.getElementById('hackContextStatus');
+      if (ctxCount) ctxCount.textContent = hack && hack.totalUsers != null ? hack.totalUsers + ' users' : '';
+      if (ctxStatus) ctxStatus.textContent = hack && hack.hackName ? hack.hackName : value;
+    } else {
+      info.classList.add('hidden');
+      if (emptyEl) emptyEl.classList.remove('hidden');
+    }
   }
   if (options.reset !== false) {
     _ppDiscovery = null;
@@ -4273,6 +4917,7 @@ async function assignPermissions() {
   const btn = document.getElementById('pp-btnAssign');
   btn.disabled = true;
   document.getElementById('pp-spinner').classList.remove('hidden');
+  showOpProgress('pp', 'Discovering principals and assigning roles…');
   document.getElementById('pp-tbody').innerHTML = '';
   document.getElementById('pp-resultCard').classList.remove('hidden');
 
@@ -4287,20 +4932,27 @@ async function assignPermissions() {
         const list = bySubscription.get(key);
         if (!list.some(p => p.id === item.principal.id)) list.push(item.principal);
       }
+      let done = 0;
+      const total = bySubscription.size;
       for (const [subscription, principals] of bySubscription.entries()) {
+        setOpProgress('pp', Math.round((done / total) * 100), `Assigning ${role} on subscription ${done + 1}/${total}…`);
         const r = await _doAssign(creds, [subscription], principals, role, hackPrefix);
         allResults = allResults.concat(r);
         renderRbacRows(allResults);
+        done++;
       }
     } else {
+      setOpProgress('pp', 50, `Assigning ${role} to ${_ppPrincipals.length} principal(s) on ${subs.length} subscription(s)…`);
       const r = await _doAssign(creds, subs, _ppPrincipals, role, hackPrefix);
       allResults = r;
       renderRbacRows(allResults);
     }
     _ppLastResults = allResults;
     const ok = allResults.filter(x => x.status === 'assigned').length;
+    completeOpProgress('pp', `${ok}/${allResults.length} assignments succeeded`, ok === allResults.length);
     toast(`${ok}/${allResults.length} assignments succeeded`, ok === allResults.length ? 'success' : 'warn');
   } catch (e) {
+    completeOpProgress('pp', 'Assignment failed: ' + e.message, false);
     toast('Assign failed: ' + e.message, 'danger');
   } finally {
     btn.disabled = false;
@@ -4494,9 +5146,11 @@ async function applyReadOnly() {
   }
   document.getElementById('ro-btnApply').disabled = true;
   document.getElementById('ro-spinner').classList.remove('hidden');
+  showOpProgress('ro', `Applying read-only to ${_roPrincipals.length} principal(s)…`);
   document.getElementById('ro-resultCard').classList.remove('hidden');
   document.getElementById('ro-tbody').innerHTML = '<tr><td colspan="5" class="empty">Working…</td></tr>';
   try {
+    setOpProgress('ro', 30, 'Removing elevated roles and granting Reader…');
     const data = await postJsonWithServerConfirmation(
       `${API}/readonly-mode`,
       { ...creds, subscriptions: subs, principals: _roPrincipals, hackPrefix: document.getElementById('ro-prefix').value.trim() },
@@ -4515,8 +5169,10 @@ async function applyReadOnly() {
         <td style="font-size:12px;color:var(--danger)">${esc(errs)}</td>
       </tr>`;
     }).join('') || '<tr><td colspan="5" class="empty">No actions</td></tr>';
+    completeOpProgress('ro', 'Read-only mode applied successfully', true);
     toast('Read-only mode applied', 'success');
   } catch (e) {
+    completeOpProgress('ro', 'Read-only failed: ' + e.message, false);
     toast('Read-only failed: ' + e.message, 'danger');
   } finally {
     document.getElementById('ro-btnApply').disabled = false;
@@ -4571,6 +5227,38 @@ async function discoverForCleanup() {
     '<tr><td colspan="2"><em>None</em></td></tr>';
   document.getElementById('cu-selectAllUsers').checked = true;
   document.getElementById('cu-selectAllGroups').checked = true;
+
+  // Show GitHub cleanup option if hack was provisioned with GitHub enabled,
+  // or if GitHub was enabled later via the Manage Hack action
+  const ghLabel = document.getElementById('cu-removeGithubLabel');
+  const ghCb = document.getElementById('cu-removeGithub');
+  let githubWasEnabled = false;
+  try {
+    const cleanP = prefix.replace(/-$/, '');
+    const stateRes = await fetch(`${API}/hack-state/${encodeURIComponent(cleanP)}`);
+    if (stateRes.ok) {
+      const state = await stateRes.json();
+      githubWasEnabled = !!(state.config && state.config.enableGithub) ||
+        (state.users || []).some(u => u.github || u.githubUsername || u.githubEnabled);
+    }
+  } catch (_) { /* best-effort */ }
+  // Also check if any discovered users have emails matching the GitHub EMU pattern
+  if (!githubWasEnabled && (data.users || []).length > 0) {
+    try {
+      const ghCheckRes = await fetch(`${API}/github-check-membership`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emails: data.users.map(u => u.userPrincipalName || u.mail).filter(Boolean).slice(0, 3) }),
+      });
+      if (ghCheckRes.ok) {
+        const ghCheck = await ghCheckRes.json();
+        githubWasEnabled = (ghCheck.results || []).some(r => r.status === 'already-member');
+      }
+    } catch (_) { /* best-effort — endpoint may not exist */ }
+  }
+  if (ghLabel) ghLabel.style.display = githubWasEnabled ? 'flex' : 'none';
+  if (ghCb) ghCb.checked = githubWasEnabled;
+
   document.getElementById('cu-discoveryCard').classList.remove('hidden');
 
   // Update preview table and confirmation prefix
@@ -4615,11 +5303,13 @@ async function executeCleanup() {
   }
 
   document.getElementById('cu-spinner').classList.remove('hidden');
+  showOpProgress('cu', 'Starting cleanup…');
   document.getElementById('cu-resultCard').classList.add('hidden');
   try {
     // Step 1: Remove from GitHub EMU group BEFORE deleting Entra users
     let ghData = null;
     if (removeGithub && ghEmails.length) {
+      setOpProgress('cu', 15, `Removing ${ghEmails.length} user(s) from GitHub EMU groups…`);
       try {
         const ghRes = await fetch(`${API}/github-disable`, {
           method: 'POST',
@@ -4634,6 +5324,7 @@ async function executeCleanup() {
     }
 
     // Step 2: Entra cleanup (users, groups, RBAC)
+    setOpProgress('cu', 40, `Deleting ${userIds.length} user(s), ${groupIds.length} group(s)…`);
     const data = await postJsonWithServerConfirmation(
       `${API}/cleanup-hack`,
       { ...creds, userIds, groupIds, subscriptionIds: subs, principalIds, hackPrefix: document.getElementById('cu-prefix').value.trim() },
@@ -4677,11 +5368,13 @@ async function executeCleanup() {
           : '';
     document.getElementById('cu-resultSummary').innerHTML =
       `<span style="color:var(--success)">Deleted ${okU}/${(data.users || []).length} users, ${okG}/${(data.groups || []).length} groups${ghMsg}</span>` + archiveMsg;
+    completeOpProgress('cu', `Deleted ${okU} users, ${okG} groups${ghMsg}`, true);
     toast(`Deleted ${okU}/${(data.users || []).length} users, ${okG}/${(data.groups || []).length} groups${ghMsg}` +
       (data.blob_state_archived ? ' + state archived' : ''), 'success');
     _savedHackCache = { active: null, archived: null, loadedAt: 0 };
     refreshHackPrefixPickers(true);
   } catch (e) {
+    completeOpProgress('cu', 'Cleanup failed: ' + e.message, false);
     toast('Cleanup failed: ' + e.message, 'danger');
   } finally {
     document.getElementById('cu-spinner').classList.add('hidden');
@@ -5143,6 +5836,7 @@ async function regenTapForHack() {
   const usersText = document.getElementById('mh-tapUsers').value.trim();
   const users = usersText ? usersText.split(/[\r\n,]+/).map(s => s.trim()).filter(Boolean) : undefined;
   document.getElementById('mh-tapSpinner').classList.remove('hidden');
+  showOpProgress('mh-tap', 'Regenerating TAP credentials…');
   try {
     const data = await postJsonWithServerConfirmation(
       `${API}/hack-state/${encodeURIComponent(prefix)}/regenerate-tap`,
@@ -5150,10 +5844,12 @@ async function regenTapForHack() {
       { title: 'Confirm TAP regeneration' },
     );
     _showActionResult('TAP Regeneration', data.results || [], 'tap');
+    completeOpProgress('mh-tap', `Regenerated TAP for ${data.updatedUsers} user(s)`, true);
     toast(`Regenerated TAP for ${data.updatedUsers} user(s)`, 'success');
     // Reload state
     await loadHackState();
   } catch (e) {
+    completeOpProgress('mh-tap', 'TAP regen failed: ' + e.message, false);
     toast('TAP regen failed: ' + e.message, 'danger');
   } finally {
     document.getElementById('mh-tapSpinner').classList.add('hidden');
@@ -5170,6 +5866,7 @@ async function resetPasswordForHack() {
   const usersText = document.getElementById('mh-resetPwUsers').value.trim();
   const users = usersText ? usersText.split(/[\r\n,]+/).map(s => s.trim()).filter(Boolean) : undefined;
   document.getElementById('mh-resetPwSpinner').classList.remove('hidden');
+  showOpProgress('mh-resetPw', 'Resetting passwords…');
   try {
     const data = await postJsonWithServerConfirmation(
       `${API}/hack-state/${encodeURIComponent(prefix)}/reset-password`,
@@ -5177,9 +5874,11 @@ async function resetPasswordForHack() {
       { title: 'Confirm password reset' },
     );
     _showActionResult('Password Reset', data.results || [], 'password');
+    completeOpProgress('mh-resetPw', `Reset password for ${data.updatedUsers} user(s)`, true);
     toast(`Reset password for ${data.updatedUsers} user(s)`, 'success');
     await loadHackState();
   } catch (e) {
+    completeOpProgress('mh-resetPw', 'Password reset failed: ' + e.message, false);
     toast('Password reset failed: ' + e.message, 'danger');
   } finally {
     document.getElementById('mh-resetPwSpinner').classList.add('hidden');
@@ -5200,6 +5899,7 @@ async function assignLicensesToHack() {
   const users = usersText ? usersText.split(/[\r\n,]+/).map(s => s.trim()).filter(Boolean) : undefined;
   const includeAdmins = document.getElementById('mh-includeAdminLicenses').checked;
   document.getElementById('mh-licSpinner').classList.remove('hidden');
+  showOpProgress('mh-lic', `Assigning ${licNames.length} license(s)…`);
   try {
     const data = await postJsonWithServerConfirmation(
       `${API}/hack-state/${encodeURIComponent(prefix)}/assign-licenses`,
@@ -5207,9 +5907,11 @@ async function assignLicensesToHack() {
       { title: 'Confirm license assignment' },
     );
     _showActionResult('License Assignment', data.results || [], 'licenses');
+    completeOpProgress('mh-lic', `Assigned licenses to ${data.updatedUsers} user(s)`, true);
     toast(`Assigned licenses to ${data.updatedUsers} user(s)`, 'success');
     await loadHackState();
   } catch (e) {
+    completeOpProgress('mh-lic', 'License assign failed: ' + e.message, false);
     toast('License assign failed: ' + e.message, 'danger');
   } finally {
     document.getElementById('mh-licSpinner').classList.add('hidden');
@@ -5229,8 +5931,9 @@ async function enableGithubForHack() {
     if (!_managedHackState || !Array.isArray(_managedHackState.users)) {
       toast('Enter emails or load a hack first', 'danger'); return;
     }
+    const includeAdmins = document.getElementById('mh-ghIncludeAdmins').checked;
     emailList = _managedHackState.users
-      .filter(u => !u.isAdmin)
+      .filter(u => includeAdmins || !u.isAdmin)
       .map(u => u.userPrincipalName)
       .filter(Boolean);
   }
@@ -5250,6 +5953,7 @@ async function enableGithubForHack() {
   const bodyEl = document.getElementById('mh-ghBody');
   spin.classList.remove('hidden');
   box.classList.remove('hidden');
+  showOpProgress('mh-gh', `Enabling GitHub for ${emailList.length} user(s)…`);
   summary.textContent = `Enabling GitHub for ${emailList.length} user(s)…`;
   bodyEl.innerHTML = '';
 
@@ -5268,22 +5972,42 @@ async function enableGithubForHack() {
       const r = await fetch(`${API}/github-enable/${encodeURIComponent(sessionId)}`);
       session = await r.json();
       if (!r.ok) throw new Error(session.error || `HTTP ${r.status}`);
-      summary.textContent = `Processing ${session.processed || 0}/${session.total || emailList.length}…`;
+      const processed = session.processed || 0;
+      const total = session.total || emailList.length;
+      const pct = total > 0 ? Math.round((processed / total) * 100) : 0;
+      setOpProgress('mh-gh', pct, `Processing ${processed}/${total} user(s)…`);
+      summary.textContent = `Processing ${processed}/${total}…`;
       _renderGithubResults(bodyEl, session.partial_results || []);
       if (session.status === 'completed' || session.status === 'failed') break;
     }
 
     if (session.status === 'failed') {
       summary.textContent = 'Failed: ' + (session.error || 'unknown error');
+      completeOpProgress('mh-gh', 'GitHub enable failed', false);
       toast('GitHub enable failed: ' + (session.error || ''), 'danger');
       return;
     }
     const rep = session.result || {};
     summary.textContent = `Done: added=${rep.added||0}, already-member=${rep.alreadyMember||0}, invited=${rep.invited||0}, failed=${rep.failed||0}, syncs triggered=${rep.syncTriggered||0}`;
     _renderGithubResults(bodyEl, rep.results || []);
+    completeOpProgress('mh-gh', `GitHub enable complete — ${rep.added||0} added`, true);
     toast('GitHub enable complete', 'success');
+    // Persist enableGithub flag in hack state so cleanup discovery can detect it
+    if (_managedHackState && _managedHackState.prefix) {
+      const pfx = _managedHackState.prefix.replace(/-$/, '');
+      try {
+        await fetch(`${API}/hack-state/${encodeURIComponent(pfx)}/config`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enableGithub: true }),
+        });
+        if (_managedHackState.config) _managedHackState.config.enableGithub = true;
+        else _managedHackState.config = { enableGithub: true };
+      } catch (_) { /* best-effort */ }
+    }
   } catch (e) {
     summary.textContent = 'Error: ' + e.message;
+    completeOpProgress('mh-gh', 'GitHub enable failed: ' + e.message, false);
     toast('GitHub enable failed: ' + e.message, 'danger');
   } finally {
     spin.classList.add('hidden');
@@ -5302,6 +6026,7 @@ async function repairGroupsForHack() {
   const tbody = document.getElementById('mh-grpRepairBody');
   spin.classList.remove('hidden');
   box.classList.remove('hidden');
+  showOpProgress('mh-grpRepair', 'Verifying group memberships…');
   summaryEl.textContent = 'Verifying group memberships…';
   tbody.innerHTML = '';
   try {
@@ -5324,6 +6049,8 @@ async function repairGroupsForHack() {
         <td style="${sCls}">${esc(r.status || '')}</td>
       </tr>`;
     }
+    const ok = failCount === 0;
+    completeOpProgress('mh-grpRepair', ok ? `All ${total} user(s) verified OK` : `${repaired} repaired, ${failCount} still failing`, ok);
     if (repaired > 0) toast(`Repaired group memberships for ${repaired} user(s)`, 'success');
     else if (failCount > 0) toast(`${failCount} user(s) still have group failures`, 'danger');
     else toast('All group memberships verified OK', 'success');
@@ -5331,6 +6058,7 @@ async function repairGroupsForHack() {
     await loadHackState();
   } catch (e) {
     summaryEl.textContent = 'Error: ' + e.message;
+    completeOpProgress('mh-grpRepair', 'Group repair failed: ' + e.message, false);
     toast('Group repair failed: ' + e.message, 'danger');
   } finally {
     spin.classList.add('hidden');
@@ -5349,6 +6077,7 @@ async function repairLicensesForHack() {
   const tbody = document.getElementById('mh-licRepairBody');
   spin.classList.remove('hidden');
   box.classList.remove('hidden');
+  showOpProgress('mh-licRepair', 'Verifying license assignments…');
   summaryEl.textContent = 'Verifying license assignments…';
   tbody.innerHTML = '';
   try {
@@ -5372,12 +6101,15 @@ async function repairLicensesForHack() {
         <td style="${sCls}">${esc(r.status || '')}</td>
       </tr>`;
     }
+    const ok = failCount === 0;
+    completeOpProgress('mh-licRepair', ok ? `All ${total} user(s) verified OK` : `${repaired} repaired, ${failCount} still failing`, ok);
     if (repaired > 0) toast(`Repaired licenses for ${repaired} user(s)`, 'success');
     else if (failCount > 0) toast(`${failCount} user(s) still have missing licenses`, 'danger');
     else toast('All license assignments verified OK', 'success');
     await loadHackState();
   } catch (e) {
     summaryEl.textContent = 'Error: ' + e.message;
+    completeOpProgress('mh-licRepair', 'License repair failed: ' + e.message, false);
     toast('License repair failed: ' + e.message, 'danger');
   } finally {
     spin.classList.add('hidden');
@@ -5465,6 +6197,7 @@ async function runGithubEnable() {
   const tbody = document.getElementById('gh-resultBody');
   spin.classList.remove('hidden');
   box.classList.remove('hidden');
+  showOpProgress('gh', `Enabling GitHub for ${emails.length} user(s)…`);
   summary.textContent = `Enabling GitHub for ${emails.length} user(s)…`;
   tbody.innerHTML = '';
   _ghLastResults = [];
@@ -5484,13 +6217,18 @@ async function runGithubEnable() {
       const r = await fetch(`${API}/github-enable/${encodeURIComponent(sessionId)}`);
       session = await r.json();
       if (!r.ok) throw new Error(session.error || `HTTP ${r.status}`);
-      summary.textContent = `Processing ${session.processed || 0}/${session.total || emails.length}…`;
+      const processed = session.processed || 0;
+      const total = session.total || emails.length;
+      const pct = total > 0 ? Math.round((processed / total) * 100) : 0;
+      setOpProgress('gh', pct, `Processing ${processed}/${total} user(s)…`);
+      summary.textContent = `Processing ${processed}/${total}…`;
       _renderGithubResults(tbody, session.partial_results || []);
       if (session.status === 'completed' || session.status === 'failed') break;
     }
 
     if (session.status === 'failed') {
       summary.textContent = 'Failed: ' + (session.error || 'unknown error');
+      completeOpProgress('gh', 'GitHub enable failed', false);
       toast('GitHub enable failed', 'danger');
       return;
     }
@@ -5498,9 +6236,11 @@ async function runGithubEnable() {
     _ghLastResults = rep.results || [];
     summary.textContent = `Done: added=${rep.added||0}, already-member=${rep.alreadyMember||0}, invited=${rep.invited||0}, failed=${rep.failed||0}, syncs triggered=${rep.syncTriggered||0}`;
     _renderGithubResults(tbody, _ghLastResults);
+    completeOpProgress('gh', `GitHub enable complete — ${rep.added||0} added`, true);
     toast('GitHub enable complete', 'success');
   } catch (e) {
     summary.textContent = 'Error: ' + e.message;
+    completeOpProgress('gh', 'GitHub enable failed: ' + e.message, false);
     toast('GitHub enable failed: ' + e.message, 'danger');
   } finally {
     spin.classList.add('hidden');
@@ -6868,6 +7608,324 @@ async function grantMissingPermissions() {
     toast('Error granting permissions: ' + e.message, 'danger');
   }
 }
+
+// ──────────── Wizard Navigation ────────────
+let _wizCurrentStep = 1;
+function clearWizFieldError(el) {
+  if (!el) return;
+  el.classList.remove('wiz-field-error');
+  const errMsg = document.getElementById(el.id + '-error');
+  if (errMsg) errMsg.classList.remove('visible');
+}
+
+function _showWizFieldError(id, msg) {
+  const el = document.getElementById(id);
+  if (el) { el.classList.add('wiz-field-error'); el.focus(); }
+  const errEl = document.getElementById(id + '-error');
+  if (errEl) { if (msg) errEl.textContent = msg; errEl.classList.add('visible'); }
+}
+
+function _validateWizStep(fromStep, toStep) {
+  // Only validate when moving forward
+  if (toStep <= fromStep) return true;
+  // Validate all intermediate steps
+  for (let s = fromStep; s < toStep; s++) {
+    if (!_validateSingleStep(s)) return false;
+  }
+  return true;
+}
+
+function _validateSingleStep(step) {
+  if (step === 1) {
+    const hackName = (document.getElementById('ep-hackName').value || '').trim();
+    const prefix = (document.getElementById('ep-prefix').value || '').trim();
+    let ok = true;
+    if (!hackName) { _showWizFieldError('ep-hackName', 'Hack name is required'); ok = false; }
+    if (!prefix) {
+      _showWizFieldError('ep-prefix', 'A valid hack prefix is required');
+      ok = false;
+    } else {
+      const prefixErrors = [];
+      if (prefix.length < 3) prefixErrors.push('Too short (min 3 chars)');
+      if (prefix.length > 30) prefixErrors.push('Too long (max 30 chars)');
+      if (!/^[a-z0-9][a-z0-9-]*$/.test(prefix)) prefixErrors.push('Lowercase letters, numbers, hyphens only');
+      if (prefixErrors.length) {
+        _showWizFieldError('ep-prefix', prefixErrors[0]);
+        ok = false;
+      }
+    }
+    if (!ok) {
+      // Jump back to step 1 to show errors
+      _forceWizPanel(1);
+      const panel = document.getElementById('wizPanel1');
+      if (panel) { panel.classList.add('wiz-shake'); setTimeout(() => panel.classList.remove('wiz-shake'), 400); }
+      return false;
+    }
+  }
+
+  if (step === 2) {
+    const mode = (document.getElementById('ep-mode').value || 'team');
+    const teams = parseInt(document.getElementById('ep-teams').value) || 0;
+    const perTeam = parseInt(document.getElementById('ep-perTeam').value) || 0;
+    const admins = parseInt(document.getElementById('ep-admins').value) || 0;
+    const totalUsers = mode === 'flat' ? perTeam + admins : (teams * perTeam) + admins;
+    if (totalUsers < 1) {
+      _forceWizPanel(2);
+      toast('You must configure at least 1 user before continuing', 'danger');
+      const panel = document.getElementById('wizPanel2');
+      if (panel) { panel.classList.add('wiz-shake'); setTimeout(() => panel.classList.remove('wiz-shake'), 400); }
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function _forceWizPanel(step) {
+  // Show the specified panel without validation (used to jump back to show errors)
+  const totalSteps = 5;
+  _wizCurrentStep = step;
+  for (let i = 1; i <= totalSteps; i++) {
+    const panel = document.getElementById('wizPanel' + i);
+    if (panel) panel.classList.toggle('wiz-visible', i === step);
+    const ind = document.querySelector('.wizard-step-indicator[data-wiz="' + i + '"]');
+    if (ind) {
+      ind.classList.toggle('wiz-active', i === step);
+      ind.classList.toggle('wiz-done', i < step);
+    }
+  }
+}
+
+function goWizStep(step) {
+  const totalSteps = 5;
+  if (step < 1 || step > totalSteps) return;
+  // Validate before moving forward
+  if (!_validateWizStep(_wizCurrentStep, step)) return;
+  _wizCurrentStep = step;
+  for (let i = 1; i <= totalSteps; i++) {
+    const panel = document.getElementById('wizPanel' + i);
+    if (panel) panel.classList.toggle('wiz-visible', i === step);
+    const ind = document.querySelector('.wizard-step-indicator[data-wiz="' + i + '"]');
+    if (ind) {
+      ind.classList.toggle('wiz-active', i === step);
+      ind.classList.toggle('wiz-done', i < step);
+    }
+  }
+  // Generate review summary when entering step 5
+  if (step === 5) buildReviewSummary();
+}
+
+function buildReviewSummary() {
+  const el = document.getElementById('ep-reviewSummary');
+  if (!el) return;
+  const v = id => (document.getElementById(id) || {}).value || '';
+  const c = id => !!(document.getElementById(id) || {}).checked;
+  const teams = parseInt(v('ep-teams')) || 0;
+  const perTeam = parseInt(v('ep-perTeam')) || 0;
+  const admins = parseInt(v('ep-admins')) || 0;
+  const mode = v('ep-mode');
+  const totalUsers = mode === 'flat' ? perTeam + admins : (teams * perTeam) + admins;
+  const selectedLicenses = [];
+  document.querySelectorAll('#ep-licenses input[type="checkbox"]:checked').forEach(cb => {
+    const label = cb.parentElement ? cb.parentElement.textContent.trim() : cb.value;
+    selectedLicenses.push(label.split('\n')[0].trim());
+  });
+  const rows = [
+    ['Hack Name', v('ep-hackName') || '—'],
+    ['Prefix', v('ep-prefix') || '—'],
+    ['Domain', v('ep-domain') || 'auto-detect'],
+    ['Mode', mode === 'flat' ? 'Flat' : `${teams} teams × ${perTeam} users/team`],
+    ['Total Users', totalUsers + (admins ? ` (incl. ${admins} admins)` : '')],
+    ['Licenses', selectedLicenses.length ? selectedLicenses.join(', ') : 'None selected'],
+    ['GitHub', c('ep-enableGithub') ? 'Enabled' + (c('ep-enableGithubCopilot') ? ' + Copilot' : '') : 'No'],
+    ['Dry Run', c('ep-dryRun') ? 'Yes — no changes will be made' : 'No — real provisioning'],
+  ];
+  el.innerHTML = '<div class="field-group-title">Review your setup</div>' +
+    '<table style="width:100%;border-collapse:collapse;">' +
+    rows.map(([k, val]) => `<tr><td style="padding:4px 12px 4px 0;font-weight:600;white-space:nowrap;color:var(--muted);">${k}</td><td style="padding:4px 0;">${esc(String(val))}</td></tr>`).join('') +
+    '</table>';
+}
+
+// ──────────── Activity Drawer ────────────
+let _activityItems = [];
+
+function toggleActivityDrawer(show) {
+  const drawer = document.getElementById('activityDrawer');
+  const backdrop = document.getElementById('activityBackdrop');
+  if (!drawer) return;
+  const isOpen = !drawer.classList.contains('hidden');
+  const target = show !== undefined ? show : !isOpen;
+  drawer.classList.toggle('hidden', !target);
+  if (backdrop) backdrop.classList.toggle('hidden', !target);
+  if (target) {
+    drawer.setAttribute('aria-hidden', 'false');
+    drawer.focus();
+  } else {
+    drawer.setAttribute('aria-hidden', 'true');
+  }
+}
+
+function addActivityItem(type, title, status) {
+  const body = document.getElementById('activityDrawerBody');
+  if (!body) return;
+  const id = 'activity-' + Date.now();
+  const item = { id, type, title, status, time: new Date() };
+  _activityItems.unshift(item);
+  // Update badge count
+  const badge = document.getElementById('activityBadge');
+  const pending = _activityItems.filter(i => i.status === 'running').length;
+  if (badge) {
+    badge.textContent = pending;
+    badge.classList.toggle('hidden', pending === 0);
+  }
+  renderActivityItems();
+  return id;
+}
+
+function updateActivityItem(id, status, detail) {
+  const item = _activityItems.find(i => i.id === id);
+  if (item) {
+    item.status = status;
+    if (detail) item.detail = detail;
+  }
+  const badge = document.getElementById('activityBadge');
+  const pending = _activityItems.filter(i => i.status === 'running').length;
+  if (badge) {
+    badge.textContent = pending;
+    badge.classList.toggle('hidden', pending === 0);
+  }
+  renderActivityItems();
+}
+
+function renderActivityItems() {
+  const body = document.getElementById('activityDrawerBody');
+  if (!body) return;
+  if (!_activityItems.length) {
+    body.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📋</div><div class="empty-state-title">No activity yet</div><div class="empty-state-hint">Operations will appear here as they run.</div></div>';
+    return;
+  }
+  body.innerHTML = _activityItems.map(item => {
+    const icon = item.status === 'running' ? '<span class="spinner" style="width:14px;height:14px;"></span>'
+      : item.status === 'done' ? '✅'
+      : item.status === 'error' ? '❌' : '⏳';
+    const time = item.time.toLocaleTimeString();
+    return `<div style="display:flex;gap:8px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--border);">
+      <span style="margin-top:2px;">${icon}</span>
+      <div style="flex:1;min-width:0;">
+        <div style="font-weight:600;font-size:13px;">${esc(item.title)}</div>
+        ${item.detail ? '<div style="font-size:12px;color:var(--muted);">' + esc(item.detail) + '</div>' : ''}
+        <div style="font-size:11px;color:var(--muted);">${time}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ──────────── Step Status Dots ────────────
+function updateStepDots(hackState) {
+  const dotMap = {
+    'provision': 'stepDot-provision',
+    'permissions': 'stepDot-permissions',
+    'upload': 'stepDot-upload',
+    'manage': 'stepDot-manage',
+    'readonly': 'stepDot-readonly',
+    'cleanup': 'stepDot-cleanup'
+  };
+  for (const [view, dotId] of Object.entries(dotMap)) {
+    const dot = document.getElementById(dotId);
+    if (!dot) continue;
+    dot.className = 'step-status';
+    if (!hackState) { dot.classList.add('pending'); continue; }
+    if (view === 'provision') {
+      dot.classList.add(hackState.totalUsers > 0 ? 'done' : 'pending');
+    } else if (view === 'permissions') {
+      dot.classList.add(hackState.rbacAssigned ? 'done' : 'pending');
+    } else if (view === 'upload') {
+      dot.classList.add(hackState.uploadComplete ? 'done' : 'pending');
+    } else if (view === 'manage') {
+      dot.classList.add('active');
+    } else if (view === 'readonly') {
+      dot.classList.add(hackState.isReadOnly ? 'done' : 'pending');
+    } else if (view === 'cleanup') {
+      dot.classList.add(hackState.cleanedUp ? 'done' : 'pending');
+    }
+  }
+}
+
+// ──────────── Hack Context Bar ────────────
+function updateHackContextBar(hackData) {
+  const meta = document.getElementById('hackContextMeta');
+  const emptyEl = document.getElementById('hackContextEmpty');
+  const utilsBar = document.getElementById('hackUtilsBar');
+  if (!hackData || !hackData.prefix) {
+    if (meta) meta.classList.add('hidden');
+    if (emptyEl) emptyEl.classList.remove('hidden');
+    if (utilsBar) utilsBar.classList.add('hidden');
+    updateStepDots(null);
+    return;
+  }
+  if (meta) meta.classList.remove('hidden');
+  if (emptyEl) emptyEl.classList.add('hidden');
+  if (utilsBar) utilsBar.classList.remove('hidden');
+  const countEl = document.getElementById('hackContextUserCount');
+  const statusEl = document.getElementById('hackContextStatus');
+  const countdownEl = document.getElementById('hackContextCountdown');
+  if (countEl) countEl.textContent = (hackData.totalUsers || 0) + ' users';
+  if (statusEl) statusEl.textContent = hackData.hackName || hackData.prefix;
+  if (countdownEl) {
+    const hackDate = hackData.hackDate || hackData.hackStartDate;
+    if (hackDate) {
+      const diff = new Date(hackDate) - new Date();
+      if (diff > 0) {
+        const days = Math.ceil(diff / 86400000);
+        countdownEl.textContent = days + 'd away';
+      } else {
+        countdownEl.textContent = 'In progress';
+      }
+    } else {
+      countdownEl.textContent = '';
+    }
+  }
+  updateStepDots(hackData);
+}
+
+// ──────────── Result Detail Panel ────────────
+function showResultDetail(title, bodyHtml) {
+  const panel = document.getElementById('resultDetailPanel');
+  const titleEl = document.getElementById('resultDetailTitle');
+  const bodyEl = document.getElementById('resultDetailBody');
+  if (!panel) return;
+  if (titleEl) titleEl.textContent = title;
+  if (bodyEl) bodyEl.innerHTML = bodyHtml;
+  panel.classList.remove('hidden');
+}
+
+function closeResultDetail() {
+  const panel = document.getElementById('resultDetailPanel');
+  if (panel) panel.classList.add('hidden');
+}
+
+// ──────────── Keyboard Shortcuts ────────────
+document.addEventListener('keydown', (e) => {
+  // Escape closes drawers/panels
+  if (e.key === 'Escape') {
+    const drawer = document.getElementById('activityDrawer');
+    if (drawer && !drawer.classList.contains('hidden')) {
+      toggleActivityDrawer(false);
+      e.preventDefault();
+      return;
+    }
+    const detail = document.getElementById('resultDetailPanel');
+    if (detail && !detail.classList.contains('hidden')) {
+      closeResultDetail();
+      e.preventDefault();
+      return;
+    }
+  }
+  // Don't fire shortcuts when typing in inputs
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT' || e.target.isContentEditable) return;
+  // ? -> Help
+  if (e.key === '?' && !e.ctrlKey && !e.metaKey) { switchView('help'); e.preventDefault(); }
+});
 </script>
 </body>
 </html>

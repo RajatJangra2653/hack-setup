@@ -3,7 +3,7 @@
 Strategy:
   * Files <= LARGE_FILE_THRESHOLD: simple PUT to /content
   * Larger files: createUploadSession + chunked PUT with byte ranges
-  * Idempotency: HEAD/GET item metadata; if size + lastModified hash matches, skip.
+  * Idempotency: HEAD/GET item metadata; if size matches, skip.
   * Folder structure recreated by uploading to an explicit destination path
     (Graph creates intermediate folders automatically when uploading by path).
 """
@@ -27,9 +27,11 @@ _MB = 1024 * 1024
 _CHUNK_ALIGN = 320 * 1024
 
 
+_MIN_CHUNK = _CHUNK_ALIGN * 10  # 3.125 MiB practical minimum
+
 def _align_chunk(size_mb: int) -> int:
     raw = max(1, size_mb) * _MB
-    return max(_CHUNK_ALIGN, (raw // _CHUNK_ALIGN) * _CHUNK_ALIGN)
+    return max(_MIN_CHUNK, (raw // _CHUNK_ALIGN) * _CHUNK_ALIGN)
 
 
 def _encode_path(path: str) -> str:

@@ -202,10 +202,12 @@ class GraphClient:
 
     async def paged(self, url: str, **kw) -> AsyncIterator[dict]:
         next_url: str | None = url
+        # Only pass query params on the first request; @odata.nextLink already
+        # includes them as part of the URL and Graph rejects duplicates.
         params = kw.pop("params", None)
         while next_url:
             page = await self.get(next_url, params=params, **kw)
-            params = None  # only first call uses params
+            params = None
             for item in page.get("value", []):
                 yield item
             next_url = page.get("@odata.nextLink")
