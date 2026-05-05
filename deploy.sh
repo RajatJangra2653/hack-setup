@@ -90,6 +90,7 @@ zip -r /tmp/onedrive-deploy.zip \
   requirements-prod.txt \
   startup.sh \
   frontend/ \
+  routes/ \
   src/ \
   -x "*.pyc" "__pycache__/*" ".venv/*" "*.egg-info/*"
 

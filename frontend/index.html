@@ -5408,12 +5408,12 @@ async function enableGithubForHack() {
     _renderGithubResults(bodyEl, rep.results || []);
     completeOpProgress('mh-gh', `GitHub enable complete — ${rep.added||0} added`, true);
     toast('GitHub enable complete', 'success');
-    // Persist enableGithub flag in hack state so cleanup discovery can detect it
+    // Persist enableGithub flag in hack state so cost & cleanup can detect it
     if (_managedHackState && _managedHackState.prefix) {
       const pfx = _managedHackState.prefix.replace(/-$/, '');
       const ghCopilot = document.getElementById('mh-ghCopilot').checked;
       try {
-        await fetch(`${API}/hack-state/${encodeURIComponent(pfx)}/config`, {
+        const patchRes = await fetch(`${API}/hack-state/${encodeURIComponent(pfx)}/config`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ enableGithub: true, enableGithubCopilot: ghCopilot }),
@@ -5424,7 +5424,10 @@ async function enableGithubForHack() {
         } else {
           _managedHackState.config = { enableGithub: true, enableGithubCopilot: ghCopilot };
         }
-      } catch (_) { /* best-effort */ }
+        if (!patchRes.ok) toast('Warning: GitHub flag may not have been saved to state', 'warn');
+      } catch (patchErr) {
+        toast('Warning: could not persist GitHub flag in hack state: ' + patchErr.message, 'warn');
+      }
     }
   } catch (e) {
     summary.textContent = 'Error: ' + e.message;
@@ -5659,6 +5662,24 @@ async function runGithubEnable() {
     _renderGithubResults(tbody, _ghLastResults);
     completeOpProgress('gh', `GitHub enable complete — ${rep.added||0} added`, true);
     toast('GitHub enable complete', 'success');
+    // Persist enableGithub flag in hack state so cost & cleanup can detect it
+    if (mode === 'existing' && _ghLoadedHack && _ghLoadedHack.prefix) {
+      const pfx = _ghLoadedHack.prefix.replace(/-$/, '');
+      const ghCopilot = document.getElementById('gh-optCopilot').checked;
+      try {
+        await fetch(`${API}/hack-state/${encodeURIComponent(pfx)}/config`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enableGithub: true, enableGithubCopilot: ghCopilot }),
+        });
+        if (_ghLoadedHack.config) {
+          _ghLoadedHack.config.enableGithub = true;
+          _ghLoadedHack.config.enableGithubCopilot = ghCopilot;
+        } else {
+          _ghLoadedHack.config = { enableGithub: true, enableGithubCopilot: ghCopilot };
+        }
+      } catch (_) { /* best-effort */ }
+    }
   } catch (e) {
     summary.textContent = 'Error: ' + e.message;
     completeOpProgress('gh', 'GitHub enable failed: ' + e.message, false);

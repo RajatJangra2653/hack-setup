@@ -24,7 +24,9 @@ except ImportError:
     pass
 
 # -- Add src to path --
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
+_app_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(_app_dir, "src"))
+sys.path.insert(0, _app_dir)
 
 from routes import register_blueprints
 

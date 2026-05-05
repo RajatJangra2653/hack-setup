@@ -91,6 +91,7 @@ $filesToZip = @(
 )
 $foldersToZip = @(
     "frontend",
+    "routes",
     "src",
     "assets"
 )
