@@ -5,8 +5,9 @@ user-entered estimates or values fetched from Azure Cost Management by callers.
 """
 from __future__ import annotations
 
+import math
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, date, timezone
 import re
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -114,18 +115,41 @@ def _summarise_users(users: List[Dict[str, Any]], prefix: str) -> List[Dict[str,
     return out
 
 
+def _compute_billing_months(start_date: str, end_date: str) -> int:
+    """Return the number of billing months for a date range.
+
+    If the period spans more than 30 days, each additional 30-day block
+    adds another billing month.  Minimum is 1.
+    """
+    try:
+        s = datetime.fromisoformat(start_date[:10]).date() if start_date else None
+        e = datetime.fromisoformat(end_date[:10]).date() if end_date else None
+    except (ValueError, TypeError):
+        return 1
+    if not s or not e or e <= s:
+        return 1
+    days = (e - s).days
+    return max(1, math.ceil(days / 30))
+
+
 def build_hack_report(
     state: Dict[str, Any],
     *,
     subscription_costs: Optional[Iterable[Dict[str, Any]]] = None,
     license_unit_costs: Optional[Dict[str, Any]] = None,
     currency: str = "USD",
+    start_date: str = "",
+    end_date: str = "",
+    github_enabled: bool = False,
+    github_copilot: bool = False,
+    github_users: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Return a report for a persisted hack state.
 
     ``subscription_costs`` entries may include ``subscriptionId``, ``cost``,
     optional ``team`` (for team-specific allocation), and optional metadata.
     ``license_unit_costs`` maps license/SKU name to unit monthly cost.
+    ``github_enabled`` / ``github_copilot`` control GitHub seat cost inclusion.
     """
     prefix = state.get("prefix", "")
     currency = (currency or "USD").upper()
@@ -251,6 +275,23 @@ def build_hack_report(
             "subscriptions": [s["subscriptionId"] for s in sub_entries if s.get("team") == team],
         })
 
+    # ── GitHub seat cost ──────────────────────────────────────────────
+    config = state.get("config") or {}
+    gh_enabled = github_enabled or bool(config.get("enableGithub"))
+    gh_copilot = github_copilot or bool(config.get("enableGithubCopilot"))
+    gh_user_count = github_users if github_users is not None else (
+        sum(1 for u in users if u.get("isAdmin") is False or not u.get("isAdmin"))
+        if gh_enabled else 0
+    )
+    from onedrive_provisioner.license_prices import github_seat_cost
+    gh_unit_cost = github_seat_cost(gh_copilot) if gh_enabled else 0.0
+    gh_monthly_cost = gh_unit_cost * gh_user_count if gh_enabled else 0.0
+
+    # ── Billing months ────────────────────────────────────────────────
+    billing_months = _compute_billing_months(start_date, end_date)
+    license_period_cost = total_license_cost * billing_months
+    gh_period_cost = gh_monthly_cost * billing_months
+
     notes = []
     if unknown_license_costs:
         notes.append(
@@ -262,6 +303,10 @@ def build_hack_report(
         )
     if not sub_entries:
         notes.append("No subscription costs were supplied or fetched; subscription cost allocation is zero.")
+    if billing_months > 1:
+        notes.append(f"Hack spans {billing_months} billing months — license and GitHub costs are multiplied accordingly.")
+
+    total_estimated = license_period_cost + total_subscription_cost + gh_period_cost
 
     return {
         "generatedAt": _now_iso(),
@@ -288,12 +333,25 @@ def build_hack_report(
             "unknownCostCount": unknown_subscription_costs,
             "estimatedPeriodCost": _round_money(total_subscription_cost),
         },
+        "github": {
+            "enabled": gh_enabled,
+            "withCopilot": gh_copilot,
+            "users": gh_user_count,
+            "unitCostMonthly": _round_money(gh_unit_cost),
+            "monthlyCost": _round_money(gh_monthly_cost),
+            "periodCost": _round_money(gh_period_cost),
+        },
+        "billingMonths": billing_months,
         "teams": team_rows,
         "users": user_rows,
         "costs": {
             "licenseMonthly": _round_money(total_license_cost),
+            "licensePeriod": _round_money(license_period_cost),
+            "githubMonthly": _round_money(gh_monthly_cost),
+            "githubPeriod": _round_money(gh_period_cost),
             "subscriptionPeriod": _round_money(total_subscription_cost),
-            "totalEstimated": _round_money(total_license_cost + total_subscription_cost),
+            "totalEstimated": _round_money(total_estimated),
+            "billingMonths": billing_months,
             "currency": currency,
         },
         "notes": notes,

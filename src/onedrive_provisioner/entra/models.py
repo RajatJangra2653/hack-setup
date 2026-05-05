@@ -100,6 +100,14 @@ def license_display_name(sku: str, *, include_sku: bool = False) -> str:
             friendly = "Microsoft Teams"
         elif "POWERAPPS" in upper or "POWER_APPS" in upper:
             friendly = "Power Apps"
+        elif upper.startswith("CPC_"):
+            import re as _re
+            m = _re.match(r"^CPC_(B|E|F)_(\d+)C_(\d+)RAM_(.+)$", raw, _re.IGNORECASE)
+            if m:
+                tier = {"B": "Business", "E": "Enterprise", "F": "Frontline"}.get(m.group(1).upper(), m.group(1))
+                friendly = f"Windows 365 {tier} {m.group(2)}vCPU/{m.group(3)}GB/{m.group(4)}"
+            else:
+                friendly = "Windows 365 Cloud PC"
     friendly = friendly or raw
     return f"{friendly} ({raw})" if include_sku and friendly != raw else friendly
 

@@ -564,12 +564,52 @@ def build_hack_report_api(prefix):
         ))
         subscription_costs = _merge_subscription_cost_inputs(subscription_costs, fetched_costs)
 
+    # Auto-fill missing license costs from NCE price list.
+    from onedrive_provisioner.license_prices import resolve_license_prices
+    user_costs = data.get("licenseUnitCosts") or {}
+    all_skus = list({lic for u in (state.get("users") or []) for lic in (u.get("licenses") or [])})
+    nce_prices = resolve_license_prices(all_skus)
+    # NCE prices as defaults; user-supplied values take precedence.
+    merged_costs = {**nce_prices, **{k: v for k, v in user_costs.items() if v is not None and v != ""}}
+
+    default_start_date, default_end_date = _state_report_date_range(state)
+    start_date = data.get("startDate") or default_start_date
+    end_date = data.get("endDate") or default_end_date
+
+    config = state.get("config") or {}
     report = build_hack_report(
         state,
         subscription_costs=subscription_costs,
-        license_unit_costs=data.get("licenseUnitCosts") or {},
+        license_unit_costs=merged_costs,
         currency=data.get("currency") or "USD",
+        start_date=start_date,
+        end_date=end_date,
+        github_enabled=data.get("githubEnabled", config.get("enableGithub", False)),
+        github_copilot=data.get("githubCopilot", config.get("enableGithubCopilot", False)),
     )
     if fetched_costs:
         report["costFetch"] = {"subscriptionsQueried": len(fetched_costs)}
     return jsonify(report)
+
+
+@bp.route("/api/license-prices", methods=["GET"])
+def get_license_prices():
+    """Return NCE license prices, GitHub seat costs, and resolve prices for specific SKU codes."""
+    from onedrive_provisioner.license_prices import (
+        NCE_LICENSE_PRICES, CPC_LICENSE_PRICES, resolve_license_prices,
+        GITHUB_SEAT_COST_WITH_COPILOT, GITHUB_SEAT_COST_WITHOUT_COPILOT,
+    )
+    skus_param = request.args.get("skus", "")
+    if skus_param:
+        sku_list = [s.strip() for s in skus_param.split(",") if s.strip()]
+        prices = resolve_license_prices(sku_list)
+    else:
+        prices = dict(NCE_LICENSE_PRICES)
+    return jsonify({
+        "licenses": prices,
+        "cpc": dict(CPC_LICENSE_PRICES),
+        "github": {
+            "withCopilot": GITHUB_SEAT_COST_WITH_COPILOT,
+            "withoutCopilot": GITHUB_SEAT_COST_WITHOUT_COPILOT,
+        },
+    })

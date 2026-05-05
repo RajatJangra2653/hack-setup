@@ -136,6 +136,7 @@
       <div class="hack-utils-bar" id="hackUtilsBar">
         <button class="hack-util-btn" data-view="github" onclick="switchView('github')">🐙 GitHub Access</button>
         <button class="hack-util-btn" data-view="scheduler" onclick="switchView('scheduler')">⏰ Scheduler</button>
+        <button class="hack-util-btn" data-view="cost-calc" onclick="switchView('cost-calc')">💰 Cost Calculator</button>
         <div class="hack-utils-sep"></div>
         <button class="hack-util-btn" data-view="tenant-setup" onclick="switchView('tenant-setup')">🔧 Tenant Check</button>
       </div>
@@ -1048,6 +1049,15 @@
         </div>
         <div id="mh-archiveNotice" class="archive-notice hidden">This hack was cleaned up and archived. Reports and exports remain available, but TAP regeneration, license assignment, and schedule changes are disabled.</div>
 
+        <div id="mh-costPreview" class="card hidden" style="margin-top:12px;background:linear-gradient(135deg,#e8f5e9 0%,#f1f8e9 100%);border:1px solid #a5d6a7;">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+            <h4 style="margin:0;">💰 Hack Cost Overview</h4>
+            <span id="mh-costSource" style="font-size:11px;color:#666;font-style:italic;">Prices from NCE Price List (Monthly ERP, Commercial)</span>
+          </div>
+          <div id="mh-costPreviewBody" class="stats" style="gap:10px;margin-top:10px;"></div>
+          <div id="mh-costPreviewTable" style="margin-top:10px;"></div>
+        </div>
+
         <div style="margin-top:16px;">
           <div class="tabs">
             <div class="tab active" data-tab="mh-users" onclick="switchTab(this)">Users</div>
@@ -1322,6 +1332,98 @@
       </div>
 
     </div><!-- /view-manage -->
+
+    <!-- ────────── Cost Calculator View ────────── -->
+    <div id="view-cost-calc" class="hidden">
+      <h2>💰 Cost Calculator</h2>
+      <p class="hint">Estimate hack costs before setting it up. Select licenses, user count, dates, and GitHub options to see a breakdown.</p>
+
+      <div class="card">
+        <h3 style="margin-top:0;">Hack Parameters</h3>
+        <div class="row">
+          <div class="form-group" style="flex:1;">
+            <label for="cc-userCount">Number of users</label>
+            <input type="number" id="cc-userCount" value="10" min="1" max="5000" oninput="updateCostCalcEstimate()" />
+          </div>
+          <div class="form-group" style="flex:1;">
+            <label for="cc-adminCount">Admin users (no licenses)</label>
+            <input type="number" id="cc-adminCount" value="1" min="0" max="100" oninput="updateCostCalcEstimate()" />
+          </div>
+          <div class="form-group" style="flex:1;">
+            <label for="cc-currency">Currency</label>
+            <input type="text" id="cc-currency" value="USD" style="max-width:80px;" oninput="updateCostCalcEstimate()" />
+          </div>
+        </div>
+        <div class="row">
+          <div class="form-group" style="flex:1;">
+            <label for="cc-startDate">Start Date</label>
+            <input type="date" id="cc-startDate" oninput="updateCostCalcEstimate()" />
+          </div>
+          <div class="form-group" style="flex:1;">
+            <label for="cc-endDate">End Date</label>
+            <input type="date" id="cc-endDate" oninput="updateCostCalcEstimate()" />
+          </div>
+        </div>
+
+        <!-- GitHub options -->
+        <div class="field-group" style="margin-top:8px;">
+          <div class="field-group-title">GitHub</div>
+          <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:center;">
+            <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;font-size:13px;">
+              <input type="checkbox" id="cc-enableGithub" onchange="updateCostCalcEstimate()"> Include GitHub Enterprise
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;font-size:13px;">
+              <input type="checkbox" id="cc-enableCopilot" onchange="updateCostCalcEstimate()"> Include GitHub Copilot
+            </label>
+          </div>
+        </div>
+
+        <!-- Azure subscriptions -->
+        <div class="field-group" style="margin-top:12px;">
+          <div class="field-group-title">Azure Subscriptions (optional)</div>
+          <div class="row">
+            <div class="form-group" style="flex:1;">
+              <label for="cc-teamCount">Number of teams</label>
+              <input type="number" id="cc-teamCount" value="2" min="0" max="200" oninput="updateCostCalcEstimate()" />
+            </div>
+            <div class="form-group" style="flex:1;">
+              <label for="cc-budgetPerTeam">Budget per team ($)</label>
+              <input type="number" id="cc-budgetPerTeam" value="0" min="0" step="50" oninput="updateCostCalcEstimate()" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- License selection -->
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+          <h3 style="margin:0;">Select Licenses</h3>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <button class="btn btn-secondary btn-sm" onclick="withBusy(this, loadCostCalcTenantLicenses)">🔄 Load from Tenant</button>
+            <span id="cc-licLoading" class="hidden"><span class="spinner" style="width:14px;height:14px;"></span></span>
+            <button class="btn btn-secondary btn-sm" onclick="showAllPriceListLicenses()">📋 Show Full Price List</button>
+          </div>
+        </div>
+        <div class="hint" style="margin:6px 0 10px;">Pick the licenses to include in the estimate. Use "Load from Tenant" to see your actual availability, or "Show Full Price List" for all known prices.</div>
+        <div style="margin-bottom:8px;">
+          <input type="text" id="cc-licSearch" placeholder="Search licenses…" oninput="filterCostCalcLicenses()" style="max-width:320px;font-size:13px;" />
+        </div>
+        <div id="cc-licenses" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 16px;">
+          <span class="hint">Click "Load from Tenant" or "Show Full Price List" to see licenses.</span>
+        </div>
+      </div>
+
+      <!-- Cost estimate results -->
+      <div id="cc-resultCard" class="card hidden" style="background:linear-gradient(135deg,#e8f5e9 0%,#f1f8e9 100%);border:1px solid #a5d6a7;">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+          <h3 style="margin:0;">💰 Estimated Cost</h3>
+          <span style="font-size:11px;color:#666;font-style:italic;">Prices from NCE Price List (Monthly ERP, Commercial)</span>
+        </div>
+        <div id="cc-resultTiles" class="stats" style="gap:10px;margin-top:10px;"></div>
+        <div id="cc-resultTable" style="margin-top:10px;"></div>
+        <div id="cc-resultSummary" style="margin-top:12px;padding:10px;background:#fff;border-radius:6px;border:1px solid #c8e6c9;font-size:13px;"></div>
+      </div>
+    </div><!-- /view-cost-calc -->
 
     <!-- ────────── GitHub Access View ────────── -->
     <div id="view-github" class="hidden">
@@ -2378,6 +2480,16 @@ function licenseDisplayName(sku, includeSku = false) {
     else if (upper.includes('TEAMS') && upper.includes('PREMIUM')) friendly = 'Microsoft Teams Premium';
     else if (upper.includes('TEAMS')) friendly = 'Microsoft Teams';
     else if (upper.includes('POWERAPPS') || upper.includes('POWER_APPS')) friendly = 'Power Apps';
+    else if (upper.startsWith('CPC_')) {
+      // Windows 365 Cloud PC: CPC_{B|E|F}_{vCPU}C_{RAM}RAM_{Storage}
+      const m = raw.match(/^CPC_(B|E|F)_(\d+)C_(\d+)RAM_(.+)$/i);
+      if (m) {
+        const tier = {B:'Business',E:'Enterprise',F:'Frontline'}[m[1].toUpperCase()] || m[1];
+        friendly = `Windows 365 ${tier} ${m[2]}vCPU/${m[3]}GB/${m[4]}`;
+      } else {
+        friendly = 'Windows 365 Cloud PC';
+      }
+    }
   }
   if (!friendly) friendly = raw;
   return includeSku && friendly !== raw ? `${friendly} (${raw})` : friendly;
@@ -2678,6 +2790,7 @@ function switchView(name) {
     cleanup: 'Cleanup safely',
     github: 'Enable GitHub access',
     scheduler: 'Automation scheduler',
+    'cost-calc': 'Cost calculator',
     chat: 'AI helper',
     help: 'Help & docs'
   };
@@ -2691,6 +2804,7 @@ function switchView(name) {
     cleanup: 'Remove hack users, groups, RBAC assignments, and licenses, then archive saved state for future reports.',
     github: 'Add users to GitHub-EMU groups and trigger sync. Works with an existing hack or a free-form list of emails.',
     scheduler: 'Review queued provision, read-only, and cleanup jobs for the full hack lifecycle.',
+    'cost-calc': 'Estimate hack costs before setting it up — select licenses, user count, dates, and GitHub options.',
     chat: 'Ask the assistant to inspect saved hacks, generate reports, or explain next actions.',
     help: 'Use the guide for setup instructions, field meanings, and operational safety checks.'
   };
@@ -2706,14 +2820,15 @@ function switchView(name) {
     b.classList.toggle('active', b.dataset.view === name);
   });
   const secureConnectionCard = document.getElementById('secureConnectionCard');
-  if (secureConnectionCard) secureConnectionCard.classList.toggle('hidden', !['tenant-setup', 'provision'].includes(name));
-  ['upload','provision','permissions','readonly','cleanup','manage','scheduler','chat','tenant-setup','help','github'].forEach(v => {
+  if (secureConnectionCard) secureConnectionCard.classList.toggle('hidden', !['tenant-setup', 'provision', 'cost-calc'].includes(name));
+  ['upload','provision','permissions','readonly','cleanup','manage','scheduler','cost-calc','chat','tenant-setup','help','github'].forEach(v => {
     const el = document.getElementById('view-' + v);
     if (el) el.classList.toggle('hidden', v !== name);
   });
   if (name === 'provision') updateProvisionPreview();
   if (['permissions', 'readonly', 'cleanup', 'manage', 'scheduler', 'github'].includes(name)) refreshHackPrefixPickers();
   if (name === 'scheduler') loadAllScheduledJobs();
+  if (name === 'cost-calc') initCostCalc();
 }
 
 // ──────────── Tenant auto-detect ────────────
@@ -3586,7 +3701,7 @@ function downloadProvisionCsv() {
     rows.push([
       u.userPrincipalName, u.password || '', _teamFromUpn(u.userPrincipalName),
       u.status, u.tap || '', u.tapExpires || '',
-      (u.licenses || []).join('|'), (u.groups || []).join('|'),
+      formatLicenseList(u.licenses) || (u.licenses || []).join('|'), (u.groups || []).join('|'),
       u.isAdmin ? 'yes' : 'no', u.userId || '',
       meta.hackName, meta.createdBy, u.message || '',
     ]);
@@ -3613,7 +3728,7 @@ function downloadProvisionXlsx() {
     const cells = [
       u.userPrincipalName, u.password || '', _teamFromUpn(u.userPrincipalName),
       u.status, u.tap || '', u.tapExpires || '',
-      (u.licenses || []).join('|'), (u.groups || []).join('|'),
+      formatLicenseList(u.licenses) || (u.licenses || []).join('|'), (u.groups || []).join('|'),
       u.isAdmin ? 'yes' : 'no', u.userId || '',
       meta.hackName, meta.createdBy, u.message || '',
     ];
@@ -5090,7 +5205,7 @@ function _renderManagedHackState(state) {
       <td style="${sCls}">${esc(u.status)}</td>
       <td style="filter:blur(4px);cursor:pointer;" onclick="this.style.filter=this.style.filter?'':'blur(4px)'">${esc(u.password || '-')}<button class="copy-btn" style="margin-left:4px" onclick="event.stopPropagation();navigator.clipboard.writeText('${esc(u.password||'').replace(/'/g,'&#39;')}').then(()=>toast('Copied','success'))" title="Copy password">⧉</button></td>
       <td style="filter:blur(4px);cursor:pointer;" onclick="this.style.filter=this.style.filter?'':'blur(4px)'">${esc(u.tap || '-')}<button class="copy-btn" style="margin-left:4px" onclick="event.stopPropagation();navigator.clipboard.writeText('${esc(u.tap||'').replace(/'/g,'&#39;')}').then(()=>toast('Copied','success'))" title="Copy TAP">⧉</button></td>
-      <td style="font-size:11px;" title="${escAttr((u.licenses || []).join(', '))}">${esc(formatLicenseList(u.licenses)) || '-'}</td>
+      <td style="font-size:11px;" title="${escAttr(formatLicenseList(u.licenses, true))}">${esc(formatLicenseList(u.licenses)) || '-'}</td>
       <td style="font-size:11px;">${grpCell}</td>
       <td style="font-size:11px;">${ghCell}</td>
     </tr>`;
@@ -5296,14 +5411,19 @@ async function enableGithubForHack() {
     // Persist enableGithub flag in hack state so cleanup discovery can detect it
     if (_managedHackState && _managedHackState.prefix) {
       const pfx = _managedHackState.prefix.replace(/-$/, '');
+      const ghCopilot = document.getElementById('mh-ghCopilot').checked;
       try {
         await fetch(`${API}/hack-state/${encodeURIComponent(pfx)}/config`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ enableGithub: true }),
+          body: JSON.stringify({ enableGithub: true, enableGithubCopilot: ghCopilot }),
         });
-        if (_managedHackState.config) _managedHackState.config.enableGithub = true;
-        else _managedHackState.config = { enableGithub: true };
+        if (_managedHackState.config) {
+          _managedHackState.config.enableGithub = true;
+          _managedHackState.config.enableGithubCopilot = ghCopilot;
+        } else {
+          _managedHackState.config = { enableGithub: true, enableGithubCopilot: ghCopilot };
+        }
       } catch (_) { /* best-effort */ }
     }
   } catch (e) {
@@ -5600,7 +5720,7 @@ function downloadManagedHackExcel() {
   const headerRow = `<Row>${headers.map(h => `<Cell><Data ss:Type="String">${xmlEsc(h)}</Data></Cell>`).join('')}</Row>`;
   const dataRows = users.map(u => {
     const cells = [u.userPrincipalName, u.password||'', u.tap||'', u.tapExpires||'', u.status,
-      (u.licenses||[]).join('|'), (u.groups||[]).join('|'), u.isAdmin?'yes':'no', u.userId||''];
+      formatLicenseList(u.licenses) || (u.licenses||[]).join('|'), (u.groups||[]).join('|'), u.isAdmin?'yes':'no', u.userId||''];
     if (hasGithub) {
       const gh = u.github || {};
       cells.push(u.githubUsername || gh.githubUsername || '', gh.status || '');
@@ -5624,7 +5744,7 @@ function downloadManagedHackCsv() {
   const rows = [header];
   for (const u of users) {
     const row = [u.userPrincipalName, u.password||'', u.tap||'', u.tapExpires||'', u.status,
-      (u.licenses||[]).join('|'), (u.groups||[]).join('|'), u.isAdmin?'yes':'no', u.userId||''];
+      formatLicenseList(u.licenses) || (u.licenses||[]).join('|'), (u.groups||[]).join('|'), u.isAdmin?'yes':'no', u.userId||''];
     if (hasGithub) {
       const gh = u.github || {};
       row.push(u.githubUsername || gh.githubUsername || '', gh.status || '');
@@ -5673,7 +5793,24 @@ function _prefillManagedReportInputs(state) {
   const licBox = document.getElementById('mh-licenseCosts');
   if (licBox && !licBox.value.trim()) {
     const names = Array.from(new Set((state.users || []).flatMap(u => u.licenses || []))).sort();
-    licBox.value = names.map(n => `${n}=`).join('\n');
+    // Fetch NCE prices and pre-fill with actual costs.
+    const skus = encodeURIComponent(names.join(','));
+    fetch(`${API}/license-prices?skus=${skus}`)
+      .then(r => r.ok ? r.json() : { licenses: {}, github: {} })
+      .then(data => {
+        const prices = data.licenses || data;  // support both old/new format
+        if (licBox.value.trim()) return; // user typed something meanwhile
+        licBox.value = names.map(n => {
+          const cost = prices[n];
+          const friendly = licenseDisplayName(n);
+          const label = friendly !== n ? `${friendly} (${n})` : n;
+          return cost != null ? `${n}=${cost}  # ${friendly}` : `${n}=  # ${friendly}`;
+        }).join('\n');
+        _updateHackCostPreview(state, prices, data.github || {});
+      })
+      .catch(() => {
+        if (!licBox.value.trim()) licBox.value = names.map(n => `${n}=  # ${licenseDisplayName(n)}`).join('\n');
+      });
   }
 
   const subBox = document.getElementById('mh-subCosts');
@@ -5684,11 +5821,89 @@ function _prefillManagedReportInputs(state) {
   }
 }
 
+function _updateHackCostPreview(state, prices, githubPrices) {
+  const card = document.getElementById('mh-costPreview');
+  const body = document.getElementById('mh-costPreviewBody');
+  const table = document.getElementById('mh-costPreviewTable');
+  if (!card || !body) return;
+
+  const users = state.users || [];
+  const config = state.config || {};
+  const licenseCounts = {};
+  for (const u of users) {
+    for (const lic of (u.licenses || [])) {
+      licenseCounts[lic] = (licenseCounts[lic] || 0) + 1;
+    }
+  }
+
+  const skus = Object.keys(licenseCounts).sort();
+  const ghEnabled = !!(config.enableGithub || users.some(u => u.github || u.githubUsername));
+  if (!skus.length && !ghEnabled) { card.classList.add('hidden'); return; }
+
+  const currency = (document.getElementById('mh-reportCurrency') || {}).value || 'USD';
+
+  let totalMonthly = 0;
+  const rows = skus.map(sku => {
+    const count = licenseCounts[sku];
+    const unitCost = prices[sku];
+    const monthlyCost = unitCost != null ? count * unitCost : null;
+    if (monthlyCost != null) totalMonthly += monthlyCost;
+    return `<tr>
+      <td title="${escAttr(sku)}">${esc(licenseDisplayName(sku))}</td>
+      <td>${count}</td>
+      <td>${unitCost != null ? _money(unitCost, currency) : '<span style="color:#999">—</span>'}</td>
+      <td>${monthlyCost != null ? _money(monthlyCost, currency) : '<span style="color:#999">—</span>'}</td>
+    </tr>`;
+  });
+
+  // GitHub seat cost row
+  let ghMonthly = 0;
+  if (ghEnabled && githubPrices) {
+    const ghCopilot = !!config.enableGithubCopilot;
+    const ghUnit = ghCopilot ? (githubPrices.withCopilot || 40) : (githubPrices.withoutCopilot || 21);
+    const ghUsers = users.filter(u => !u.isAdmin).length || users.length;
+    ghMonthly = ghUnit * ghUsers;
+    totalMonthly += ghMonthly;
+    const label = ghCopilot ? 'GitHub Enterprise + Copilot' : 'GitHub Enterprise';
+    rows.push(`<tr style="background:#f0f4ff;">
+      <td>🐙 ${esc(label)}</td>
+      <td>${ghUsers}</td>
+      <td>${_money(ghUnit, currency)}</td>
+      <td>${_money(ghMonthly, currency)}</td>
+    </tr>`);
+  }
+
+  // Billing months
+  const range = _reportDateRangeFromState(state);
+  const startD = new Date(range.start);
+  const endD = new Date(range.end);
+  const days = Math.max(1, Math.round((endD - startD) / 86400000));
+  const months = Math.max(1, Math.ceil(days / 30));
+  const totalPeriod = totalMonthly * months;
+
+  const tiles = [
+    ['Users', users.length],
+    ['License Types', skus.length],
+    ['License Cost / Month', _money(totalMonthly, currency)],
+  ];
+  if (months > 1) tiles.push([`Billing Months`, months]);
+  tiles.push([months > 1 ? `Est. ${months}-Month Total` : 'Est. Total', _money(totalPeriod, currency)]);
+
+  body.innerHTML = tiles
+    .map(([label, value]) => `<div class="stat-tile"><div class="stat-label">${esc(label)}</div><div class="stat-value" style="font-size:18px;">${esc(String(value))}</div></div>`).join('');
+
+  table.innerHTML = `<table><thead><tr><th>License</th><th>Users</th><th>Unit Cost / Mo</th><th>Monthly Total</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
+  card.classList.remove('hidden');
+}
+
 function _parseLicenseCostLines(text) {
   const out = {};
   for (const raw of (text || '').split(/\r?\n/)) {
-    const line = raw.trim();
+    let line = raw.trim();
     if (!line || line.startsWith('#')) continue;
+    // Strip inline comments: "SPE_E3=43.2  # Microsoft 365 E3" → "SPE_E3=43.2"
+    const commentIdx = line.indexOf('#');
+    if (commentIdx > 0) line = line.substring(0, commentIdx).trim();
     const parts = line.includes('=') ? line.split('=') : line.split(/[,:\t|]/);
     const name = (parts[0] || '').trim();
     const value = parseFloat(String(parts.slice(1).join('=')).replace(/[$,]/g, '').trim());
@@ -5723,6 +5938,261 @@ function _money(value, currency) {
   return `${currency || ''} ${amount.toFixed(2)}`.trim();
 }
 
+// ══════════ Cost Calculator ══════════
+let _ccPriceData = null;   // cached API response
+let _ccAllLicenses = [];   // [{sku, name, price, source, avail?, total?}]
+let _ccInitDone = false;
+
+async function initCostCalc() {
+  if (_ccInitDone) return;
+  _ccInitDone = true;
+  // Set default dates: today → +30 days
+  const today = new Date();
+  const end = new Date(today);
+  end.setDate(end.getDate() + 30);
+  const fmt = d => d.toISOString().slice(0, 10);
+  document.getElementById('cc-startDate').value = fmt(today);
+  document.getElementById('cc-endDate').value = fmt(end);
+  await loadCostCalcPriceList();
+}
+
+async function loadCostCalcPriceList() {
+  try {
+    const res = await fetch(`${API}/license-prices`);
+    if (!res.ok) throw new Error('Failed');
+    _ccPriceData = await res.json();
+    _ccAllLicenses = _buildCcLicenseList(_ccPriceData, null);
+    _renderCcLicenses();
+    updateCostCalcEstimate();
+  } catch (e) {
+    toast('Could not load price list: ' + e.message, 'danger');
+  }
+}
+
+async function loadCostCalcTenantLicenses() {
+  const creds = getCreds();
+  if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
+  const spinner = document.getElementById('cc-licLoading');
+  spinner.classList.remove('hidden');
+  try {
+    const res = await fetch(`${API}/tenant-info`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(creds),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed');
+    const skus = data.subscribedSkus || [];
+    if (!skus.length) { toast('No license SKUs found in tenant', 'warn'); return; }
+    // Ensure we have price data
+    if (!_ccPriceData) await loadCostCalcPriceList();
+    _ccAllLicenses = _buildCcLicenseList(_ccPriceData, skus);
+    _renderCcLicenses();
+    updateCostCalcEstimate();
+    toast(`Loaded ${skus.length} license SKU(s) from tenant`, 'success');
+  } catch (e) {
+    toast('Failed to load licenses: ' + e.message, 'danger');
+  } finally {
+    spinner.classList.add('hidden');
+  }
+}
+
+function showAllPriceListLicenses() {
+  if (!_ccPriceData) { toast('Price list not loaded yet', 'warn'); return; }
+  _ccAllLicenses = _buildCcLicenseList(_ccPriceData, null);
+  _renderCcLicenses();
+  updateCostCalcEstimate();
+}
+
+function _buildCcLicenseList(priceData, tenantSkus) {
+  const list = [];
+  const seen = new Set();
+  if (tenantSkus) {
+    // Tenant mode: show tenant SKUs with prices resolved from priceData
+    for (const sku of tenantSkus) {
+      const code = sku.skuPartNumber;
+      if (seen.has(code)) continue;
+      seen.add(code);
+      const friendly = licenseDisplayName(code);
+      const skuParam = encodeURIComponent(code);
+      // Look up price from priceData
+      let price = (priceData.licenses || {})[code] || (priceData.licenses || {})[friendly];
+      if (price == null && priceData.cpc) price = priceData.cpc[code];
+      // Try lookup via resolve endpoint if not found locally
+      if (price == null) {
+        // Attempt friendly name match
+        for (const [k, v] of Object.entries(priceData.licenses || {})) {
+          if (k.toUpperCase() === friendly.toUpperCase()) { price = v; break; }
+        }
+      }
+      const avail = (sku.prepaidUnits?.enabled || 0) - (sku.consumedUnits || 0);
+      const total = sku.prepaidUnits?.enabled || 0;
+      list.push({ sku: code, name: friendly, price, source: 'tenant', avail, total });
+    }
+    // Sort: available first
+    list.sort((a, b) => (b.avail > 0 ? 1 : 0) - (a.avail > 0 ? 1 : 0));
+  } else {
+    // Price list mode: show all NCE + CPC licenses
+    for (const [name, price] of Object.entries(priceData.licenses || {})) {
+      list.push({ sku: name, name, price, source: 'nce' });
+    }
+    for (const [code, price] of Object.entries(priceData.cpc || {})) {
+      const friendly = licenseDisplayName(code);
+      list.push({ sku: code, name: friendly, price, source: 'cpc' });
+    }
+    list.sort((a, b) => (b.price || 0) - (a.price || 0));
+  }
+  return list;
+}
+
+function _renderCcLicenses() {
+  const container = document.getElementById('cc-licenses');
+  if (!container) return;
+  const search = (document.getElementById('cc-licSearch') || {}).value || '';
+  const filter = search.trim().toUpperCase();
+  // Preserve checked state
+  const prevChecked = new Set(Array.from(document.querySelectorAll('#cc-licenses input:checked')).map(c => c.value));
+  container.style.cssText = 'display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 16px;';
+  container.innerHTML = '';
+  const currency = (document.getElementById('cc-currency') || {}).value || 'USD';
+  for (const lic of _ccAllLicenses) {
+    if (filter && !lic.name.toUpperCase().includes(filter) && !lic.sku.toUpperCase().includes(filter)) continue;
+    const lbl = document.createElement('label');
+    const isZero = lic.source === 'tenant' && lic.avail != null && lic.avail <= 0;
+    lbl.style.cssText = 'display:flex;align-items:center;gap:4px;font-size:13px;padding:4px 0;min-width:0;overflow:hidden;' + (isZero ? 'opacity:0.45;' : '');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.value = lic.sku;
+    cb.dataset.price = lic.price != null ? lic.price : '';
+    if (prevChecked.has(lic.sku)) cb.checked = true;
+    cb.addEventListener('change', () => updateCostCalcEstimate());
+    lbl.appendChild(cb);
+    const nameSpan = document.createElement('span');
+    nameSpan.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+    nameSpan.textContent = ' ' + lic.name + (lic.name !== lic.sku ? '' : '');
+    nameSpan.title = lic.sku + (lic.price != null ? ` — ${currency} ${lic.price.toFixed(2)}/mo` : '');
+    lbl.appendChild(nameSpan);
+    const priceBadge = document.createElement('span');
+    priceBadge.style.cssText = 'font-size:11px;color:var(--muted);white-space:nowrap;';
+    let badgeText = lic.price != null ? `$${lic.price.toFixed(2)}` : '?';
+    if (lic.source === 'tenant' && lic.avail != null) badgeText += ` (${lic.avail}/${lic.total})`;
+    priceBadge.textContent = badgeText;
+    lbl.appendChild(priceBadge);
+    container.appendChild(lbl);
+  }
+  if (!container.children.length) {
+    container.innerHTML = '<span class="hint">No licenses match the filter.</span>';
+  }
+}
+
+function filterCostCalcLicenses() { _renderCcLicenses(); }
+
+function updateCostCalcEstimate() {
+  const card = document.getElementById('cc-resultCard');
+  const tiles = document.getElementById('cc-resultTiles');
+  const table = document.getElementById('cc-resultTable');
+  const summary = document.getElementById('cc-resultSummary');
+  if (!card || !tiles) return;
+
+  const userCount = Math.max(1, parseInt(document.getElementById('cc-userCount').value) || 10);
+  const adminCount = parseInt(document.getElementById('cc-adminCount').value) || 0;
+  const licensedUsers = Math.max(0, userCount - adminCount);
+  const currency = (document.getElementById('cc-currency') || {}).value || 'USD';
+  const enableGithub = document.getElementById('cc-enableGithub').checked;
+  const enableCopilot = document.getElementById('cc-enableCopilot').checked;
+  const teamCount = parseInt(document.getElementById('cc-teamCount').value) || 0;
+  const budgetPerTeam = parseFloat(document.getElementById('cc-budgetPerTeam').value) || 0;
+
+  // Billing months
+  const startStr = document.getElementById('cc-startDate').value;
+  const endStr = document.getElementById('cc-endDate').value;
+  let months = 1;
+  if (startStr && endStr) {
+    const days = Math.max(1, Math.round((new Date(endStr) - new Date(startStr)) / 86400000));
+    months = Math.max(1, Math.ceil(days / 30));
+  }
+
+  // Selected licenses
+  const checked = Array.from(document.querySelectorAll('#cc-licenses input:checked'));
+  if (!checked.length && !enableGithub && !budgetPerTeam) {
+    card.classList.add('hidden');
+    return;
+  }
+
+  let totalMonthly = 0;
+  const rows = [];
+  for (const cb of checked) {
+    const sku = cb.value;
+    const price = cb.dataset.price ? parseFloat(cb.dataset.price) : null;
+    const lic = _ccAllLicenses.find(l => l.sku === sku);
+    const name = lic ? lic.name : licenseDisplayName(sku);
+    const monthlyCost = price != null ? licensedUsers * price : null;
+    if (monthlyCost != null) totalMonthly += monthlyCost;
+    rows.push(`<tr>
+      <td title="${escAttr(sku)}">${esc(name)}</td>
+      <td>${licensedUsers}</td>
+      <td>${price != null ? _money(price, currency) : '<span style="color:#999">—</span>'}</td>
+      <td>${monthlyCost != null ? _money(monthlyCost, currency) : '<span style="color:#999">—</span>'}</td>
+    </tr>`);
+  }
+
+  // GitHub
+  let ghMonthly = 0;
+  if (enableGithub) {
+    const ghUnit = enableCopilot ? (_ccPriceData?.github?.withCopilot || 40) : (_ccPriceData?.github?.withoutCopilot || 21);
+    ghMonthly = ghUnit * licensedUsers;
+    totalMonthly += ghMonthly;
+    const label = enableCopilot ? 'GitHub Enterprise + Copilot' : 'GitHub Enterprise';
+    rows.push(`<tr style="background:#f0f4ff;">
+      <td>🐙 ${esc(label)}</td>
+      <td>${licensedUsers}</td>
+      <td>${_money(ghUnit, currency)}</td>
+      <td>${_money(ghMonthly, currency)}</td>
+    </tr>`);
+  }
+
+  // Azure budget
+  let azureBudget = 0;
+  if (teamCount > 0 && budgetPerTeam > 0) {
+    azureBudget = teamCount * budgetPerTeam;
+    rows.push(`<tr style="background:#fff8e1;">
+      <td>☁️ Azure Budget (${teamCount} teams × ${_money(budgetPerTeam, currency)})</td>
+      <td>${teamCount}</td>
+      <td>${_money(budgetPerTeam, currency)}</td>
+      <td>${_money(azureBudget, currency)}</td>
+    </tr>`);
+  }
+
+  const totalPeriod = totalMonthly * months;
+  const grandTotal = totalPeriod + azureBudget;
+
+  // Tiles
+  const tileDefs = [
+    ['Users (licensed)', licensedUsers],
+    ['License Types', checked.length],
+    ['License Cost / Month', _money(totalMonthly, currency)],
+  ];
+  if (months > 1) tileDefs.push(['Billing Months', months]);
+  tileDefs.push([months > 1 ? `License ${months}-Month Total` : 'License Total', _money(totalPeriod, currency)]);
+  if (azureBudget > 0) tileDefs.push(['Azure Budget', _money(azureBudget, currency)]);
+  tileDefs.push(['Grand Total', _money(grandTotal, currency)]);
+
+  tiles.innerHTML = tileDefs
+    .map(([label, value]) => `<div class="stat-tile"><div class="stat-label">${esc(label)}</div><div class="stat-value" style="font-size:18px;">${esc(String(value))}</div></div>`).join('');
+
+  table.innerHTML = `<table><thead><tr><th>Item</th><th>Users / Units</th><th>Unit Cost / Mo</th><th>Monthly Total</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
+
+  // Summary text
+  const parts = [];
+  if (checked.length) parts.push(`${checked.length} license type(s) × ${licensedUsers} user(s)`);
+  if (enableGithub) parts.push(`GitHub ${enableCopilot ? '+ Copilot' : ''} for ${licensedUsers} user(s)`);
+  if (azureBudget > 0) parts.push(`Azure budget ${_money(azureBudget, currency)} for ${teamCount} team(s)`);
+  parts.push(`${months} billing month(s)`);
+  summary.innerHTML = `<strong>Summary:</strong> ${parts.join(' • ')}.<br>
+    <strong>Estimated grand total: ${_money(grandTotal, currency)}</strong>
+    ${months > 1 ? ` (${_money(totalMonthly, currency)}/mo × ${months} months${azureBudget > 0 ? ' + Azure' : ''})` : ''}`;
+  card.classList.remove('hidden');
+}
+
 async function generateManagedHackReport() {
   if (!_managedHackState) { toast('Load a hack first', 'danger'); return; }
   const prefix = _managedHackState.prefix.replace(/-$/, '');
@@ -5748,6 +6218,8 @@ async function generateManagedHackReport() {
     currency: (document.getElementById('mh-reportCurrency').value || 'USD').trim().toUpperCase(),
     startDate: document.getElementById('mh-costStart').value,
     endDate: document.getElementById('mh-costEnd').value,
+    githubEnabled: !!(_managedHackState.config && _managedHackState.config.enableGithub),
+    githubCopilot: !!(_managedHackState.config && _managedHackState.config.enableGithubCopilot),
   };
   const box = document.getElementById('mh-reportBox');
   box.classList.remove('hidden');
@@ -5790,9 +6262,11 @@ function _renderManagedHackReport(report) {
 
   const costStats = [
     ['License / month', _money(costs.licenseMonthly, currency)],
+    ['GitHub / month', _money(costs.githubMonthly, currency)],
     ['Subscription period', _money(costs.subscriptionPeriod, currency)],
+    costs.billingMonths > 1 ? ['Billing Months', costs.billingMonths] : null,
     ['Total estimated', _money(costs.totalEstimated, currency)],
-  ].map(([label, value]) => `<div class="stat-tile"><div class="stat-label">${esc(label)}</div><div class="stat-value" style="font-size:18px;">${esc(value)}</div></div>`).join('');
+  ].filter(Boolean).map(([label, value]) => `<div class="stat-tile"><div class="stat-label">${esc(label)}</div><div class="stat-value" style="font-size:18px;">${esc(value)}</div></div>`).join('');
 
   const licenseRows = licenseItems.map(l => `<tr>
     <td title="${escAttr(l.name || '')}">${esc(licenseDisplayName(l.name))}</td><td>${l.assignedUsers || 0}</td><td>${_money(l.unitCost, currency)}</td><td>${_money(l.estimatedMonthlyCost, currency)}</td>
@@ -5807,6 +6281,18 @@ function _renderManagedHackReport(report) {
     <td>${_money(s.costPerUser, s.currency || currency)}</td>
     <td style="color:var(--danger);font-size:11px;">${esc(s.error || '')}</td>
   </tr>`).join('') || '<tr><td colspan="7" class="empty">No subscription costs supplied</td></tr>';
+
+  const gh = report.github || {};
+  const ghSection = gh.enabled ? `
+    <h4 style="margin-top:16px;">🐙 GitHub Seats</h4>
+    <table><thead><tr><th>Plan</th><th>Users</th><th>Unit Cost / Mo</th><th>Monthly Total</th><th>${(costs.billingMonths || 1) > 1 ? (costs.billingMonths + '-Mo Total') : 'Period Total'}</th></tr></thead>
+    <tbody><tr>
+      <td>${esc(gh.withCopilot ? 'GitHub Enterprise + Copilot' : 'GitHub Enterprise')}</td>
+      <td>${gh.users || 0}</td>
+      <td>${_money(gh.unitCostMonthly, currency)}</td>
+      <td>${_money(gh.monthlyCost, currency)}</td>
+      <td>${_money(gh.periodCost, currency)}</td>
+    </tr></tbody></table>` : '';
 
   const teamRows = teams.map(t => `<tr>
     <td>${esc(t.team)}</td><td>${t.users || 0}</td><td>${_money(t.licenseCost, currency)}</td><td>${_money(t.subscriptionCost, currency)}</td><td>${_money(t.totalEstimatedCost, currency)}</td>
@@ -5832,6 +6318,7 @@ function _renderManagedHackReport(report) {
     ${notes}
     <h4 style="margin-top:16px;">Licenses</h4>
     <table><thead><tr><th>License</th><th>Assigned Users</th><th>Unit Cost</th><th>Estimated Monthly Cost</th></tr></thead><tbody>${licenseRows}</tbody></table>
+    ${ghSection}
     <h4 style="margin-top:16px;">Subscription Costs</h4>
     <table><thead><tr><th>Subscription</th><th>Team</th><th>Source</th><th>Users</th><th>Cost</th><th>Cost / User</th><th>Error</th></tr></thead><tbody>${subRows}</tbody></table>
     <h4 style="margin-top:16px;">Team Allocation</h4>
@@ -5866,6 +6353,12 @@ function downloadManagedHackReportCsv() {
   add('', '', '');
   add('Licenses', 'Name', 'Assigned Users', 'Unit Cost', 'Estimated Monthly Cost');
   for (const l of ((_managedHackReport.licenses || {}).items || [])) add('Licenses', licenseDisplayName(l.name), l.assignedUsers, l.unitCost, l.estimatedMonthlyCost);
+  const gh = _managedHackReport.github || {};
+  if (gh.enabled) {
+    add('', '', '');
+    add('GitHub', 'Plan', 'Users', 'Unit Cost / Mo', 'Monthly Cost', 'Period Cost');
+    add('GitHub', gh.withCopilot ? 'Enterprise + Copilot' : 'Enterprise', gh.users, gh.unitCostMonthly, gh.monthlyCost, gh.periodCost);
+  }
   add('', '', '');
   add('Subscriptions', 'Subscription ID', 'Team', 'Source', 'Target Users', 'Cost', 'Cost Per User', 'Error');
   for (const sub of ((_managedHackReport.subscriptions || {}).items || [])) add('Subscriptions', sub.subscriptionId, sub.team || 'all participants', sub.source, sub.targetUsers, sub.cost, sub.costPerUser, sub.error || '');
@@ -6709,7 +7202,7 @@ function appendProvisionResults(pdata) {
     html += `<td style="padding:4px 6px;text-align:center;"><span style="background:${statusColor};color:#fff;padding:1px 6px;border-radius:4px;font-size:10px;">${u.status}</span></td>`;
     html += `<td style="padding:4px 6px;font-family:monospace;font-size:11px;">${esc(u.password || '-')}</td>`;
     html += `<td style="padding:4px 6px;font-family:monospace;font-size:11px;">${esc(u.tap || '-')}</td>`;
-    html += `<td style="padding:4px 6px;font-size:11px;" title="${escAttr((u.licenses || []).join(', '))}">${esc(formatLicenseList(u.licenses)) || '-'}</td>`;
+    html += `<td style="padding:4px 6px;font-size:11px;" title="${escAttr(formatLicenseList(u.licenses, true))}">${esc(formatLicenseList(u.licenses)) || '-'}</td>`;
     html += `</tr>`;
   }
   html += `</tbody></table></div>`;
