@@ -53,13 +53,13 @@ Write-Host ">> Configuring startup and settings..." -ForegroundColor Yellow
 az webapp config set `
     --name $AppName `
     --resource-group $RG `
-    --startup-file "gunicorn --bind 0.0.0.0:8000 --timeout 600 --workers 1 --threads 8 --chdir /home/site/wwwroot app:app" `
+    --startup-file "gunicorn --bind 0.0.0.0:8000 --timeout 600 --workers 1 --threads 8 app:app" `
     --output none
 
 az webapp config appsettings set `
     --name $AppName `
     --resource-group $RG `
-    --settings SCM_DO_BUILD_DURING_DEPLOYMENT=true WEBSITES_CONTAINER_START_TIME_LIMIT=600 `
+    --settings SCM_DO_BUILD_DURING_DEPLOYMENT=true WEBSITES_CONTAINER_START_TIME_LIMIT=600 DISABLE_COLLECTSTATIC=true ORYX_DISABLE_COMPRESS=true `
     --output none
 
 # 5) Enable always-on (keeps app running, background threads stay alive)

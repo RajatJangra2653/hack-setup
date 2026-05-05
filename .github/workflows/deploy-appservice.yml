@@ -38,6 +38,7 @@ jobs:
 
           # Copy required folders (excluding dev artifacts)
           cp -r frontend staging/
+          cp -r routes staging/
           cp -r src staging/
           cp -r assets staging/
 

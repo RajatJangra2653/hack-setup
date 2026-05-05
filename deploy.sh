@@ -60,6 +60,7 @@ az webapp config appsettings set \
   --settings \
     SCM_DO_BUILD_DURING_DEPLOYMENT=true \
     WEBSITES_CONTAINER_START_TIME_LIMIT=600 \
+    ORYX_DISABLE_COMPRESS=true \
   --output none
 
 # 5) Enable always-on so background threads stay alive

@@ -70,7 +70,7 @@ def patch_hack_config(prefix):
     if not state:
         return jsonify({"error": f"No state found for prefix '{prefix}'"}), 404
 
-    ALLOWED_KEYS = {"enableGithub", "enableGithubCopilot", "enableGithubGhas", "enableGithubForAdmins"}
+    ALLOWED_KEYS = {"enableGithub", "enableGithubCopilot", "enableGithubGhas", "enableGithubForAdmins", "enablePowerApps"}
     data = request.get_json(silent=True) or {}
     updates = {k: v for k, v in data.items() if k in ALLOWED_KEYS}
     if not updates:
@@ -613,3 +613,148 @@ def get_license_prices():
             "withoutCopilot": GITHUB_SEAT_COST_WITHOUT_COPILOT,
         },
     })
+
+
+# ────────────────────── Power Platform ──────────────────────
+
+@bp.route("/api/hack-state/<prefix>/powerplatform", methods=["POST"])
+def create_powerplatform_env(prefix):
+    """Create a Power Apps environment for a hack and update state."""
+    data = request.get_json(silent=True) or {}
+    creds = extract_creds(data)
+    if not creds:
+        return jsonify({"error": "Missing SPN credentials"}), 400
+
+    mgr = get_state_manager()
+    if not mgr:
+        return jsonify({"error": "Storage not configured"}), 503
+    state = mgr.get_state(prefix)
+    if not state:
+        return jsonify({"error": f"No state found for prefix '{prefix}'"}), 404
+
+    hack_name = state.get("hackName") or state.get("prefix") or prefix
+    env_display_name = f"AI HACK - {hack_name}"
+    location = (data.get("location") or "unitedstates").strip()
+
+    # Use the admin group as security group if available
+    security_group_id = None
+    groups = state.get("groups") or []
+    # Prefer the all-users group or admin group for env access
+    for g in groups:
+        gname = g if isinstance(g, str) else (g.get("displayName") or "")
+        if "all" in gname.lower() or "admin" in gname.lower():
+            security_group_id = g.get("id") if isinstance(g, dict) else None
+            break
+
+    import asyncio
+    from onedrive_provisioner.powerplatform.service import PowerPlatformService
+
+    tp = make_token_provider(*creds)
+    svc = PowerPlatformService(tp)
+
+    try:
+        result = asyncio.run(svc.create_environment(
+            display_name=env_display_name,
+            location=location,
+            security_group_id=security_group_id,
+        ))
+
+        # Persist in state
+        cfg = state.get("config") or {}
+        cfg["enablePowerApps"] = True
+        cfg["powerAppsEnvName"] = result.get("name", "")
+        cfg["powerAppsEnvDisplayName"] = env_display_name
+        cfg["powerAppsEnvId"] = result.get("id", "")
+        cfg["powerAppsEnvUrl"] = result.get("url", "")
+        state["config"] = cfg
+        mgr.save_state(prefix, state)
+
+        # Add users to environment if no security group was used
+        user_results = []
+        if not security_group_id:
+            users = state.get("users") or []
+            user_ids = [u.get("userId") for u in users if u.get("userId")]
+            if user_ids:
+                async def _add_users():
+                    results = []
+                    for uid in user_ids:
+                        try:
+                            r = await svc.add_user_to_environment(
+                                result["name"], uid
+                            )
+                            results.append(r)
+                        except Exception as exc:
+                            results.append({
+                                "status": "failed",
+                                "userId": uid,
+                                "error": str(exc),
+                            })
+                    return results
+                user_results = asyncio.run(_add_users())
+
+        result["usersAdded"] = len([r for r in user_results if r.get("status") == "added"])
+        result["usersFailed"] = len([r for r in user_results if r.get("status") == "failed"])
+        result["userResults"] = user_results
+        return jsonify(result)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@bp.route("/api/hack-state/<prefix>/powerplatform", methods=["DELETE"])
+def delete_powerplatform_env(prefix):
+    """Delete the Power Apps environment for a hack."""
+    data = request.get_json(silent=True) or {}
+    creds = extract_creds(data)
+    if not creds:
+        return jsonify({"error": "Missing SPN credentials"}), 400
+
+    mgr = get_state_manager()
+    if not mgr:
+        return jsonify({"error": "Storage not configured"}), 503
+    state = mgr.get_state(prefix)
+    if not state:
+        return jsonify({"error": f"No state found for prefix '{prefix}'"}), 404
+
+    cfg = state.get("config") or {}
+    env_name = cfg.get("powerAppsEnvName") or ""
+    if not env_name:
+        return jsonify({"error": "No Power Apps environment found in hack state"}), 404
+
+    import asyncio
+    from onedrive_provisioner.powerplatform.service import PowerPlatformService
+
+    tp = make_token_provider(*creds)
+    svc = PowerPlatformService(tp)
+
+    try:
+        result = asyncio.run(svc.delete_environment(env_name))
+        # Update state
+        cfg["enablePowerApps"] = False
+        cfg.pop("powerAppsEnvName", None)
+        cfg.pop("powerAppsEnvId", None)
+        cfg.pop("powerAppsEnvUrl", None)
+        state["config"] = cfg
+        mgr.save_state(prefix, state)
+        return jsonify(result)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@bp.route("/api/powerplatform/environments", methods=["POST"])
+def list_powerplatform_envs():
+    """List Power Platform environments visible to the SPN."""
+    data = request.get_json(silent=True) or {}
+    creds = extract_creds(data)
+    if not creds:
+        return jsonify({"error": "Missing SPN credentials"}), 400
+
+    import asyncio
+    from onedrive_provisioner.powerplatform.service import PowerPlatformService
+
+    tp = make_token_provider(*creds)
+    svc = PowerPlatformService(tp)
+    try:
+        envs = asyncio.run(svc.list_environments())
+        return jsonify({"environments": envs})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
