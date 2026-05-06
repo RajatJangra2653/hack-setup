@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 import sys
 
-from flask import Flask
+from flask import Flask, request, abort
 
 # -- Load .env (best-effort) --
 try:
@@ -34,6 +34,18 @@ app = Flask(__name__, static_folder=None)
 app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # 200 MB upload limit
 
 register_blueprints(app)
+
+# -- Domain validation middleware (Easy Auth sets X-MS-CLIENT-PRINCIPAL-NAME) --
+ALLOWED_DOMAINS = {"spektrasystems.com", "copilot4cloudlabs.onmicrosoft.com"}
+
+@app.before_request
+def _validate_domain():
+    email = request.headers.get("X-MS-CLIENT-PRINCIPAL-NAME", "")
+    if not email:
+        return  # local dev or Easy Auth not enabled
+    domain = email.rsplit("@", 1)[-1].lower() if "@" in email else ""
+    if domain not in ALLOWED_DOMAINS:
+        abort(403, description="Access denied: your organisation is not permitted.")
 
 
 if __name__ == "__main__":

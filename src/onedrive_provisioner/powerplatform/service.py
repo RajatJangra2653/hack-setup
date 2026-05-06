@@ -27,7 +27,11 @@ logger = get_logger(__name__)
 
 BAP_BASE = "https://api.bap.microsoft.com"
 BAP_API_VERSION = "2021-04-01"
-POWERPLATFORM_SCOPE = ["https://service.powerapps.com/.default"]
+# The BAP admin API accepts tokens scoped to either:
+#   - https://service.powerapps.com/.default  (legacy / user-delegated)
+#   - https://api.bap.microsoft.com/.default  (app-only / admin)
+# For client-credentials (SPN) flow, the api.bap.microsoft.com scope is required.
+POWERPLATFORM_SCOPE = ["https://api.bap.microsoft.com/.default"]
 
 
 class PowerPlatformService:

@@ -70,7 +70,7 @@ def patch_hack_config(prefix):
     if not state:
         return jsonify({"error": f"No state found for prefix '{prefix}'"}), 404
 
-    ALLOWED_KEYS = {"enableGithub", "enableGithubCopilot", "enableGithubGhas", "enableGithubForAdmins", "enablePowerApps"}
+    ALLOWED_KEYS = {"enableGithub", "enableGithubCopilot", "enableGithubGhas", "enableGithubForAdmins", "enablePowerApps", "enableSharePoint"}
     data = request.get_json(silent=True) or {}
     updates = {k: v for k, v in data.items() if k in ALLOWED_KEYS}
     if not updates:
@@ -756,5 +756,131 @@ def list_powerplatform_envs():
     try:
         envs = asyncio.run(svc.list_environments())
         return jsonify({"environments": envs})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+# ────────────────────── SharePoint Site ──────────────────────
+
+@bp.route("/api/hack-state/<prefix>/sharepoint", methods=["POST"])
+def create_sharepoint_site(prefix):
+    """Create a SharePoint site for a hack and grant all groups/users access."""
+    data = request.get_json(silent=True) or {}
+    creds = extract_creds(data)
+    if not creds:
+        return jsonify({"error": "Missing SPN credentials"}), 400
+
+    mgr = get_state_manager()
+    if not mgr:
+        return jsonify({"error": "Storage not configured"}), 503
+    state = mgr.get_state(prefix)
+    if not state:
+        return jsonify({"error": f"No state found for prefix '{prefix}'"}), 404
+
+    site_name = (data.get("siteName") or "").strip()
+    hack_name = state.get("hackName") or state.get("prefix") or prefix
+    display_name = site_name or f"AI HACK - {hack_name}"
+
+    # Generate a URL-safe alias from the display name
+    import re
+    alias = re.sub(r'[^a-zA-Z0-9]', '', display_name.lower())[:40] or "aihacksite"
+
+    # Collect owner IDs (admin users)
+    owner_ids = []
+    for u in (state.get("users") or []):
+        if u.get("isAdmin") and u.get("userId"):
+            owner_ids.append(u["userId"])
+
+    import asyncio
+    from onedrive_provisioner.sharepoint.service import SharePointService
+
+    tp = make_token_provider(*creds)
+    svc = SharePointService(tp)
+
+    try:
+        result = asyncio.run(svc.create_site(
+            display_name=display_name,
+            alias=alias,
+            description=f"SharePoint site for {hack_name}",
+            owner_ids=owner_ids[:20] or None,
+        ))
+
+        group_id = result.get("groupId", "")
+
+        # Add all hack users as members
+        user_results = []
+        if group_id:
+            user_ids = [u.get("userId") for u in (state.get("users") or []) if u.get("userId")]
+            group_ids = [g.get("id") for g in (state.get("groups") or []) if isinstance(g, dict) and g.get("id")]
+
+            async def _grant_access():
+                member_results = []
+                # Add individual users
+                if user_ids:
+                    member_results.extend(await svc.add_members(group_id, user_ids))
+                # Add groups
+                if group_ids:
+                    member_results.extend(await svc.add_group_members(group_id, group_ids))
+                return member_results
+
+            user_results = asyncio.run(_grant_access())
+
+        # Persist in state
+        cfg = state.get("config") or {}
+        cfg["enableSharePoint"] = True
+        cfg["sharePointSiteName"] = display_name
+        cfg["sharePointSiteUrl"] = result.get("siteUrl", "")
+        cfg["sharePointSiteId"] = result.get("siteId", "")
+        cfg["sharePointGroupId"] = group_id
+        state["config"] = cfg
+        mgr.save_state(prefix, state)
+
+        added = len([r for r in user_results if r.get("status") in ("added", "already-member")])
+        failed = len([r for r in user_results if r.get("status") == "failed"])
+        result["membersAdded"] = added
+        result["membersFailed"] = failed
+        result["memberResults"] = user_results
+        return jsonify(result)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@bp.route("/api/hack-state/<prefix>/sharepoint", methods=["DELETE"])
+def delete_sharepoint_site(prefix):
+    """Delete the SharePoint site (M365 group) for a hack."""
+    data = request.get_json(silent=True) or {}
+    creds = extract_creds(data)
+    if not creds:
+        return jsonify({"error": "Missing SPN credentials"}), 400
+
+    mgr = get_state_manager()
+    if not mgr:
+        return jsonify({"error": "Storage not configured"}), 503
+    state = mgr.get_state(prefix)
+    if not state:
+        return jsonify({"error": f"No state found for prefix '{prefix}'"}), 404
+
+    cfg = state.get("config") or {}
+    group_id = cfg.get("sharePointGroupId") or ""
+    if not group_id:
+        return jsonify({"error": "No SharePoint site found in hack state"}), 404
+
+    import asyncio
+    from onedrive_provisioner.sharepoint.service import SharePointService
+
+    tp = make_token_provider(*creds)
+    svc = SharePointService(tp)
+
+    try:
+        result = asyncio.run(svc.delete_site(group_id))
+        # Update state
+        cfg["enableSharePoint"] = False
+        cfg.pop("sharePointSiteName", None)
+        cfg.pop("sharePointSiteUrl", None)
+        cfg.pop("sharePointSiteId", None)
+        cfg.pop("sharePointGroupId", None)
+        state["config"] = cfg
+        mgr.save_state(prefix, state)
+        return jsonify(result)
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
