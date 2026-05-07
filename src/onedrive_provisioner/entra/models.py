@@ -61,6 +61,8 @@ LICENSE_DISPLAY_NAMES: Dict[str, str] = {
     "Microsoft_Copilot_Studio_User": "Microsoft Copilot Studio User",
     "CCIBOTS_PRIVPREV_VIRAL": "Microsoft Copilot Studio",
     "COPILOT_STUDIO": "Microsoft Copilot Studio",
+    "MDVM_ADDON": "Microsoft Defender Vulnerability Management",
+    "MDE_SMB": "Microsoft Defender for Business",
 }
 
 

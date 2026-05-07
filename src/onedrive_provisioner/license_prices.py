@@ -38,6 +38,7 @@ NCE_LICENSE_PRICES: Dict[str, float] = {
     "Microsoft 365 Business Basic": 7.20,
     "Microsoft Teams Essentials": 4.80,
     "Office 365 F3": 4.80,
+    "Microsoft Defender Vulnerability Management": 3.00,
     "Microsoft 365 F1": 2.76,
 }
 
