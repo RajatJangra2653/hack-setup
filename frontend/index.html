@@ -123,134 +123,214 @@
     <div class="result-detail-body" id="resultDetailBody"></div>
   </div>
 
-  <header>
-    <div class="container hero-shell">
-      <div class="hero-mark">⚡</div>
-      <div class="hero-copy">
-        <div class="eyebrow">Azure + Microsoft Entra hack lifecycle</div>
-        <h1>Spektra HackOps</h1>
-      </div>
-      <div class="global-utils">
-        <button class="global-nav-btn" onclick="switchView('dashboard')" id="dashboardBtn" title="All Hacks Dashboard">
-          <span class="gnb-icon">📊</span><span class="gnb-label">Dashboard</span>
-        </button>
-        <button class="global-nav-btn" onclick="switchView('tenant-setup')" title="Tenant readiness">
-          <span class="gnb-icon">🔧</span><span class="gnb-label">Tenant</span>
-        </button>
-        <button class="global-nav-btn" onclick="switchView('chat')" title="AI helper (Ctrl+/)">
-          <span class="gnb-icon">🤖</span><span class="gnb-label">AI Chat</span>
-        </button>
-        <button class="global-nav-btn" onclick="switchView('help')" title="Help &amp; docs (?)">
-          <span class="gnb-icon">❓</span><span class="gnb-label">Help</span>
-        </button>
-        <button class="global-nav-btn" onclick="toggleActivityDrawer()" title="Activity feed" id="activityToggleBtn" style="position:relative;">
-          <span class="gnb-icon">📋</span><span class="gnb-label">Activity</span>
-          <span id="activityBadge" class="hidden" style="position:absolute;top:2px;right:2px;background:var(--danger);color:#fff;font-size:10px;font-weight:700;min-width:16px;height:16px;border-radius:8px;display:grid;place-items:center;line-height:1;">0</span>
-        </button>
+  <button class="sidebar-toggle" id="sidebarToggle" onclick="toggleSidebar()" title="Toggle navigation menu">☰</button>
+  <div class="sidebar-backdrop" id="sidebarBackdrop" onclick="toggleSidebar(false)"></div>
+
+  <div class="app-shell">
+
+  <!-- ════════════ Sidebar ════════════ -->
+  <aside class="app-sidebar" id="appSidebar">
+    <div class="sidebar-brand">
+      <div class="brand-icon">⚡</div>
+      <h1>Spektra HackOps</h1>
+      <div class="brand-sub">Azure + Entra Lifecycle</div>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Overview</div>
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-item" data-view="connection" onclick="switchView('connection')" title="Configure your Azure Service Principal credentials to connect to your tenant">
+          <span class="nav-icon">🔗</span><span class="nav-label">Connection</span>
+          <span class="conn-dot disconnected" id="sidebarConnDot"></span>
+        </li>
+        <li class="sidebar-nav-item" data-view="dashboard" onclick="switchView('dashboard')" title="View all hacks at a glance — status, dates, user counts, cost, and lifecycle phase">
+          <span class="nav-icon">📊</span><span class="nav-label">Dashboard</span>
+        </li>
+      </ul>
+    </div>
+
+    <div class="sidebar-divider"></div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Lifecycle Steps</div>
+      <ul class="sidebar-nav" id="sidebarLifecycleNav">
+        <li class="sidebar-nav-item" data-view="provision" onclick="switchView('provision')" title="Define hack name, teams, admins, TAP policy, passwords, licenses, and lifecycle dates — then provision users in Entra">
+          <span class="nav-step">01</span><span class="nav-icon">📋</span><span class="nav-label">Setup Hack</span>
+          <span class="nav-dot ss-not-started" id="sidebarDot-provision"></span>
+        </li>
+        <li class="sidebar-nav-item" data-view="permissions" onclick="switchView('permissions')" title="Assign Azure RBAC roles (Owner / Contributor / Reader) to team groups or individual users on selected subscriptions">
+          <span class="nav-step">02</span><span class="nav-icon">🔐</span><span class="nav-label">Azure RBAC</span>
+          <span class="nav-dot ss-not-started" id="sidebarDot-permissions"></span>
+        </li>
+        <li class="sidebar-nav-item" data-view="upload" onclick="switchView('upload')" title="Seed starter files, policies, and payload content into participant OneDrives after users are provisioned">
+          <span class="nav-step">03</span><span class="nav-icon">📁</span><span class="nav-label">Upload Files</span>
+          <span class="nav-dot ss-not-started" id="sidebarDot-upload"></span>
+        </li>
+        <li class="sidebar-nav-item" data-view="manage" onclick="switchView('manage')" title="Load saved hack state, regenerate TAPs, add licenses, export user data, run drift detection, and create cost reports">
+          <span class="nav-step">04</span><span class="nav-icon">⚙️</span><span class="nav-label">Manage &amp; Report</span>
+          <span class="nav-dot ss-not-started" id="sidebarDot-manage"></span>
+        </li>
+        <li class="sidebar-nav-item" data-view="readonly" onclick="switchView('readonly')" title="Freeze participant workspaces when submissions close so judges can review content safely — downgrades RBAC permissions">
+          <span class="nav-step">05</span><span class="nav-icon">🔒</span><span class="nav-label">Read-only</span>
+          <span class="nav-dot ss-not-started" id="sidebarDot-readonly"></span>
+        </li>
+        <li class="sidebar-nav-item" data-view="cleanup" onclick="switchView('cleanup')" title="Delete hack users, groups, RBAC assignments, and licenses — then archive saved state for future reports">
+          <span class="nav-step">06</span><span class="nav-icon">🧹</span><span class="nav-label">Cleanup</span>
+          <span class="nav-dot ss-not-started" id="sidebarDot-cleanup"></span>
+        </li>
+      </ul>
+    </div>
+
+    <div class="sidebar-divider"></div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Tools</div>
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-item" data-view="github" onclick="switchView('github')" title="Add hack users to GitHub EMU groups and trigger SCIM sync for enterprise managed user access">
+          <span class="nav-icon">🐙</span><span class="nav-label">GitHub Access</span>
+        </li>
+        <li class="sidebar-nav-item" data-view="scheduler" onclick="switchView('scheduler')" title="Create and manage scheduled jobs for automated provision, read-only transition, and cleanup at set times">
+          <span class="nav-icon">⏰</span><span class="nav-label">Scheduler</span>
+        </li>
+        <li class="sidebar-nav-item" data-view="cost-calc" onclick="switchView('cost-calc')" title="Estimate hack costs before setup — select licenses, user count, date range, GitHub options, and Azure subscriptions">
+          <span class="nav-icon">💰</span><span class="nav-label">Cost Calculator</span>
+        </li>
+        <li class="sidebar-nav-item" data-view="tenant-setup" onclick="switchView('tenant-setup')" title="Verify required Microsoft Graph API permissions, service principal access, tenant domain, and license availability">
+          <span class="nav-icon">🔧</span><span class="nav-label">Tenant Check</span>
+        </li>
+      </ul>
+    </div>
+
+    <div class="sidebar-divider"></div>
+
+    <div class="sidebar-section">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-item" data-view="chat" onclick="switchView('chat')" title="Ask the AI assistant to inspect saved hacks, generate reports, expand teams, or explain next actions">
+          <span class="nav-icon">🤖</span><span class="nav-label">AI Chat</span>
+        </li>
+        <li class="sidebar-nav-item" data-view="help" onclick="switchView('help')" title="Complete feature guide with setup instructions, field meanings, operational tips, and glossary">
+          <span class="nav-icon">❓</span><span class="nav-label">Help &amp; Docs</span>
+        </li>
+      </ul>
+    </div>
+
+    <div class="sidebar-footer">
+      <div class="sidebar-conn" onclick="switchView('connection')" title="Click to manage your Azure Service Principal connection">
+        <span class="conn-dot disconnected" id="sidebarConnDotBottom"></span>
+        <span id="sidebarConnLabel" style="font-size:11px;color:rgba(255,255,255,.6);">Not connected</span>
       </div>
     </div>
-  </header>
+  </aside>
 
-  <!-- ═══════════ Persistent Hack Context Bar ═══════════ -->
-  <div class="hack-context-bar" id="hackContextBar">
-    <div class="hack-context-inner">
-      <span class="hack-context-label">Active hack:</span>
-      <select id="globalHackSelect" class="hack-context-select" onchange="applyGlobalHackSelection()">
+  <!-- ════════════ Top Bar ════════════ -->
+  <div class="app-topbar">
+    <div class="topbar-hack-select">
+      <span class="hack-context-label" title="Select an active hack to auto-fill prefix fields across all views">Active hack:</span>
+      <select id="globalHackSelect" class="hack-context-select" onchange="applyGlobalHackSelection()" title="Pick a saved hack to work with — prefix, dates, and config will auto-fill everywhere">
         <option value="">— Select saved hack —</option>
       </select>
-      <button class="btn btn-secondary btn-sm" type="button" onclick="withBusy(this, () => loadGlobalHackSelect(true))">↻</button>
-      <div id="hackContextMeta" class="hack-context-meta" style="display:none;">
-        <span id="hackContextUserCount"></span>
-        <span id="hackContextCountdown"></span>
-        <span id="hackContextStatus" class="ctx-pill"></span>
+      <button class="topbar-btn" type="button" onclick="withBusy(this, () => loadGlobalHackSelect(true))" title="Reload the list of saved hacks from storage">
+        <span class="tb-icon">↻</span>
+      </button>
+      <div id="hackContextMeta" class="topbar-hack-meta" style="display:none;">
+        <span id="hackContextUserCount" title="Total provisioned users in this hack"></span>
+        <span id="hackContextCountdown" title="Time remaining until the next lifecycle event"></span>
+        <span id="hackContextStatus" class="ctx-pill" title="Current lifecycle phase of the selected hack"></span>
       </div>
       <div id="hackContextEmpty" class="hack-context-empty">
-        No hack selected — pick one or <a href="#" onclick="event.preventDefault();switchView('provision')">create a new setup</a>
+        No hack selected — pick one or <a href="#" onclick="event.preventDefault();switchView('provision')" title="Create a new hack from scratch">create a new setup</a>
       </div>
+    </div>
+    <div class="topbar-actions">
+      <button class="topbar-btn" onclick="toggleActivityDrawer()" id="activityToggleBtn" title="View a real-time feed of all provisioning, upload, and cleanup operations" style="position:relative;">
+        <span class="tb-icon">📋</span> Activity
+        <span id="activityBadge" class="hidden" style="position:absolute;top:-2px;right:-2px;background:var(--danger);color:#fff;font-size:10px;font-weight:700;min-width:16px;height:16px;border-radius:8px;display:grid;place-items:center;line-height:1;">0</span>
+      </button>
     </div>
   </div>
 
-  <div class="container app-stage" id="main-content">
+  <!-- ════════════ Main Content ════════════ -->
+  <div class="app-content" id="main-content">
 
-    <!-- ═══════════ Primary Lifecycle Stepper ═══════════ -->
-    <section class="lifecycle-hub" role="navigation" aria-label="Hack lifecycle steps">
-      <div class="lifecycle-stepper" id="lifecycleStepper">
-        <div class="step-tab active" data-view="provision" onclick="switchView('provision')" role="tab" aria-selected="true">
-          <div class="step-status ss-not-started" id="stepDot-provision"></div>
-          <span class="step-num">01 Plan</span>
-          <span class="step-label">Setup Hack</span>
+    <!-- ────────── Connection View (Landing Page) ────────── -->
+    <div id="view-connection">
+      <div class="card" style="max-width:640px;">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+          <span style="font-size:28px;">🔗</span>
+          <div>
+            <h2 style="margin:0;">Connect to Azure Entra</h2>
+            <p class="hint" style="margin:0;">Enter your Service Principal credentials to get started. These are used for Microsoft Graph and Azure management API calls.</p>
+          </div>
         </div>
-        <div class="step-connector"></div>
-        <div class="step-tab" data-view="permissions" onclick="switchView('permissions')" role="tab" aria-selected="false">
-          <div class="step-status ss-not-started" id="stepDot-permissions"></div>
-          <span class="step-num">02 Access</span>
-          <span class="step-label">Azure RBAC</span>
-        </div>
-        <div class="step-connector"></div>
-        <div class="step-tab" data-view="upload" onclick="switchView('upload')" role="tab" aria-selected="false">
-          <div class="step-status ss-not-started" id="stepDot-upload"></div>
-          <span class="step-num">03 Content</span>
-          <span class="step-label">Upload Files</span>
-        </div>
-        <div class="step-connector"></div>
-        <div class="step-tab" data-view="manage" onclick="switchView('manage')" role="tab" aria-selected="false">
-          <div class="step-status ss-not-started" id="stepDot-manage"></div>
-          <span class="step-num">04 Operate</span>
-          <span class="step-label">Manage & Report</span>
-        </div>
-        <div class="step-connector"></div>
-        <div class="step-tab" data-view="readonly" onclick="switchView('readonly')" role="tab" aria-selected="false">
-          <div class="step-status ss-not-started" id="stepDot-readonly"></div>
-          <span class="step-num">05 Freeze</span>
-          <span class="step-label">Read-only</span>
-        </div>
-        <div class="step-connector"></div>
-        <div class="step-tab" data-view="cleanup" onclick="switchView('cleanup')" role="tab" aria-selected="false">
-          <div class="step-status ss-not-started" id="stepDot-cleanup"></div>
-          <span class="step-num">06 Finish</span>
-          <span class="step-label">Cleanup</span>
-        </div>
-      </div>
-
-      <!-- Hack-scoped utility bar -->
-      <div class="hack-utils-bar" id="hackUtilsBar">
-        <button class="hack-util-btn" data-view="github" onclick="switchView('github')">🐙 GitHub Access</button>
-        <button class="hack-util-btn" data-view="scheduler" onclick="switchView('scheduler')">⏰ Scheduler</button>
-        <button class="hack-util-btn" data-view="cost-calc" onclick="switchView('cost-calc')">💰 Cost Calculator</button>
-        <div class="hack-utils-sep"></div>
-        <button class="hack-util-btn" data-view="tenant-setup" onclick="switchView('tenant-setup')">🔧 Tenant Check</button>
-      </div>
-    </section>
-
-    <!-- ────────── SPN Credentials Card ────────── -->
-    <span id="activeStepTarget"></span>
-    <div id="secureConnectionCard" class="card">
-      <h2>Secure connection</h2>
-      <div class="hint" style="margin-bottom:12px">Enter the Service Principal credentials used for Microsoft Graph and Azure management calls. Values are sent per request and are not stored on the server.</div>
-      <div class="row">
-        <div class="form-group">
-          <label for="tenantId">Tenant ID</label>
-          <input type="text" id="tenantId" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+        <div class="row">
+          <div class="form-group">
+            <label for="tenantId" title="The Azure AD / Entra tenant directory ID (GUID) where hack users will be created">Tenant ID</label>
+            <input type="text" id="tenantId" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" title="Paste your Azure tenant directory ID here" />
+          </div>
+          <div class="form-group">
+            <label for="clientId" title="The Application (client) ID of the Service Principal registered in your Entra tenant">Client ID</label>
+            <input type="text" id="clientId" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" title="Paste the Application (client) ID from your app registration" />
+          </div>
         </div>
         <div class="form-group">
-          <label for="clientId">Client ID</label>
-          <input type="text" id="clientId" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+          <label for="clientSecret" title="The client secret value (not the secret ID) from your app registration's Certificates &amp; secrets page">Client Secret</label>
+          <input type="password" id="clientSecret" placeholder="••••••••••••••••" autocomplete="off" title="Paste the secret value — it is sent per-request and never stored on the server" />
+        </div>
+        <div class="checkbox-row">
+          <input type="checkbox" id="rememberCreds" onchange="if(!this.checked){document.getElementById('rememberSecret').checked=false;}" title="Save tenant ID and client ID in browser localStorage for convenience" />
+          <label for="rememberCreds" style="margin:0;cursor:pointer;">Remember tenant and client ID</label>
+        </div>
+        <div class="checkbox-row" style="margin-top:4px">
+          <input type="checkbox" id="rememberSecret" onchange="if(this.checked){document.getElementById('rememberCreds').checked=true;}" title="Also store the client secret in localStorage — convenient but not recommended on shared machines" />
+          <label for="rememberSecret" style="margin:0;cursor:pointer;">Also save Client Secret locally</label>
+          <span class="hint" style="margin-left:8px;font-size:0.82em;color:var(--color-warning)" title="Storing secrets in the browser is risky if others have access to this computer">(convenience &mdash; not recommended for shared machines)</span>
+        </div>
+        <div style="margin-top:16px;display:flex;gap:10px;align-items:center;">
+          <button class="btn btn-primary" onclick="testConnection()" id="testConnBtn" title="Validate credentials by calling the Microsoft Graph API to verify the service principal can authenticate">
+            🔌 Test Connection
+          </button>
+          <span id="connTestResult" style="font-size:13px;font-weight:600;"></span>
+        </div>
+        <div class="trust-note" style="margin-top:14px;">
+          <strong>Security tip:</strong> Use least-privilege app permissions for each lifecycle action, then revoke or rotate credentials after the event. Credentials are sent per-request and never stored on the server.
         </div>
       </div>
-      <div class="form-group">
-        <label for="clientSecret">Client Secret</label>
-        <input type="password" id="clientSecret" placeholder="••••••••••••••••" autocomplete="off" />
+      <div class="card" style="max-width:640px;">
+        <h3 style="margin-bottom:8px;">Quick Start</h3>
+        <p class="hint" style="margin-bottom:12px;">After connecting, follow the lifecycle steps in the sidebar to set up your hack:</p>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;">
+          <div style="padding:10px;border:1px solid var(--border);border-radius:10px;cursor:pointer;transition:all .12s;" onclick="switchView('provision')" title="Start by defining your hack configuration, teams, admins, and lifecycle dates">
+            <div style="font-size:10px;font-weight:800;color:var(--primary);letter-spacing:.08em;">01 PLAN</div>
+            <div style="font-weight:600;font-size:13px;">Setup Hack</div>
+            <div class="hint" style="font-size:11px;">Create users &amp; teams</div>
+          </div>
+          <div style="padding:10px;border:1px solid var(--border);border-radius:10px;cursor:pointer;transition:all .12s;" onclick="switchView('permissions')" title="After provisioning, grant Azure subscription access to teams">
+            <div style="font-size:10px;font-weight:800;color:var(--primary);letter-spacing:.08em;">02 ACCESS</div>
+            <div style="font-weight:600;font-size:13px;">Azure RBAC</div>
+            <div class="hint" style="font-size:11px;">Grant subscription roles</div>
+          </div>
+          <div style="padding:10px;border:1px solid var(--border);border-radius:10px;cursor:pointer;transition:all .12s;" onclick="switchView('upload')" title="Seed OneDrive content for participants after they are created">
+            <div style="font-size:10px;font-weight:800;color:var(--primary);letter-spacing:.08em;">03 CONTENT</div>
+            <div style="font-weight:600;font-size:13px;">Upload Files</div>
+            <div class="hint" style="font-size:11px;">Seed OneDrive content</div>
+          </div>
+          <div style="padding:10px;border:1px solid var(--border);border-radius:10px;cursor:pointer;transition:all .12s;" onclick="switchView('manage')" title="Manage the active hack — TAPs, licenses, drift detection, cost reports">
+            <div style="font-size:10px;font-weight:800;color:var(--primary);letter-spacing:.08em;">04 OPERATE</div>
+            <div style="font-weight:600;font-size:13px;">Manage &amp; Report</div>
+            <div class="hint" style="font-size:11px;">TAPs, reports, drift</div>
+          </div>
+          <div style="padding:10px;border:1px solid var(--border);border-radius:10px;cursor:pointer;transition:all .12s;" onclick="switchView('readonly')" title="When submissions close, freeze participant access by removing write permissions">
+            <div style="font-size:10px;font-weight:800;color:var(--primary);letter-spacing:.08em;">05 FREEZE</div>
+            <div style="font-weight:600;font-size:13px;">Read-only</div>
+            <div class="hint" style="font-size:11px;">Freeze workspaces</div>
+          </div>
+          <div style="padding:10px;border:1px solid var(--border);border-radius:10px;cursor:pointer;transition:all .12s;" onclick="switchView('cleanup')" title="After the hack ends, delete users, groups, and RBAC assignments, then archive state">
+            <div style="font-size:10px;font-weight:800;color:var(--primary);letter-spacing:.08em;">06 FINISH</div>
+            <div style="font-weight:600;font-size:13px;">Cleanup</div>
+            <div class="hint" style="font-size:11px;">Remove &amp; archive</div>
+          </div>
+        </div>
       </div>
-      <div class="checkbox-row">
-        <input type="checkbox" id="rememberCreds" onchange="if(!this.checked){document.getElementById('rememberSecret').checked=false;}" />
-        <label for="rememberCreds" style="margin:0;cursor:pointer;">Remember tenant and client ID</label>
-      </div>
-      <div class="checkbox-row" style="margin-top:4px">
-        <input type="checkbox" id="rememberSecret" onchange="if(this.checked){document.getElementById('rememberCreds').checked=true;}" />
-        <label for="rememberSecret" style="margin:0;cursor:pointer;">Also save Client Secret locally</label>
-        <span class="hint" style="margin-left:8px;font-size:0.82em;color:var(--color-warning)">(convenience &mdash; not recommended for shared machines)</span>
-      </div>
-      <div class="trust-note">Tip: use least-privilege app permissions for the lifecycle action you are performing, then revoke or rotate credentials after the event.</div>
     </div>
 
     <!-- ────────── Upload View ────────── -->
@@ -466,15 +546,15 @@
               </div>
               <div class="form-group">
                 <label for="ep-teams" id="ep-teams-label">Teams</label>
-                <input type="number" id="ep-teams" value="2" min="0" max="100" oninput="updateProvisionPreview()" />
+                <input type="number" id="ep-teams" value="2" min="0" max="100" oninput="updateProvisionPreview()" title="Number of teams to create — each gets a security group with team members" />
               </div>
               <div class="form-group">
                 <label for="ep-perTeam" id="ep-perTeam-label">Users per team</label>
-                <input type="number" id="ep-perTeam" value="5" min="0" max="500" oninput="updateProvisionPreview()" />
+                <input type="number" id="ep-perTeam" value="5" min="0" max="500" oninput="updateProvisionPreview()" title="Number of participant users created in each team" />
               </div>
               <div class="form-group">
                 <label for="ep-admins">Admin users</label>
-                <input type="number" id="ep-admins" value="1" min="0" max="50" oninput="updateProvisionPreview()" />
+                <input type="number" id="ep-admins" value="1" min="0" max="50" oninput="updateProvisionPreview()" title="Number of admin/proctor accounts to create — separate from team members" />
               </div>
             </div>
           </div>
@@ -586,7 +666,7 @@
               <label>Licenses to assign <span style="color:var(--danger)">*</span></label>
               <div class="hint">Select from your tenant's available licenses.</div>
               <div style="margin-bottom:8px;display:flex;gap:8px;align-items:center;">
-                <button class="btn btn-secondary btn-sm" onclick="withBusy(this, loadTenantLicenses)">🔄 Load from Tenant</button>
+                <button class="btn btn-secondary btn-sm" onclick="withBusy(this, loadTenantLicenses)" title="Fetch available license SKUs from your Entra tenant using the SPN credentials">🔄 Load from Tenant</button>
                 <span id="ep-licLoading" class="hidden"><span class="spinner" style="width:14px;height:14px;"></span></span>
               </div>
               <div id="ep-licenseAvailability" class="hidden" style="margin-bottom:10px;padding:8px 12px;background:#f7f9fc;border:1px solid var(--border);border-radius:6px;font-size:13px;"></div>
@@ -902,7 +982,7 @@
         </div>
 
         <div class="actions">
-          <button class="btn btn-secondary" onclick="withBusy(this, discoverForPermissions)">🔍 Discover Users / Groups from Hack Prefix</button>
+          <button class="btn btn-secondary" onclick="withBusy(this, discoverForPermissions)" title="Look up team groups and individual users by hack prefix to assign subscription roles">🔍 Discover Users / Groups from Hack Prefix</button>
           <button class="btn btn-secondary" onclick="withBusy(this, validateSubscriptions)">✅ Validate Subscriptions</button>
           <span id="pp-spinner" class="hidden"><span class="spinner"></span></span>
           <div id="pp-progress" class="op-progress"><div class="op-progress-track"><div class="op-progress-fill"></div></div><div class="op-progress-text"></div></div>
@@ -989,7 +1069,7 @@
         </div>
 
         <div class="actions">
-          <button class="btn btn-secondary" onclick="withBusy(this, discoverForReadOnly)">🔍 Discover principals</button>
+          <button class="btn btn-secondary" onclick="withBusy(this, discoverForReadOnly)" title="Look up team groups and users by hack prefix so you can downgrade their Azure permissions">🔍 Discover principals</button>
           <span id="ro-spinner" class="hidden"><span class="spinner"></span></span>
           <div id="ro-progress" class="op-progress"><div class="op-progress-track"><div class="op-progress-fill"></div></div><div class="op-progress-text"></div></div>
         </div>
@@ -1045,7 +1125,7 @@
             <div class="hint">Cleanup uses active hacks. After cleanup, the state appears under Archive.</div>
           </div>
           <div class="form-group" style="display:flex;align-items:flex-end;">
-            <button class="btn btn-secondary" onclick="withBusy(this, discoverForCleanup)">🔍 Discover</button>
+            <button class="btn btn-secondary" onclick="withBusy(this, discoverForCleanup)" title="Look up all users, groups, and RBAC assignments by hack prefix so you can review before deleting">🔍 Discover</button>
           </div>
         </div>
 
@@ -1231,7 +1311,7 @@
                   <textarea id="mh-tapUsers" rows="2" placeholder="user1@domain.com, user2@domain.com (blank = all non-admin users)"></textarea>
                 </div>
               </div>
-              <button class="btn btn-primary" data-archived-disabled="true" onclick="withBusy(this, regenTapForHack)">🔑 Regenerate TAP</button>
+              <button class="btn btn-primary" data-archived-disabled="true" onclick="withBusy(this, regenTapForHack)" title="Generate new Temporary Access Passes for users whose TAPs have expired">🔑 Regenerate TAP</button>
               <span id="mh-tapSpinner" class="hidden"><span class="spinner"></span></span>
               <div id="mh-tap-progress" class="op-progress"><div class="op-progress-track"><div class="op-progress-fill"></div></div><div class="op-progress-text"></div></div>
             </div>
@@ -1249,7 +1329,7 @@
                   <textarea id="mh-resetPwUsers" rows="2" placeholder="user1@domain.com, user2@domain.com (blank = all users)"></textarea>
                 </div>
               </div>
-              <button class="btn btn-primary" data-archived-disabled="true" onclick="withBusy(this, resetPasswordForHack)">🔒 Reset Password</button>
+              <button class="btn btn-primary" data-archived-disabled="true" onclick="withBusy(this, resetPasswordForHack)" title="Reset passwords for all participant and admin users in this hack">🔒 Reset Password</button>
               <span id="mh-resetPwSpinner" class="hidden"><span class="spinner"></span></span>
               <div id="mh-resetPw-progress" class="op-progress"><div class="op-progress-track"><div class="op-progress-fill"></div></div><div class="op-progress-text"></div></div>
             </div>
@@ -1280,7 +1360,7 @@
                 <label for="mh-licNames">License SKU names (comma-separated)</label>
                 <input type="text" id="mh-licNames" placeholder="e.g. M365_G3_GOV, COPILOT_FOR_MICROSOFT_365_GCC" />
               </div>
-              <button class="btn btn-primary" data-archived-disabled="true" onclick="withBusy(this, assignLicensesToHack)">📦 Assign Licenses</button>
+              <button class="btn btn-primary" data-archived-disabled="true" onclick="withBusy(this, assignLicensesToHack)" title="Assign selected M365 licenses to all users in this hack">📦 Assign Licenses</button>
               <span id="mh-licSpinner" class="hidden"><span class="spinner"></span></span>
               <div id="mh-lic-progress" class="op-progress"><div class="op-progress-track"><div class="op-progress-fill"></div></div><div class="op-progress-text"></div></div>
             </div>
@@ -1310,7 +1390,7 @@
                   </label>
                 </div>
               </details>
-              <button class="btn btn-primary" data-archived-disabled="true" onclick="withBusy(this, enableGithubForHack)">🐙 Enable GitHub</button>
+              <button class="btn btn-primary" data-archived-disabled="true" onclick="withBusy(this, enableGithubForHack)" title="Add all hack users to GitHub-EMU-backed Entra groups and trigger SCIM sync">🐙 Enable GitHub</button>
               <span id="mh-ghSpinner" class="hidden"><span class="spinner"></span></span>
               <div id="mh-gh-progress" class="op-progress"><div class="op-progress-track"><div class="op-progress-fill"></div></div><div class="op-progress-text"></div></div>
               <div id="mh-ghResultBox" class="hidden" style="margin-top:12px;">
@@ -1932,8 +2012,8 @@
           </div>
         </div>
         <div style="display:flex;gap:8px;">
-          <input type="text" id="chat-input" placeholder="Ask me anything about your hacks..." style="flex:1;" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat();}" />
-          <button class="btn btn-primary" id="chat-send-btn" onclick="sendChat()">Send</button>
+          <input type="text" id="chat-input" placeholder="Ask me anything about your hacks..." title="Type a question or command — the AI can list hacks, generate reports, expand teams, and more" style="flex:1;" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat();}" />
+          <button class="btn btn-primary" id="chat-send-btn" onclick="sendChat()" title="Send your message to the AI assistant">Send</button>
         </div>
         <div id="chat-thinking" class="hidden" style="margin-top:6px;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;">
           <span class="spinner" style="width:12px;height:12px;border:2px solid #999;border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;"></span>
@@ -2023,7 +2103,7 @@
     <div id="view-dashboard" class="hidden">
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:4px;flex-wrap:wrap;">
         <h2 style="margin:0;">📊 Hacks Dashboard</h2>
-        <button class="btn btn-secondary btn-sm" onclick="withBusy(this, loadDashboard)">↻ Refresh</button>
+        <button class="btn btn-secondary btn-sm" onclick="withBusy(this, loadDashboard)" title="Reload all hacks from storage and refresh the dashboard table">↻ Refresh</button>
         <button class="btn btn-sm" onclick="withBusy(this, dashSyncAllDrift)" id="dash-syncBtn" title="Sync state with Azure Entra ID for all active hacks">☁️ Sync with Entra</button>
         <span id="dash-syncSpinner" class="hidden"><span class="spinner"></span></span>
         <span id="dash-syncStatus" class="hint" style="font-size:12px;"></span>
@@ -2043,7 +2123,7 @@
 
       <!-- Filter -->
       <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;">
-        <input type="text" id="dash-filter" placeholder="Filter by name, prefix, domain…" style="max-width:340px;font-size:13px;" oninput="filterDashboard()" />
+        <input type="text" id="dash-filter" placeholder="Filter by name, prefix, domain…" title="Type to filter the dashboard table by hack name, prefix, domain, or creator" style="max-width:340px;font-size:13px;" oninput="filterDashboard()" />
         <label style="font-size:13px;"><input type="checkbox" id="dash-showArchived" checked onchange="filterDashboard()" /> Show archived</label>
       </div>
 
@@ -2223,9 +2303,10 @@
       </div>
     </div><!-- /view-help -->
 
-  </div>
+  </div><!-- /app-content -->
+  </div><!-- /app-shell -->
 
-  <footer>Spektra hack setup &mdash; powered by Microsoft Graph API</footer>
+  <footer style="text-align:center;padding:12px;font-size:12px;color:var(--muted);border-top:1px solid var(--border);">Spektra hack setup &mdash; powered by Microsoft Graph API</footer>
 
   <!-- ────────── Active Jobs Floating Panel ────────── -->
   <div id="jobsPanel" class="hidden" style="position:fixed;bottom:20px;left:20px;width:320px;max-height:260px;background:#fff;border-radius:8px;box-shadow:0 4px 20px rgba(0,0,0,.2);z-index:900;overflow:hidden;border:1px solid var(--border);">
@@ -3150,7 +3231,7 @@ function copyProvCode() {
 }
 
 // ──────────── View switching ────────────
-let _activeLifecycleView = 'provision';
+let _activeLifecycleView = 'connection';
 
 function scrollToActiveView() {
   const view = document.getElementById('view-' + _activeLifecycleView) || document.getElementById('activeStepTarget');
@@ -3158,58 +3239,89 @@ function scrollToActiveView() {
 }
 
 function switchView(name) {
-  const labels = {
-    'tenant-setup': 'Prepare tenant',
-    provision: 'Plan & provision',
-    permissions: 'Grant Azure access',
-    upload: 'Seed OneDrive content',
-    manage: 'Operate & report',
-    readonly: 'Freeze workspace',
-    cleanup: 'Cleanup safely',
-    github: 'Enable GitHub access',
-    scheduler: 'Automation scheduler',
-    'cost-calc': 'Cost calculator',
-    dashboard: 'All hacks overview',
-    chat: 'AI helper',
-    help: 'Help & docs'
-  };
-  const hints = {
-    'tenant-setup': 'Verify required Graph permissions, service principal access, tenant domain, and license availability before creating users.',
-    provision: 'Define dates, teams, admins, TAP policy, passwords, and licenses before running the hack setup.',
-    permissions: 'Assign the correct Azure RBAC role to participant teams or admin users on the selected subscriptions.',
-    upload: 'Seed starter files, policies, and payload content into participant OneDrives after users are ready.',
-    manage: 'Load saved hack state, regenerate TAPs, add licenses, export user data, and create cost reports.',
-    readonly: 'Freeze participant workspaces when submissions close so judges can review content safely.',
-    cleanup: 'Remove hack users, groups, RBAC assignments, and licenses, then archive saved state for future reports.',
-    github: 'Add users to GitHub-EMU groups and trigger sync. Works with an existing hack or a free-form list of emails.',
-    scheduler: 'Review queued provision, read-only, and cleanup jobs for the full hack lifecycle.',
-    'cost-calc': 'Estimate hack costs before setting it up — select licenses, user count, dates, and GitHub options.',
-    dashboard: 'View all hacks at a glance — status, dates, user counts, and lifecycle phase.',
-    chat: 'Ask the assistant to inspect saved hacks, generate reports, or explain next actions.',
-    help: 'Use the guide for setup instructions, field meanings, and operational safety checks.'
-  };
   _activeLifecycleView = name;
-  // Update stepper tabs
-  document.querySelectorAll('.step-tab[data-view]').forEach(t => {
-    const isActive = t.dataset.view === name;
-    t.classList.toggle('active', isActive);
-    t.setAttribute('aria-selected', isActive ? 'true' : 'false');
+
+  // Update sidebar active state
+  document.querySelectorAll('.sidebar-nav-item[data-view]').forEach(item => {
+    item.classList.toggle('active', item.dataset.view === name);
   });
-  // Update hack utility bar buttons
-  document.querySelectorAll('.hack-util-btn[data-view]').forEach(b => {
-    b.classList.toggle('active', b.dataset.view === name);
-  });
-  const secureConnectionCard = document.getElementById('secureConnectionCard');
-  if (secureConnectionCard) secureConnectionCard.classList.toggle('hidden', !['tenant-setup', 'provision', 'cost-calc'].includes(name));
-  ['upload','provision','permissions','readonly','cleanup','manage','scheduler','cost-calc','chat','tenant-setup','help','github','dashboard'].forEach(v => {
+
+  // Show/hide views (including connection)
+  const allViews = ['connection','upload','provision','permissions','readonly','cleanup','manage','scheduler','cost-calc','chat','tenant-setup','help','github','dashboard'];
+  allViews.forEach(v => {
     const el = document.getElementById('view-' + v);
     if (el) el.classList.toggle('hidden', v !== name);
   });
+
+  // Update connection status indicators
+  _updateConnStatus();
+
+  // On mobile, close sidebar after selecting
+  if (window.innerWidth <= 860) {
+    const sidebar = document.getElementById('appSidebar');
+    if (sidebar) sidebar.classList.remove('open');
+    const backdrop = document.getElementById('sidebarBackdrop');
+    if (backdrop) backdrop.classList.remove('open');
+  }
+
   if (name === 'provision') updateProvisionPreview();
   if (['permissions', 'readonly', 'cleanup', 'manage', 'scheduler', 'github'].includes(name)) refreshHackPrefixPickers();
   if (name === 'scheduler') loadAllScheduledJobs();
   if (name === 'cost-calc') initCostCalc();
   if (name === 'dashboard') loadDashboard();
+}
+
+function toggleSidebar(force) {
+  const sidebar = document.getElementById('appSidebar');
+  const backdrop = document.getElementById('sidebarBackdrop');
+  const shouldOpen = typeof force === 'boolean' ? force : !sidebar.classList.contains('open');
+  sidebar.classList.toggle('open', shouldOpen);
+  backdrop.classList.toggle('open', shouldOpen);
+}
+
+function _updateConnStatus() {
+  const creds = getCreds();
+  const connected = !!creds;
+  const dots = ['sidebarConnDot', 'sidebarConnDotBottom'];
+  dots.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.classList.toggle('connected', connected);
+      el.classList.toggle('disconnected', !connected);
+    }
+  });
+  const label = document.getElementById('sidebarConnLabel');
+  if (label) label.textContent = connected ? 'Connected' : 'Not connected';
+}
+
+async function testConnection() {
+  const creds = getCreds();
+  const resultEl = document.getElementById('connTestResult');
+  if (!creds) {
+    resultEl.innerHTML = '<span style="color:var(--danger);">❌ Fill in all three credential fields</span>';
+    return;
+  }
+  resultEl.innerHTML = '<span class="spinner" style="display:inline-block;width:14px;height:14px;"></span> Testing…';
+  try {
+    const res = await fetch(`${API}/tenant-info`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(creds),
+    });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      throw new Error(d.error || `HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    const domain = (data.domains || [])[0] || data.tenantId || '';
+    resultEl.innerHTML = `<span style="color:var(--success);font-weight:600;">✅ Connected</span>` +
+      (domain ? ` <span class="hint">— ${esc(domain)}</span>` : '');
+    _updateConnStatus();
+    toast('Connection successful', 'success');
+  } catch (e) {
+    resultEl.innerHTML = `<span style="color:var(--danger);">❌ ${esc(e.message)}</span>`;
+    toast('Connection failed: ' + e.message, 'danger');
+  }
 }
 
 // ──────────── Dashboard (all hacks overview) ────────────
@@ -8428,9 +8540,19 @@ function getSPNCreds() {
 
 // Init
 loadSavedCreds();
+_updateConnStatus();
+// Default to connection view if no saved creds, else dashboard
+const _initCreds = getCreds();
+switchView(_initCreds ? 'dashboard' : 'connection');
 refreshJobs();
 updateProvisionPreview();
 setTimeout(() => refreshHackPrefixPickers(true), 0);
+
+// Update connection status when cred fields change
+['tenantId', 'clientId', 'clientSecret'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('input', () => setTimeout(_updateConnStatus, 100));
+});
 
 // ──────────── Chatbot ────────────
 let _chatHistory = []; // [{role, content}, ...]
@@ -9153,17 +9275,17 @@ function renderActivityItems() {
 // ──────────── Step Status Dots ────────────
 function updateStepDots(hackState) {
   const dotMap = {
-    'provision': 'stepDot-provision',
-    'permissions': 'stepDot-permissions',
-    'upload': 'stepDot-upload',
-    'manage': 'stepDot-manage',
-    'readonly': 'stepDot-readonly',
-    'cleanup': 'stepDot-cleanup'
+    'provision': 'sidebarDot-provision',
+    'permissions': 'sidebarDot-permissions',
+    'upload': 'sidebarDot-upload',
+    'manage': 'sidebarDot-manage',
+    'readonly': 'sidebarDot-readonly',
+    'cleanup': 'sidebarDot-cleanup'
   };
   for (const [view, dotId] of Object.entries(dotMap)) {
     const dot = document.getElementById(dotId);
     if (!dot) continue;
-    dot.className = 'step-status';
+    dot.className = 'nav-dot';
     if (!hackState) { dot.classList.add('pending'); continue; }
     if (view === 'provision') {
       dot.classList.add(hackState.totalUsers > 0 ? 'done' : 'pending');
@@ -9185,17 +9307,14 @@ function updateStepDots(hackState) {
 function updateHackContextBar(hackData) {
   const meta = document.getElementById('hackContextMeta');
   const emptyEl = document.getElementById('hackContextEmpty');
-  const utilsBar = document.getElementById('hackUtilsBar');
   if (!hackData || !hackData.prefix) {
-    if (meta) meta.classList.add('hidden');
-    if (emptyEl) emptyEl.classList.remove('hidden');
-    if (utilsBar) utilsBar.classList.add('hidden');
+    if (meta) meta.style.display = 'none';
+    if (emptyEl) emptyEl.style.display = '';
     updateStepDots(null);
     return;
   }
-  if (meta) meta.classList.remove('hidden');
-  if (emptyEl) emptyEl.classList.add('hidden');
-  if (utilsBar) utilsBar.classList.remove('hidden');
+  if (meta) meta.style.display = '';
+  if (emptyEl) emptyEl.style.display = 'none';
   const countEl = document.getElementById('hackContextUserCount');
   const statusEl = document.getElementById('hackContextStatus');
   const countdownEl = document.getElementById('hackContextCountdown');
