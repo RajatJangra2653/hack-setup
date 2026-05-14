@@ -1139,6 +1139,21 @@ def _build_hack_report_api_impl(prefix):
                 "fetchSubscriptionCosts": bool(data.get("fetchSubscriptionCosts")),
                 "savedAt": datetime.now(timezone.utc).isoformat(),
             }
+            # Save a lightweight cost summary for the dashboard
+            rc = report.get("costs") or {}
+            rb = report.get("budget") or {}
+            state["lastReportCosts"] = {
+                "totalEstimated": rc.get("totalEstimated", 0),
+                "costPerUser": rc.get("costPerUser", 0),
+                "costPerDay": rc.get("costPerDay", 0),
+                "currency": rc.get("currency") or data.get("currency") or "USD",
+                "subscriptionPeriod": rc.get("subscriptionPeriod", 0),
+                "licensePeriod": rc.get("licensePeriod", 0),
+                "githubPeriod": rc.get("githubPeriod", 0),
+                "budgetUsedPercent": rb.get("usedPercent"),
+                "budgetStatus": rb.get("status"),
+                "generatedAt": report.get("generatedAt", ""),
+            }
             mgr.save_state(prefix, state, version=False)
         except Exception as exc:
             report.setdefault("notes", []).append(f"Could not persist cost inputs: {exc}")

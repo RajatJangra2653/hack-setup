@@ -102,6 +102,8 @@ class HackStateManager:
 
     @staticmethod
     def _summary_from_state(state: Dict[str, Any], prefix: str, *, archived: bool) -> Dict[str, Any]:
+        cfg = state.get("config") or {}
+        summary = state.get("summary") or {}
         return {
             "prefix": state.get("prefix", prefix),
             "hackName": state.get("hackName", ""),
@@ -118,6 +120,23 @@ class HackStateManager:
             "archived": archived or bool(state.get("archivedAt")),
             "archivedAt": state.get("archivedAt", ""),
             "archiveReason": state.get("archiveReason", ""),
+            # Enriched fields for dashboard
+            "teams": int(cfg.get("teams", 0)),
+            "usersPerTeam": int(cfg.get("usersPerTeam", 0)),
+            "adminUsers": int(cfg.get("adminUsers", 0)),
+            "licenses": cfg.get("licenses", []),
+            "mode": cfg.get("mode", "team"),
+            "lifecycleStatus": state.get("lifecycleStatus", ""),
+            "summary": {
+                "totalUsers": summary.get("totalUsers", state.get("totalUsers", 0)),
+                "created": summary.get("created", 0),
+                "existing": summary.get("existing", 0),
+                "failed": summary.get("failed", 0),
+                "admins": summary.get("admins", 0),
+                "groupsCreated": summary.get("groupsCreated", 0),
+            },
+            "subscriptionIds": state.get("subscriptionIds", []),
+            "lastReportCosts": state.get("lastReportCosts") or {},
         }
 
     def list_versions(self, prefix: str) -> List[str]:

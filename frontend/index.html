@@ -131,10 +131,22 @@
         <h1>Spektra HackOps</h1>
       </div>
       <div class="global-utils">
-        <button class="global-util-btn" onclick="switchView('tenant-setup')" title="Tenant readiness" aria-label="Tenant readiness">🔧</button>
-        <button class="global-util-btn" onclick="switchView('chat')" title="AI helper (Ctrl+/)" aria-label="AI helper">🤖</button>
-        <button class="global-util-btn" onclick="switchView('help')" title="Help & docs (?)" aria-label="Help">❓</button>
-        <button class="global-util-btn" onclick="toggleActivityDrawer()" title="Activity feed" aria-label="Activity feed" id="activityToggleBtn" style="position:relative;">📋<span id="activityBadge" class="hidden" style="position:absolute;top:-4px;right:-4px;background:var(--danger);color:#fff;font-size:10px;font-weight:700;min-width:16px;height:16px;border-radius:8px;display:grid;place-items:center;line-height:1;">0</span></button>
+        <button class="global-nav-btn" onclick="switchView('dashboard')" id="dashboardBtn" title="All Hacks Dashboard">
+          <span class="gnb-icon">📊</span><span class="gnb-label">Dashboard</span>
+        </button>
+        <button class="global-nav-btn" onclick="switchView('tenant-setup')" title="Tenant readiness">
+          <span class="gnb-icon">🔧</span><span class="gnb-label">Tenant</span>
+        </button>
+        <button class="global-nav-btn" onclick="switchView('chat')" title="AI helper (Ctrl+/)">
+          <span class="gnb-icon">🤖</span><span class="gnb-label">AI Chat</span>
+        </button>
+        <button class="global-nav-btn" onclick="switchView('help')" title="Help &amp; docs (?)">
+          <span class="gnb-icon">❓</span><span class="gnb-label">Help</span>
+        </button>
+        <button class="global-nav-btn" onclick="toggleActivityDrawer()" title="Activity feed" id="activityToggleBtn" style="position:relative;">
+          <span class="gnb-icon">📋</span><span class="gnb-label">Activity</span>
+          <span id="activityBadge" class="hidden" style="position:absolute;top:2px;right:2px;background:var(--danger);color:#fff;font-size:10px;font-weight:700;min-width:16px;height:16px;border-radius:8px;display:grid;place-items:center;line-height:1;">0</span>
+        </button>
       </div>
     </div>
   </header>
@@ -2007,6 +2019,60 @@
       </div>
     </div><!-- /view-tenant-setup -->
 
+    <!-- ────────── Dashboard View (all hacks overview) ────────── -->
+    <div id="view-dashboard" class="hidden">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:4px;flex-wrap:wrap;">
+        <h2 style="margin:0;">📊 Hacks Dashboard</h2>
+        <button class="btn btn-secondary btn-sm" onclick="withBusy(this, loadDashboard)">↻ Refresh</button>
+        <button class="btn btn-sm" onclick="withBusy(this, dashSyncAllDrift)" id="dash-syncBtn" title="Sync state with Azure Entra ID for all active hacks">☁️ Sync with Entra</button>
+        <span id="dash-syncSpinner" class="hidden"><span class="spinner"></span></span>
+        <span id="dash-syncStatus" class="hint" style="font-size:12px;"></span>
+      </div>
+      <p class="hint">Overview of all hacks — active and archived. Click a row to jump to Manage view.</p>
+
+      <!-- Summary KPIs -->
+      <div id="dash-kpis" class="dash-kpi-row">
+        <div class="dash-kpi"><div class="dash-kpi-val" id="dash-kTotal">—</div><div class="dash-kpi-label">Total Hacks</div></div>
+        <div class="dash-kpi"><div class="dash-kpi-val" id="dash-kActive">—</div><div class="dash-kpi-label">Active</div></div>
+        <div class="dash-kpi"><div class="dash-kpi-val" id="dash-kArchived">—</div><div class="dash-kpi-label">Archived</div></div>
+        <div class="dash-kpi"><div class="dash-kpi-val" id="dash-kUsers">—</div><div class="dash-kpi-label">Total Users</div></div>
+        <div class="dash-kpi"><div class="dash-kpi-val" id="dash-kTeams">—</div><div class="dash-kpi-label">Total Teams</div></div>
+        <div class="dash-kpi"><div class="dash-kpi-val" id="dash-kAdmins">—</div><div class="dash-kpi-label">Total Admins</div></div>
+        <div class="dash-kpi"><div class="dash-kpi-val" id="dash-kCost">—</div><div class="dash-kpi-label">Total Est. Cost</div></div>
+      </div>
+
+      <!-- Filter -->
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;">
+        <input type="text" id="dash-filter" placeholder="Filter by name, prefix, domain…" style="max-width:340px;font-size:13px;" oninput="filterDashboard()" />
+        <label style="font-size:13px;"><input type="checkbox" id="dash-showArchived" checked onchange="filterDashboard()" /> Show archived</label>
+      </div>
+
+      <div id="dash-spinner" class="hidden" style="text-align:center;padding:32px;"><span class="spinner"></span></div>
+      <div id="dash-empty" class="hidden" style="text-align:center;padding:32px;color:var(--muted);">No hacks found. Create one in the <strong>Setup Hack</strong> view.</div>
+
+      <div class="results-scroll" style="max-height:calc(100vh - 360px);">
+        <table id="dash-table" class="hidden" style="width:100%;">
+          <thead>
+            <tr>
+              <th style="cursor:pointer;" onclick="sortDashboard('hackName')">Hack Name ↕</th>
+              <th style="cursor:pointer;" onclick="sortDashboard('prefix')">Prefix ↕</th>
+              <th>Domain</th>
+              <th style="cursor:pointer;text-align:center;" onclick="sortDashboard('totalUsers')">Users ↕</th>
+              <th style="text-align:center;">Teams</th>
+              <th style="text-align:center;">Admins</th>
+              <th>Status</th>
+              <th style="cursor:pointer;text-align:right;" onclick="sortDashboard('_cost')">Est. Cost ↕</th>
+              <th style="cursor:pointer;" onclick="sortDashboard('hackDate')">Hack Date ↕</th>
+              <th>Readonly</th>
+              <th>Delete</th>
+              <th style="cursor:pointer;" onclick="sortDashboard('createdAt')">Created ↕</th>
+            </tr>
+          </thead>
+          <tbody id="dash-body"></tbody>
+        </table>
+      </div>
+    </div><!-- /view-dashboard -->
+
     <!-- ────────── Help / Documentation View ────────── -->
     <div id="view-help" class="hidden">
       <h2>❓ Help & Documentation</h2>
@@ -3103,6 +3169,7 @@ function switchView(name) {
     github: 'Enable GitHub access',
     scheduler: 'Automation scheduler',
     'cost-calc': 'Cost calculator',
+    dashboard: 'All hacks overview',
     chat: 'AI helper',
     help: 'Help & docs'
   };
@@ -3117,6 +3184,7 @@ function switchView(name) {
     github: 'Add users to GitHub-EMU groups and trigger sync. Works with an existing hack or a free-form list of emails.',
     scheduler: 'Review queued provision, read-only, and cleanup jobs for the full hack lifecycle.',
     'cost-calc': 'Estimate hack costs before setting it up — select licenses, user count, dates, and GitHub options.',
+    dashboard: 'View all hacks at a glance — status, dates, user counts, and lifecycle phase.',
     chat: 'Ask the assistant to inspect saved hacks, generate reports, or explain next actions.',
     help: 'Use the guide for setup instructions, field meanings, and operational safety checks.'
   };
@@ -3133,7 +3201,7 @@ function switchView(name) {
   });
   const secureConnectionCard = document.getElementById('secureConnectionCard');
   if (secureConnectionCard) secureConnectionCard.classList.toggle('hidden', !['tenant-setup', 'provision', 'cost-calc'].includes(name));
-  ['upload','provision','permissions','readonly','cleanup','manage','scheduler','cost-calc','chat','tenant-setup','help','github'].forEach(v => {
+  ['upload','provision','permissions','readonly','cleanup','manage','scheduler','cost-calc','chat','tenant-setup','help','github','dashboard'].forEach(v => {
     const el = document.getElementById('view-' + v);
     if (el) el.classList.toggle('hidden', v !== name);
   });
@@ -3141,6 +3209,251 @@ function switchView(name) {
   if (['permissions', 'readonly', 'cleanup', 'manage', 'scheduler', 'github'].includes(name)) refreshHackPrefixPickers();
   if (name === 'scheduler') loadAllScheduledJobs();
   if (name === 'cost-calc') initCostCalc();
+  if (name === 'dashboard') loadDashboard();
+}
+
+// ──────────── Dashboard (all hacks overview) ────────────
+let _dashData = []; // merged active + archived
+let _dashSortKey = 'hackDate';
+let _dashSortDir = -1; // -1 = descending
+
+async function loadDashboard() {
+  const spinner = document.getElementById('dash-spinner');
+  const empty = document.getElementById('dash-empty');
+  const table = document.getElementById('dash-table');
+  spinner.classList.remove('hidden');
+  table.classList.add('hidden');
+  empty.classList.add('hidden');
+  try {
+    const [activeRes, archivedRes] = await Promise.all([
+      fetch(`${API}/hack-state`),
+      fetch(`${API}/hack-state/archive`),
+    ]);
+    const active = activeRes.ok ? await activeRes.json() : [];
+    const archived = archivedRes.ok ? await archivedRes.json() : [];
+    _dashData = [...active, ...archived];
+    _renderDashboard();
+  } catch (e) {
+    toast('Failed to load dashboard: ' + e.message, 'danger');
+  } finally {
+    spinner.classList.add('hidden');
+  }
+}
+
+function _dashLifecycleStatus(h) {
+  if (h.archived) return { label: 'Archived', cls: 'dash-st-archived' };
+  const now = new Date();
+  const hackDate = h.hackDate ? new Date(h.hackDate) : null;
+  const roDate = h.readonlyDate ? new Date(h.readonlyDate) : null;
+  const delDate = (h.deleteDate || h.endDate) ? new Date(h.deleteDate || h.endDate) : null;
+  const startDate = h.hackStartDate ? new Date(h.hackStartDate) : null;
+
+  if (h.lifecycleStatus === 'readonly') return { label: 'Read-only', cls: 'dash-st-readonly' };
+  if (h.lifecycleStatus === 'deleted') return { label: 'Deleted', cls: 'dash-st-archived' };
+
+  if (delDate && now > delDate) return { label: 'Past delete date', cls: 'dash-st-overdue' };
+  if (roDate && now > roDate) return { label: 'Read-only', cls: 'dash-st-readonly' };
+  if (hackDate && now > hackDate) return { label: 'Hack ended', cls: 'dash-st-ended' };
+  if (startDate && now >= startDate && hackDate && now <= hackDate) return { label: 'In progress', cls: 'dash-st-active' };
+  if (startDate && now >= startDate) return { label: 'In progress', cls: 'dash-st-active' };
+  if (startDate && now < startDate) return { label: 'Scheduled', cls: 'dash-st-scheduled' };
+  if (h.totalUsers > 0) return { label: 'Provisioned', cls: 'dash-st-provisioned' };
+  return { label: 'Draft', cls: 'dash-st-draft' };
+}
+
+function _fmtDashDate(d) {
+  if (!d) return '<span class="hint">—</span>';
+  const dt = new Date(d);
+  const now = new Date();
+  const diff = dt - now;
+  const days = Math.ceil(diff / 86400000);
+  let rel = '';
+  if (days > 0 && days <= 14) rel = ` <span class="dash-countdown">${days}d</span>`;
+  else if (days <= 0 && days >= -1) rel = ' <span class="dash-countdown dash-cd-past">today</span>';
+  else if (days < -1 && days >= -7) rel = ` <span class="dash-countdown dash-cd-past">${Math.abs(days)}d ago</span>`;
+  return `<span style="font-size:12px;">${dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>${rel}`;
+}
+
+function _renderDashboard() {
+  const filtered = _getFilteredDash();
+  const table = document.getElementById('dash-table');
+  const empty = document.getElementById('dash-empty');
+  const body = document.getElementById('dash-body');
+
+  if (filtered.length === 0) {
+    table.classList.add('hidden');
+    empty.classList.remove('hidden');
+    body.innerHTML = '';
+  } else {
+    table.classList.remove('hidden');
+    empty.classList.add('hidden');
+  }
+
+  // KPIs
+  const active = _dashData.filter(h => !h.archived);
+  const archived = _dashData.filter(h => h.archived);
+  document.getElementById('dash-kTotal').textContent = String(_dashData.length);
+  document.getElementById('dash-kActive').textContent = String(active.length);
+  document.getElementById('dash-kArchived').textContent = String(archived.length);
+  document.getElementById('dash-kUsers').textContent = String(_dashData.reduce((s, h) => s + (h.totalUsers || 0), 0));
+  document.getElementById('dash-kTeams').textContent = String(_dashData.reduce((s, h) => s + (h.teams || 0), 0));
+  document.getElementById('dash-kAdmins').textContent = String(_dashData.reduce((s, h) => s + (h.adminUsers || 0), 0));
+  const totalCost = _dashData.reduce((s, h) => s + ((h.lastReportCosts || {}).totalEstimated || 0), 0);
+  const anyCurrency = _dashData.find(h => (h.lastReportCosts || {}).currency);
+  const cur = (anyCurrency && anyCurrency.lastReportCosts.currency) || 'USD';
+  document.getElementById('dash-kCost').textContent = totalCost > 0
+    ? `${cur === 'USD' ? '$' : cur + ' '}${totalCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+    : '—';
+
+  // Sort (support virtual _cost key)
+  const sorted = [...filtered].sort((a, b) => {
+    let va, vb;
+    if (_dashSortKey === '_cost') {
+      va = (a.lastReportCosts || {}).totalEstimated || 0;
+      vb = (b.lastReportCosts || {}).totalEstimated || 0;
+    } else {
+      va = a[_dashSortKey] || '';
+      vb = b[_dashSortKey] || '';
+    }
+    if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * _dashSortDir;
+    return String(va).localeCompare(String(vb)) * _dashSortDir;
+  });
+
+  // Push archived rows to the bottom regardless of sort
+  sorted.sort((a, b) => (a.archived ? 1 : 0) - (b.archived ? 1 : 0));
+
+  body.innerHTML = sorted.map(h => {
+    const st = _dashLifecycleStatus(h);
+    const teams = h.teams ? `${h.teams}×${h.usersPerTeam || 0}` : '—';
+    const lrc = h.lastReportCosts || {};
+    const costCell = lrc.totalEstimated
+      ? `<span style="font-weight:600;">${lrc.currency === 'USD' ? '$' : lrc.currency + ' '}${lrc.totalEstimated.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>${lrc.budgetStatus ? `<div class="hint" style="font-size:10px;">${_budgetPill(lrc)}</div>` : ''}`
+      : '<span class="hint">—</span>';
+    return `<tr class="dash-row${h.archived ? ' dash-archived' : ''}" onclick="dashOpenHack('${esc(h.prefix)}')" style="cursor:pointer;">
+      <td><strong>${esc(h.hackName || h.prefix)}</strong></td>
+      <td><code style="font-size:11px;">${esc(h.prefix)}</code></td>
+      <td style="font-size:12px;">${esc(h.domain || '—')}</td>
+      <td style="text-align:center;font-weight:600;">${h.totalUsers || 0}</td>
+      <td style="text-align:center;font-size:12px;">${teams}</td>
+      <td style="text-align:center;">${h.adminUsers || 0}</td>
+      <td><span class="dash-status ${st.cls}">${st.label}</span></td>
+      <td style="text-align:right;">${costCell}</td>
+      <td>${_fmtDashDate(h.hackDate)}</td>
+      <td>${_fmtDashDate(h.readonlyDate)}</td>
+      <td>${_fmtDashDate(h.deleteDate || h.endDate)}</td>
+      <td style="font-size:12px;">${(h.createdAt || '').substring(0, 10) || '—'}</td>
+    </tr>`;
+  }).join('');
+}
+
+function _budgetPill(lrc) {
+  if (!lrc.budgetStatus) return '';
+  const pct = lrc.budgetUsedPercent != null ? Math.round(lrc.budgetUsedPercent) + '%' : '';
+  if (lrc.budgetStatus === 'exceeded') return `<span style="color:var(--danger);font-weight:700;">⚠ ${pct} over budget</span>`;
+  if (lrc.budgetStatus === 'warning') return `<span style="color:#d48300;font-weight:600;">⚠ ${pct} used</span>`;
+  return `<span style="color:var(--success);">${pct} used</span>`;
+}
+
+function _getFilteredDash() {
+  const q = (document.getElementById('dash-filter').value || '').toLowerCase();
+  const showArchived = document.getElementById('dash-showArchived').checked;
+  return _dashData.filter(h => {
+    if (!showArchived && h.archived) return false;
+    if (!q) return true;
+    return [h.hackName, h.prefix, h.domain, h.createdBy].some(v => (v || '').toLowerCase().includes(q));
+  });
+}
+
+function filterDashboard() { _renderDashboard(); }
+
+function sortDashboard(key) {
+  if (_dashSortKey === key) { _dashSortDir *= -1; }
+  else { _dashSortKey = key; _dashSortDir = key === 'hackDate' || key === 'createdAt' || key === '_cost' ? -1 : 1; }
+  _renderDashboard();
+}
+
+function dashOpenHack(prefix) {
+  const cleanPrefix = prefix.replace(/-$/, '');
+  document.getElementById('mh-prefix').value = cleanPrefix;
+  const mhSelect = document.getElementById('mh-hackSelect');
+  if (mhSelect) mhSelect.value = cleanPrefix;
+  switchView('manage');
+  loadHackState();
+}
+
+// ──────────── Dashboard: Sync with Entra ────────────
+function _syncProgressBar(done, total, label) {
+  const pct = total ? Math.round((done / total) * 100) : 0;
+  return `<div style="display:inline-flex;align-items:center;gap:8px;min-width:260px;">
+    <div style="flex:1;height:6px;border-radius:3px;background:#e0e0e0;overflow:hidden;">
+      <div style="width:${pct}%;height:100%;background:var(--primary);border-radius:3px;transition:width .3s;"></div>
+    </div>
+    <span style="white-space:nowrap;font-size:12px;">${done}/${total}</span>
+    <span style="font-size:12px;">${label}</span>
+  </div>`;
+}
+
+async function dashSyncAllDrift() {
+  const creds = getCreds();
+  if (!creds) { toast('Enter SPN credentials first — needed to connect to Azure Entra', 'danger'); return; }
+  const activeHacks = _dashData.filter(h => !h.archived);
+  if (!activeHacks.length) { toast('No active hacks to sync', 'warn'); return; }
+
+  const syncBtn = document.getElementById('dash-syncBtn');
+  syncBtn.disabled = true;
+  document.getElementById('dash-syncSpinner').classList.remove('hidden');
+  const statusEl = document.getElementById('dash-syncStatus');
+  statusEl.innerHTML = _syncProgressBar(0, activeHacks.length, 'Connecting to Entra…');
+
+  let checked = 0, drifted = 0, absorbed = 0, errors = 0, inSync = 0;
+  for (const h of activeHacks) {
+    const name = h.hackName || h.prefix;
+    statusEl.innerHTML = _syncProgressBar(checked, activeHacks.length, `Syncing <strong>${esc(name)}</strong>`);
+    try {
+      // 1. Detect drift
+      const driftRes = await fetch(`${API}/hack-state/${encodeURIComponent(h.prefix)}/drift`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(creds),
+      });
+      if (!driftRes.ok) { errors++; checked++; continue; }
+      const drift = await driftRes.json();
+      if (!drift.hasDrift) { inSync++; checked++; continue; }
+      drifted++;
+
+      // 2. Auto-absorb extras
+      const syncRes = await fetch(`${API}/hack-state/${encodeURIComponent(h.prefix)}/drift/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(creds),
+      });
+      if (syncRes.ok) {
+        const syncData = await syncRes.json();
+        absorbed += (syncData.absorbedUsers || []).length + (syncData.absorbedGroups || []).length;
+      }
+    } catch (_) { errors++; }
+    checked++;
+  }
+
+  document.getElementById('dash-syncSpinner').classList.add('hidden');
+  syncBtn.disabled = false;
+
+  // Friendly summary
+  if (errors === 0 && drifted === 0) {
+    statusEl.innerHTML = `<span style="color:var(--success);font-weight:600;">✅ All ${checked} hacks in sync with Entra</span>`;
+    toast('All hacks are in sync with Azure Entra', 'success');
+  } else {
+    const parts = [];
+    if (inSync) parts.push(`${inSync} in sync`);
+    if (drifted) parts.push(`${drifted} updated (${absorbed} items absorbed)`);
+    if (errors) parts.push(`${errors} failed`);
+    const color = errors ? 'var(--danger)' : 'var(--warning, #d48300)';
+    statusEl.innerHTML = `<span style="color:${color};font-weight:600;">${drifted ? '🔄' : '⚠️'} ${parts.join(' · ')}</span>`;
+    toast(parts.join(', '), errors ? 'danger' : 'warn');
+  }
+
+  // Reload dashboard to reflect absorbed changes
+  await loadDashboard();
 }
 
 // ──────────── Tenant auto-detect ────────────
