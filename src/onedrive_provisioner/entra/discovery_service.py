@@ -78,16 +78,16 @@ class DiscoveryService:
         return {
             "prefix": prefix,
             "users": [
-                {"id": u["id"], "userPrincipalName": u.get("userPrincipalName"),
+                {"id": u.get("id", ""), "userPrincipalName": u.get("userPrincipalName"),
                  "displayName": u.get("displayName"),
                  "mailNickname": u.get("mailNickname"),
                  "accountEnabled": u.get("accountEnabled")}
-                for u in users
+                for u in users if u.get("id")
             ],
             "groups": [
-                {"id": g["id"], "displayName": g.get("displayName"),
+                {"id": g.get("id", ""), "displayName": g.get("displayName"),
                  "description": g.get("description"),
                  "securityEnabled": g.get("securityEnabled")}
-                for g in groups
+                for g in groups if g.get("id")
             ],
         }

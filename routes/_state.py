@@ -17,6 +17,8 @@ from onedrive_provisioner.storage import HackStateManager
 from onedrive_provisioner.storage.blob_client import BlobStateClient
 from onedrive_provisioner.security import DEFAULT_CONFIRMATION_STORE, OperationConfirmationError
 from onedrive_provisioner.security.scheduler_credentials import make_scheduler_credential_config
+from onedrive_provisioner.audit import AuditLogger
+from onedrive_provisioner.operations import OperationTracker
 
 
 FRONTEND_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
@@ -68,6 +70,10 @@ MAX_GITHUB_SESSIONS = 100
 generated_docs: Dict[str, Dict[str, Any]] = {}
 docs_lock = threading.Lock()
 MAX_DOCS = 50
+
+# ── Audit & operation tracking singletons ──
+audit_logger = AuditLogger(get_state_manager)
+operation_tracker = OperationTracker(get_state_manager)
 
 
 # ────────────────────── Helpers ──────────────────────

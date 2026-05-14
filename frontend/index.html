@@ -9,6 +9,74 @@
   <link rel="stylesheet" href="styles/components.css">
   <link rel="stylesheet" href="styles/layout.css">
   <link rel="stylesheet" href="styles/views.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    /* ── Report redesign ─────────────────────────────────────── */
+    .report-hero { background: linear-gradient(135deg, #0078d4 0%, #005a9e 100%); color: #fff; padding: 24px; border-radius: 10px; margin-bottom: 16px; }
+    .report-hero h2 { color:#fff; margin: 0 0 6px 0; font-size: 18px; font-weight: 500; opacity: 0.9; }
+    .report-hero .total { font-size: 42px; font-weight: 700; letter-spacing: -1px; margin: 4px 0; }
+    .report-hero .meta { font-size: 13px; opacity: 0.85; }
+    .report-hero .conf-badge { display:inline-block; padding:3px 10px; border-radius:12px; font-size:11px; font-weight:600; margin-left:10px; vertical-align:middle; }
+    .conf-actual { background: #d1f4d8; color: #0a6e21; }
+    .conf-estimated { background: #fff4ce; color: #8a5b00; }
+    .conf-partial { background: #ffd8a8; color: #8a3a00; }
+    .conf-missing { background: #ffd1cc; color: #8a1a00; }
+    .conf-none { background: #e1e1e1; color: #555; }
+    .report-tabs { display:flex; gap:4px; border-bottom:2px solid var(--border); margin-bottom:16px; flex-wrap:wrap; }
+    .report-tab { padding:10px 16px; cursor:pointer; border:none; background:transparent; font-size:13px; font-weight:500; color:#666; border-bottom:2px solid transparent; margin-bottom:-2px; }
+    .report-tab:hover { color:#0078d4; }
+    .report-tab.active { color:#0078d4; border-bottom-color:#0078d4; font-weight:600; }
+    .report-pane { display:none; }
+    .report-pane.active { display:block; }
+    .cost-cards { display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:10px; margin-bottom:16px; }
+    .cost-card { background:#fff; border:1px solid var(--border); border-radius:8px; padding:14px; }
+    .cost-card .label { font-size:11px; text-transform:uppercase; color:#666; letter-spacing:0.5px; font-weight:600; }
+    .cost-card .value { font-size:22px; font-weight:700; margin-top:6px; color:#222; }
+    .cost-card .sub { font-size:11px; color:#888; margin-top:2px; }
+    .cost-card.highlight { background:linear-gradient(135deg, #f0f6fc 0%, #e1edf7 100%); border-color:#b3d4f0; }
+    .cost-card.highlight .value { color:#0078d4; }
+    .breakdown-bar { display:flex; height:32px; border-radius:6px; overflow:hidden; margin:8px 0 16px 0; box-shadow:inset 0 1px 2px rgba(0,0,0,0.08); }
+    .breakdown-seg { display:flex; align-items:center; justify-content:center; color:#fff; font-size:11px; font-weight:600; min-width:40px; transition:opacity 0.2s; cursor:default; }
+    .breakdown-seg:hover { opacity:0.85; }
+    .seg-license { background:#0078d4; }
+    .seg-azure { background:#742774; }
+    .seg-github { background:#24292e; }
+    .breakdown-legend { display:flex; gap:14px; font-size:12px; flex-wrap:wrap; margin-bottom:14px; }
+    .breakdown-legend .swatch { display:inline-block; width:10px; height:10px; border-radius:2px; vertical-align:middle; margin-right:5px; }
+    .budget-bar { background:#eee; height:14px; border-radius:7px; overflow:hidden; margin:6px 0; }
+    .budget-fill { height:100%; transition:width 0.3s; }
+    .budget-fill.ok { background:linear-gradient(90deg, #107c10 0%, #2ea043 100%); }
+    .budget-fill.warning { background:linear-gradient(90deg, #d29922 0%, #fb8500 100%); }
+    .budget-fill.over { background:linear-gradient(90deg, #d13438 0%, #b81d22 100%); }
+    .user-row-expand { background:#f8f9fa; padding:12px 16px; font-size:12px; border-left:3px solid #0078d4; }
+    .user-row-expand table { margin-top:6px; }
+    .user-row-expand td { padding:4px 8px; font-size:11px; }
+    .clickable-row { cursor:pointer; }
+    .clickable-row:hover { background:#f0f6fc; }
+    .filter-bar { display:flex; gap:10px; align-items:center; margin-bottom:12px; flex-wrap:wrap; }
+    .filter-bar input, .filter-bar select { font-size:12px; padding:5px 8px; }
+    .sub-card { background:#fff; border:1px solid var(--border); border-radius:8px; padding:14px; margin-bottom:10px; }
+    .sub-card .head { display:flex; justify-content:space-between; align-items:start; gap:10px; margin-bottom:8px; }
+    .sub-card .sub-id { font-family:monospace; font-size:11px; color:#666; }
+    .sub-card .sub-cost { font-size:20px; font-weight:700; color:#0078d4; }
+    .sub-card .sub-meta { display:flex; gap:14px; font-size:12px; color:#555; flex-wrap:wrap; }
+    .issue-card { background:#fff4ce; border-left:4px solid #d29922; border-radius:6px; padding:12px 16px; margin-bottom:8px; }
+    .issue-card.error { background:#ffd1cc; border-left-color:#d13438; }
+    .issue-card .issue-title { font-weight:600; margin-bottom:4px; }
+    .issue-card .issue-fix { font-size:12px; color:#444; margin-top:6px; }
+    .input-section-toggle { cursor:pointer; user-select:none; padding:8px 0; font-weight:600; color:#0078d4; }
+    .input-section-toggle::before { content:"▶ "; font-size:10px; transition:transform 0.2s; display:inline-block; }
+    .input-section-toggle.open::before { transform:rotate(90deg); }
+    @media print {
+      body * { visibility: hidden; }
+      #mh-reportPrintArea, #mh-reportPrintArea * { visibility: visible; }
+      #mh-reportPrintArea { position: absolute; left:0; top:0; width:100%; padding:20px; }
+      .report-tabs, .no-print { display:none !important; }
+      .report-pane { display:block !important; page-break-inside: avoid; margin-bottom:20px; }
+      .report-hero { background: #0078d4 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .breakdown-seg, .budget-fill { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
+  </style>
 </head>
 <body>
   <!-- Skip-to-content link for keyboard users -->
@@ -1114,9 +1182,12 @@
           <div class="tabs">
             <div class="tab active" data-tab="mh-users" onclick="switchTab(this)">Users</div>
             <div class="tab" data-tab="mh-actions" onclick="switchTab(this)">Actions</div>
-            <div class="tab" data-tab="mh-report" onclick="switchTab(this)">Report</div>
+            <div class="tab" data-tab="mh-report" onclick="switchTab(this)">Cost Report</div>
             <div class="tab" data-tab="mh-schedule" onclick="switchTab(this)">Schedule</div>
             <div class="tab" data-tab="mh-versions" onclick="switchTab(this)">Versions</div>
+            <div class="tab" data-tab="mh-audit" onclick="switchTab(this)">Audit</div>
+            <div class="tab" data-tab="mh-drift" onclick="switchTab(this)">Sync Status</div>
+            <div class="tab" data-tab="mh-ops" onclick="switchTab(this)">Operations</div>
             <div class="tab" data-tab="mh-raw" onclick="switchTab(this)">Raw JSON</div>
           </div>
 
@@ -1304,44 +1375,62 @@
 
           <div data-tab-content="mh-report" class="hidden">
             <div class="card" style="margin-top:10px;">
-              <h4>📊 Hack Report</h4>
-              <p class="hint">Generate a report with created users/admins, assigned licenses, and estimated or actual Azure subscription cost allocation per subscription, team, and user.</p>
+              <h4>📊 Cost Report</h4>
+              <p class="hint">Generate a financial report with cost-per-user, cost-per-team, and category breakdowns. Costs are persisted between report runs.</p>
+
               <div class="row">
                 <div class="form-group">
-                  <label for="mh-reportCurrency">Currency</label>
-                  <input type="text" id="mh-reportCurrency" value="USD" maxlength="8" />
-                </div>
-                <div class="form-group">
-                  <label for="mh-costStart">Cost period start</label>
+                  <label for="mh-costStart">Start date</label>
                   <input type="date" id="mh-costStart" />
                 </div>
                 <div class="form-group">
-                  <label for="mh-costEnd">Cost period end</label>
+                  <label for="mh-costEnd">End date</label>
                   <input type="date" id="mh-costEnd" />
                 </div>
+                <div class="form-group">
+                  <label for="mh-reportCurrency">Currency</label>
+                  <input type="text" id="mh-reportCurrency" value="USD" maxlength="8" style="max-width:80px;" />
+                </div>
+                <div class="form-group">
+                  <label for="mh-reportBudget">Azure budget (optional)</label>
+                  <input type="number" id="mh-reportBudget" step="0.01" min="0" placeholder="e.g. 2000" style="max-width:140px;" title="Tracked against Azure subscription spend only (excludes M365 licenses + GitHub seats)." />
+                </div>
+              </div>
+
+              <div class="checkbox-row">
+                <input type="checkbox" id="mh-fetchAzureCosts" checked />
+                <label for="mh-fetchAzureCosts" style="margin:0;cursor:pointer;">Fetch <strong>actual</strong> Azure costs (auto-discovers every subscription the SPN can read; needs Reader + Cost Management Reader)</label>
               </div>
               <div class="checkbox-row">
-                <input type="checkbox" id="mh-fetchAzureCosts" />
-                <label for="mh-fetchAzureCosts" style="margin:0;cursor:pointer;">Fetch actual subscription costs from Azure Cost Management</label>
+                <input type="checkbox" id="mh-forceRefresh" />
+                <label for="mh-forceRefresh" style="margin:0;cursor:pointer;">Force refresh (skip 15-min cost cache — slower, only needed if Azure billing has just updated)</label>
               </div>
-              <div class="row">
-                <div class="form-group">
-                  <label for="mh-subCosts">Subscription costs / team mapping</label>
-                  <div class="hint">One per line: <code>subscriptionId</code>, <code>subscriptionId,cost</code>, or <code>subscriptionId,cost,team</code>. If Azure cost fetch is checked, cost can be omitted.</div>
-                  <textarea id="mh-subCosts" rows="5" placeholder="00000000-0000-0000-0000-000000000000,250,t01&#10;11111111-1111-1111-1111-111111111111,300,t02" style="font-size:12px;font-family:monospace;"></textarea>
-                </div>
-                <div class="form-group">
-                  <label for="mh-licenseCosts">License unit costs</label>
-                  <div class="hint">One per line: <code>licenseName=monthlyUnitCost</code>. Example: <code>M365_E3=36</code>.</div>
-                  <textarea id="mh-licenseCosts" rows="5" placeholder="M365_E3=36&#10;COPILOT=30" style="font-size:12px;font-family:monospace;"></textarea>
+
+              <div class="input-section-toggle" onclick="this.classList.toggle('open'); document.getElementById('mh-advancedCostInputs').classList.toggle('hidden')">Advanced cost inputs (manual subscription / license overrides — optional)</div>
+              <div id="mh-advancedCostInputs" class="hidden">
+                <div class="row">
+                  <div class="form-group">
+                    <label for="mh-subCosts">Subscription costs / team mapping</label>
+                    <div class="hint">One per line: <code>subscriptionId</code>, <code>subscriptionId,cost</code>, or <code>subscriptionId,cost,team</code>. With Azure fetch enabled, omit cost.</div>
+                    <textarea id="mh-subCosts" rows="4" placeholder="00000000-0000-0000-0000-000000000000,250,t01" style="font-size:12px;font-family:monospace;"></textarea>
+                  </div>
+                  <div class="form-group">
+                    <label for="mh-licenseCosts">License unit cost overrides</label>
+                    <div class="hint">Microsoft NCE prices auto-fill. Override here: <code>licenseName=monthlyUnitCost</code>.</div>
+                    <textarea id="mh-licenseCosts" rows="4" placeholder="M365_E3=36" style="font-size:12px;font-family:monospace;"></textarea>
+                  </div>
                 </div>
               </div>
-              <div class="actions">
+
+              <div class="actions" style="margin-top:12px;">
                 <button class="btn btn-primary" onclick="withBusy(this, generateManagedHackReport)">📊 Generate Report</button>
-                <button class="btn btn-secondary" onclick="downloadManagedHackReportJson()">⬇ JSON</button>
-                <button class="btn btn-secondary" onclick="downloadManagedHackReportCsv()">⬇ CSV</button>
+                <button class="btn btn-secondary no-print" onclick="downloadManagedHackReportJson()">⬇ JSON</button>
+                <button class="btn btn-secondary no-print" onclick="downloadManagedHackReportCsv()">⬇ CSV</button>
+                <button class="btn btn-secondary no-print" onclick="printManagedHackReport()">🖨 Print / PDF</button>
               </div>
-              <div id="mh-reportBox" class="hidden" style="margin-top:16px;"></div>
+              <div id="mh-reportPrintArea">
+                <div id="mh-reportBox" class="hidden" style="margin-top:16px;"></div>
+              </div>
             </div>
           </div>
 
@@ -1390,6 +1479,100 @@
 
           <div data-tab-content="mh-versions" class="hidden">
             <div id="mh-versionsList" style="margin-top:10px;font-size:13px;"></div>
+          </div>
+
+          <div data-tab-content="mh-audit" class="hidden">
+            <div class="card" style="margin-top:10px;">
+              <h4>📜 Audit Trail</h4>
+              <p class="hint">View all recorded lifecycle events for this hack — provisions, cleanups, config changes, drift checks, and more.</p>
+              <div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap;margin-bottom:12px;">
+                <div class="form-group" style="margin:0;flex:1;min-width:140px;">
+                  <label for="mh-auditType" style="font-size:12px;">Event type</label>
+                  <select id="mh-auditType" style="font-size:13px;">
+                    <option value="">All</option>
+                    <option value="provision.started">Provision started</option>
+                    <option value="provision.completed">Provision completed</option>
+                    <option value="provision.failed">Provision failed</option>
+                    <option value="cleanup.started">Cleanup started</option>
+                    <option value="cleanup.completed">Cleanup completed</option>
+                    <option value="config.patched">Config patched</option>
+                    <option value="drift.detected">Drift detected</option>
+                    <option value="drift.clean">Drift clean</option>
+                    <option value="tap.regenerated">TAP regenerated</option>
+                    <option value="github.enabled">GitHub enabled</option>
+                    <option value="rbac.assigned">RBAC assigned</option>
+                  </select>
+                </div>
+                <div class="form-group" style="margin:0;">
+                  <label for="mh-auditLimit" style="font-size:12px;">Limit</label>
+                  <input type="number" id="mh-auditLimit" value="50" min="10" max="500" style="width:70px;font-size:13px;" />
+                </div>
+                <button class="btn btn-primary btn-sm" onclick="withBusy(this, loadAuditTrail)">🔍 Load</button>
+                <button class="btn btn-secondary btn-sm" onclick="withBusy(this, loadAuditTrail)">↻</button>
+              </div>
+              <div id="mh-auditEmpty" class="hint" style="padding:20px;text-align:center;">Click Load to fetch audit events.</div>
+              <div id="mh-auditResults" class="hidden">
+                <div id="mh-auditCount" style="font-size:12px;color:var(--muted);margin-bottom:6px;"></div>
+                <div class="results-scroll" style="max-height:400px;">
+                  <table>
+                    <thead><tr><th>Time</th><th>Event</th><th>Actor</th><th>Severity</th><th>Details</th></tr></thead>
+                    <tbody id="mh-auditBody"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div data-tab-content="mh-drift" class="hidden">
+            <div class="card" style="margin-top:10px;">
+              <h4>🔍 Drift Detection</h4>
+              <p class="hint">Compare the saved hack state against live Entra ID. Detects users/groups that were deleted externally, created outside the tool, or have been disabled.</p>
+              <button class="btn btn-primary" onclick="withBusy(this, runDriftCheck)">🔍 Check Drift Now</button>
+              <span id="mh-driftSpinner" class="hidden"><span class="spinner"></span> Querying Entra…</span>
+              <div id="mh-driftResults" class="hidden" style="margin-top:16px;">
+                <div id="mh-driftSummary" style="font-weight:600;margin-bottom:10px;"></div>
+                <div id="mh-driftStats" class="stats" style="margin-bottom:12px;"></div>
+                <div id="mh-driftMissing" class="hidden" style="margin-bottom:12px;">
+                  <h5 style="color:var(--danger);">⚠ Missing (in state but not in Entra)</h5>
+                  <div class="results-scroll" style="max-height:200px;"><table><thead><tr><th>UPN / Name</th><th>Issue</th></tr></thead><tbody id="mh-driftMissingBody"></tbody></table></div>
+                </div>
+                <div id="mh-driftExtra" class="hidden" style="margin-bottom:12px;">
+                  <h5 style="color:var(--color-warning);">⚡ Extra (in Entra but not in state)</h5>
+                  <div class="results-scroll" style="max-height:200px;"><table><thead><tr><th>UPN / Name</th><th>Issue</th></tr></thead><tbody id="mh-driftExtraBody"></tbody></table></div>
+                  <button id="mh-driftAbsorbBtn" class="btn btn-secondary btn-sm" style="margin-top:8px;" onclick="withBusy(this, absorbDriftExtras)">📥 Absorb extras into state</button>
+                  <span id="mh-driftAbsorbResult" style="margin-left:8px;font-size:13px;"></span>
+                </div>
+                <div id="mh-driftModified" class="hidden">
+                  <h5 style="color:var(--color-warning);">🔄 Modified</h5>
+                  <div class="results-scroll" style="max-height:200px;"><table><thead><tr><th>UPN</th><th>Issue</th></tr></thead><tbody id="mh-driftModifiedBody"></tbody></table></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div data-tab-content="mh-ops" class="hidden">
+            <div class="card" style="margin-top:10px;">
+              <h4>⚙ Operation History</h4>
+              <p class="hint">Track all lifecycle operations — provisions, cleanups, readonly transitions — with step-level detail.</p>
+              <div style="display:flex;gap:8px;margin-bottom:12px;">
+                <button class="btn btn-primary btn-sm" onclick="withBusy(this, loadOperationHistory)">🔍 Load</button>
+                <button class="btn btn-secondary btn-sm" onclick="withBusy(this, loadOperationHistory)">↻</button>
+              </div>
+              <div id="mh-opsActiveSection" class="hidden" style="margin-bottom:16px;">
+                <h5>🔄 Active Operations</h5>
+                <div id="mh-opsActiveList"></div>
+              </div>
+              <div id="mh-opsEmpty" class="hint" style="padding:20px;text-align:center;">Click Load to fetch operation history.</div>
+              <div id="mh-opsResults" class="hidden">
+                <div id="mh-opsCount" style="font-size:12px;color:var(--muted);margin-bottom:6px;"></div>
+                <div class="results-scroll" style="max-height:400px;">
+                  <table>
+                    <thead><tr><th>Time</th><th>Type</th><th>Status</th><th>Actor</th><th>Duration</th><th>Steps</th></tr></thead>
+                    <tbody id="mh-opsBody"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div data-tab-content="mh-raw" class="hidden">
@@ -5288,6 +5471,11 @@ let _managedHackState = null;
 let _managedHackReport = null;
 let _managedReportDatePrefillPrefix = '';
 
+/** Safely get the current hack prefix, stripping trailing dash. Returns '' if unavailable. */
+function _getHackPrefix() {
+  return (_managedHackState && _managedHackState.prefix || document.getElementById('mh-prefix').value || '').replace(/-$/, '');
+}
+
 async function listSavedHacks(archived = false) {
   const box = document.getElementById('mh-hackList');
   box.classList.remove('hidden');
@@ -5336,6 +5524,7 @@ async function loadHackState() {
     const mhSelect = document.getElementById('mh-hackSelect');
     if (mhSelect) mhSelect.value = data.prefix || cleanPrefix;
     _renderManagedHackState(data);
+    _prefillReportInputs(data);
     toast(`Loaded state for "${cleanPrefix}"`, 'success');
   } catch (e) {
     toast('Failed to load hack: ' + e.message, 'danger');
@@ -5467,7 +5656,7 @@ async function regenTapForHack() {
   if (_managedHackState.isArchived || _managedHackState.archivedAt) { toast('Archived hacks are report-only', 'warn'); return; }
   const creds = getCreds();
   if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
-  const prefix = _managedHackState.prefix.replace(/-$/, '');
+  const prefix = _getHackPrefix(); if (!prefix) { toast('No hack prefix available', 'danger'); return; }
   const tapLifetime = parseInt(document.getElementById('mh-tapLifetime').value || '120', 10);
   const usersText = document.getElementById('mh-tapUsers').value.trim();
   const users = usersText ? usersText.split(/[\r\n,]+/).map(s => s.trim()).filter(Boolean) : undefined;
@@ -5497,7 +5686,7 @@ async function resetPasswordForHack() {
   if (_managedHackState.isArchived || _managedHackState.archivedAt) { toast('Archived hacks are report-only', 'warn'); return; }
   const creds = getCreds();
   if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
-  const prefix = _managedHackState.prefix.replace(/-$/, '');
+  const prefix = _getHackPrefix(); if (!prefix) { toast('No hack prefix available', 'danger'); return; }
   const customPw = document.getElementById('mh-resetPwCustom').value.trim() || undefined;
   const usersText = document.getElementById('mh-resetPwUsers').value.trim();
   const users = usersText ? usersText.split(/[\r\n,]+/).map(s => s.trim()).filter(Boolean) : undefined;
@@ -5526,7 +5715,7 @@ async function assignLicensesToHack() {
   if (_managedHackState.isArchived || _managedHackState.archivedAt) { toast('Archived hacks are report-only', 'warn'); return; }
   const creds = getCreds();
   if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
-  const prefix = _managedHackState.prefix.replace(/-$/, '');
+  const prefix = _getHackPrefix(); if (!prefix) { toast('No hack prefix available', 'danger'); return; }
   const selectedLicenses = Array.from(document.querySelectorAll('#mh-licenseBox input:checked')).map(c => c.value);
   const typedLicenses = document.getElementById('mh-licNames').value.split(/[\s,]+/).map(s => s.trim()).filter(Boolean);
   const licNames = Array.from(new Set([...selectedLicenses, ...typedLicenses]));
@@ -5642,7 +5831,7 @@ async function enableGithubForHack() {
     toast('GitHub enable complete', 'success');
     // Persist enableGithub flag in hack state so cost & cleanup can detect it
     if (_managedHackState && _managedHackState.prefix) {
-      const pfx = _managedHackState.prefix.replace(/-$/, '');
+      const pfx = _getHackPrefix();
       const ghCopilot = document.getElementById('mh-ghCopilot').checked;
       try {
         const patchRes = await fetch(`${API}/hack-state/${encodeURIComponent(pfx)}/config`, {
@@ -5675,7 +5864,7 @@ async function createPowerAppsForHack() {
   if (!_managedHackState) { toast('Load a hack first', 'danger'); return; }
   const creds = getCreds();
   if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
-  const prefix = _managedHackState.prefix.replace(/-$/, '');
+  const prefix = _getHackPrefix(); if (!prefix) { toast('No hack prefix available', 'danger'); return; }
   const spin = document.getElementById('mh-paSpinner');
   spin.classList.remove('hidden');
   try {
@@ -5705,7 +5894,7 @@ async function deletePowerAppsForHack() {
   if (!_managedHackState) { toast('Load a hack first', 'danger'); return; }
   const creds = getCreds();
   if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
-  const prefix = _managedHackState.prefix.replace(/-$/, '');
+  const prefix = _getHackPrefix(); if (!prefix) { toast('No hack prefix available', 'danger'); return; }
   if (!confirm('Delete the Power Apps environment for this hack?')) return;
   const spin = document.getElementById('mh-paSpinner');
   spin.classList.remove('hidden');
@@ -5756,7 +5945,7 @@ async function createSharePointForHack() {
   if (!_managedHackState) { toast('Load a hack first', 'danger'); return; }
   const creds = getCreds();
   if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
-  const prefix = _managedHackState.prefix.replace(/-$/, '');
+  const prefix = _getHackPrefix(); if (!prefix) { toast('No hack prefix available', 'danger'); return; }
   const spin = document.getElementById('mh-spSpinner');
   spin.classList.remove('hidden');
   try {
@@ -5788,7 +5977,7 @@ async function deleteSharePointForHack() {
   if (!_managedHackState) { toast('Load a hack first', 'danger'); return; }
   const creds = getCreds();
   if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
-  const prefix = _managedHackState.prefix.replace(/-$/, '');
+  const prefix = _getHackPrefix(); if (!prefix) { toast('No hack prefix available', 'danger'); return; }
   if (!confirm('Delete the SharePoint site for this hack? This also deletes the M365 group.')) return;
   const spin = document.getElementById('mh-spSpinner');
   spin.classList.remove('hidden');
@@ -5844,7 +6033,7 @@ async function repairGroupsForHack() {
   if (_managedHackState.isArchived || _managedHackState.archivedAt) { toast('Archived hacks are report-only', 'warn'); return; }
   const creds = getCreds();
   if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
-  const prefix = _managedHackState.prefix.replace(/-$/, '');
+  const prefix = _getHackPrefix(); if (!prefix) { toast('No hack prefix available', 'danger'); return; }
   const spin = document.getElementById('mh-grpRepairSpinner');
   const box = document.getElementById('mh-grpRepairResultBox');
   const summaryEl = document.getElementById('mh-grpRepairSummary');
@@ -5895,7 +6084,7 @@ async function repairLicensesForHack() {
   if (_managedHackState.isArchived || _managedHackState.archivedAt) { toast('Archived hacks are report-only', 'warn'); return; }
   const creds = getCreds();
   if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
-  const prefix = _managedHackState.prefix.replace(/-$/, '');
+  const prefix = _getHackPrefix(); if (!prefix) { toast('No hack prefix available', 'danger'); return; }
   const spin = document.getElementById('mh-licRepairSpinner');
   const box = document.getElementById('mh-licRepairResultBox');
   const summaryEl = document.getElementById('mh-licRepairSummary');
@@ -6617,7 +6806,7 @@ function updateCostCalcEstimate() {
 
 async function generateManagedHackReport() {
   if (!_managedHackState) { toast('Load a hack first', 'danger'); return; }
-  const prefix = _managedHackState.prefix.replace(/-$/, '');
+  const prefix = _getHackPrefix(); if (!prefix) { toast('No hack prefix available', 'danger'); return; }
   const fetchSubscriptionCosts = document.getElementById('mh-fetchAzureCosts').checked;
   let creds = {};
   if (fetchSubscriptionCosts) {
@@ -6626,10 +6815,9 @@ async function generateManagedHackReport() {
   }
   const subscriptionCosts = _parseSubscriptionCostLines(document.getElementById('mh-subCosts').value);
   const subscriptionIds = Array.from(new Set(subscriptionCosts.map(s => s.subscriptionId).filter(Boolean)));
-  if (fetchSubscriptionCosts && !subscriptionIds.length) {
-    toast('Enter at least one subscription ID to fetch Azure costs', 'danger');
-    return;
-  }
+  // No early guard on subscriptionIds — when fetchSubscriptionCosts is on but
+  // no IDs are supplied, the backend will auto-discover every subscription the
+  // SPN can access and query each one.
 
   const body = {
     ...creds,
@@ -6640,8 +6828,10 @@ async function generateManagedHackReport() {
     currency: (document.getElementById('mh-reportCurrency').value || 'USD').trim().toUpperCase(),
     startDate: document.getElementById('mh-costStart').value,
     endDate: document.getElementById('mh-costEnd').value,
+    budget: parseFloat(document.getElementById('mh-reportBudget').value) || null,
     githubEnabled: !!(_managedHackState.config && _managedHackState.config.enableGithub),
     githubCopilot: !!(_managedHackState.config && _managedHackState.config.enableGithubCopilot),
+    persistInputs: true,
   };
   const box = document.getElementById('mh-reportBox');
   box.classList.remove('hidden');
@@ -6664,90 +6854,438 @@ async function generateManagedHackReport() {
 
 function _renderManagedHackReport(report) {
   const box = document.getElementById('mh-reportBox');
-  const summary = report.summary || {};
+  const currency = report.currency || (report.costs || {}).currency || 'USD';
   const costs = report.costs || {};
-  const currency = report.currency || costs.currency || '';
-  const licenseItems = (report.licenses && report.licenses.items) || [];
-  const subItems = (report.subscriptions && report.subscriptions.items) || [];
-  const teams = report.teams || [];
-  const users = report.users || [];
+  const summary = report.summary || {};
+  const period = report.period || {};
+  const breakdown = report.breakdownByCategory || [];
+  const budget = report.budget;
+  const conf = report.confidence || 'estimated';
 
-  const stats = [
-    ['Total Users', summary.totalUsers || 0],
-    ['Participants', summary.participantUsers || 0],
-    ['Admins', summary.adminUsers || 0],
-    ['Created Users', summary.createdUsers || 0],
-    ['Created Admins', summary.createdAdmins || 0],
-    ['Existing', summary.existing || 0],
-    ['Failed', summary.failed || 0],
-  ].map(([label, value]) => `<div class="stat-tile"><div class="stat-label">${esc(label)}</div><div class="stat-value">${esc(value)}</div></div>`).join('');
-
-  const costStats = [
-    ['License / month', _money(costs.licenseMonthly, currency)],
-    ['GitHub / month', _money(costs.githubMonthly, currency)],
-    ['Subscription period', _money(costs.subscriptionPeriod, currency)],
-    costs.billingMonths > 1 ? ['Billing Months', costs.billingMonths] : null,
-    ['Total estimated', _money(costs.totalEstimated, currency)],
-  ].filter(Boolean).map(([label, value]) => `<div class="stat-tile"><div class="stat-label">${esc(label)}</div><div class="stat-value" style="font-size:18px;">${esc(value)}</div></div>`).join('');
-
-  const licenseRows = licenseItems.map(l => `<tr>
-    <td title="${escAttr(l.name || '')}">${esc(licenseDisplayName(l.name))}</td><td>${l.assignedUsers || 0}</td><td>${_money(l.unitCost, currency)}</td><td>${_money(l.estimatedMonthlyCost, currency)}</td>
-  </tr>`).join('') || '<tr><td colspan="4" class="empty">No licenses assigned</td></tr>';
-
-  const subRows = subItems.map(s => `<tr>
-    <td><code style="font-size:11px;">${esc(s.subscriptionId)}</code></td>
-    <td>${esc(s.team || 'all participants')}</td>
-    <td>${esc(s.source || 'manual')}</td>
-    <td>${s.targetUsers || 0}</td>
-    <td>${_money(s.cost, s.currency || currency)}</td>
-    <td>${_money(s.costPerUser, s.currency || currency)}</td>
-    <td style="color:var(--danger);font-size:11px;">${esc(s.error || '')}</td>
-  </tr>`).join('') || '<tr><td colspan="7" class="empty">No subscription costs supplied</td></tr>';
-
-  const gh = report.github || {};
-  const ghSection = gh.enabled ? `
-    <h4 style="margin-top:16px;">🐙 GitHub Seats</h4>
-    <table><thead><tr><th>Plan</th><th>Users</th><th>Unit Cost / Mo</th><th>Monthly Total</th><th>${(costs.billingMonths || 1) > 1 ? (costs.billingMonths + '-Mo Total') : 'Period Total'}</th></tr></thead>
-    <tbody><tr>
-      <td>${esc(gh.withCopilot ? 'GitHub Enterprise + Copilot' : 'GitHub Enterprise')}</td>
-      <td>${gh.users || 0}</td>
-      <td>${_money(gh.unitCostMonthly, currency)}</td>
-      <td>${_money(gh.monthlyCost, currency)}</td>
-      <td>${_money(gh.periodCost, currency)}</td>
-    </tr></tbody></table>` : '';
-
-  const teamRows = teams.map(t => `<tr>
-    <td>${esc(t.team)}</td><td>${t.users || 0}</td><td>${_money(t.licenseCost, currency)}</td><td>${_money(t.subscriptionCost, currency)}</td><td>${_money(t.totalEstimatedCost, currency)}</td>
-  </tr>`).join('') || '<tr><td colspan="5" class="empty">No team allocation</td></tr>';
-
-  const userRows = users.map(u => `<tr>
-    <td><code style="font-size:11px;">${esc(u.userPrincipalName)}</code></td>
-    <td>${esc(u.isAdmin ? 'admin' : (u.team || 'participant'))}</td>
-    <td>${esc(u.status || '')}</td>
-    <td>${esc(formatLicenseList(u.licenses)) || '-'}</td>
-    <td>${_money(u.licenseCost, currency)}</td>
-    <td>${_money(u.subscriptionCost, currency)}</td>
-    <td>${_money(u.totalEstimatedCost, currency)}</td>
-  </tr>`).join('') || '<tr><td colspan="7" class="empty">No users</td></tr>';
-
-  const notes = (report.notes || []).length
-    ? `<div style="margin-top:10px;padding:10px;background:#fff4ce;border-radius:6px;font-size:12px;"><strong>Notes:</strong><ul style="margin:6px 0 0 18px;">${report.notes.map(n => `<li>${esc(n)}</li>`).join('')}</ul></div>`
+  const fmt = (v) => _money(v, currency);
+  const total = costs.totalEstimated || 0;
+  const dateRangeStr = (period.startDate && period.endDate)
+    ? `${String(period.startDate).substring(0,10)} → ${String(period.endDate).substring(0,10)}`
     : '';
 
-  box.innerHTML = `
-    <div class="stats" style="gap:10px;">${stats}</div>
-    <div class="stats" style="gap:10px;">${costStats}</div>
-    ${notes}
-    <h4 style="margin-top:16px;">Licenses</h4>
-    <table><thead><tr><th>License</th><th>Assigned Users</th><th>Unit Cost</th><th>Estimated Monthly Cost</th></tr></thead><tbody>${licenseRows}</tbody></table>
-    ${ghSection}
-    <h4 style="margin-top:16px;">Subscription Costs</h4>
-    <table><thead><tr><th>Subscription</th><th>Team</th><th>Source</th><th>Users</th><th>Cost</th><th>Cost / User</th><th>Error</th></tr></thead><tbody>${subRows}</tbody></table>
-    <h4 style="margin-top:16px;">Team Allocation</h4>
-    <table><thead><tr><th>Team</th><th>Users</th><th>License Cost</th><th>Subscription Cost</th><th>Total</th></tr></thead><tbody>${teamRows}</tbody></table>
-    <h4 style="margin-top:16px;">Per-User Allocation</h4>
-    <div class="results-scroll" style="max-height:300px;"><table><thead><tr><th>User</th><th>Type/Team</th><th>Status</th><th>Licenses</th><th>License Cost</th><th>Subscription Cost</th><th>Total</th></tr></thead><tbody>${userRows}</tbody></table></div>
+  // ── HERO ─────────────────────────────────────────────────────
+  const hero = `
+    <div class="report-hero">
+      <h2>${esc(report.hackName || report.prefix || 'Hack')} ${dateRangeStr ? `<span style="opacity:0.7;font-size:14px;">· ${esc(dateRangeStr)}</span>` : ''}</h2>
+      <div class="total">${fmt(total)} <span class="conf-badge conf-${conf}" title="Cost confidence">${esc(_confidenceLabel(conf))}</span></div>
+      <div class="meta">
+        ${period.days ? period.days + ' days · ' : ''}${summary.participantUsers || 0} participants · ${summary.teams || 0} teams
+        ${costs.costPerUser != null ? ` · avg ${fmt(costs.costPerUser)}/user` : ''}
+        ${costs.costPerUserPerDay != null ? ` (${fmt(costs.costPerUserPerDay)}/user/day)` : ''}
+      </div>
+    </div>
   `;
+
+  // ── TAB BAR ──────────────────────────────────────────────────
+  const tabsBar = `
+    <div class="report-tabs no-print">
+      <button class="report-tab active" data-rtab="overview" onclick="_switchReportTab(this)">📊 Overview</button>
+      <button class="report-tab" data-rtab="teams" onclick="_switchReportTab(this)">👥 By Team</button>
+      <button class="report-tab" data-rtab="users" onclick="_switchReportTab(this)">👤 By User</button>
+      <button class="report-tab" data-rtab="subs" onclick="_switchReportTab(this)">☁️ Subscriptions</button>
+      <button class="report-tab" data-rtab="issues" onclick="_switchReportTab(this)">⚠️ Issues</button>
+    </div>
+  `;
+
+  // ── OVERVIEW PANE ────────────────────────────────────────────
+  const cards = [
+    { label: 'Total cost', value: fmt(total), highlight: true, sub: dateRangeStr },
+    { label: 'Per user', value: costs.costPerUser != null ? fmt(costs.costPerUser) : '—', sub: `over ${summary.participantUsers || 0} participants` },
+    { label: 'Per day', value: costs.costPerDay != null ? fmt(costs.costPerDay) : '—', sub: period.days ? `${period.days} days` : '' },
+    { label: 'Licenses', value: fmt(costs.licensePeriod), sub: `${(report.licenses||{}).totalAssignments || 0} assignments` },
+    { label: 'Azure', value: fmt(costs.subscriptionPeriod), sub: `${((report.subscriptions||{}).items||[]).length} subs` },
+    { label: 'GitHub', value: fmt(costs.githubPeriod), sub: (report.github||{}).enabled ? `${(report.github||{}).users||0} seats` : 'disabled' },
+  ];
+  const cardsHtml = cards.map(c => `<div class="cost-card ${c.highlight ? 'highlight' : ''}"><div class="label">${esc(c.label)}</div><div class="value">${esc(c.value)}</div>${c.sub ? `<div class="sub">${esc(c.sub)}</div>` : ''}</div>`).join('');
+
+  // Stacked bar
+  const segs = breakdown.filter(b => (b.amount || 0) > 0);
+  const segHtml = segs.map(b => {
+    const cls = b.category === 'Licenses' ? 'seg-license' : b.category === 'Azure' ? 'seg-azure' : 'seg-github';
+    return `<div class="breakdown-seg ${cls}" style="width:${b.share}%" title="${esc(b.category)}: ${fmt(b.amount)} (${b.share}%)">${b.share >= 8 ? b.share + '%' : ''}</div>`;
+  }).join('');
+  const legendHtml = breakdown.map(b => {
+    const cls = b.category === 'Licenses' ? 'seg-license' : b.category === 'Azure' ? 'seg-azure' : 'seg-github';
+    return `<span><span class="swatch ${cls}"></span>${esc(b.category)}: ${fmt(b.amount)} <span style="color:#888;">(${b.share}%)</span></span>`;
+  }).join('');
+
+  // Budget
+  let budgetHtml = '';
+  if (budget && budget.amount > 0) {
+    const pct = Math.min(100, budget.usedPercent);
+    budgetHtml = `
+      <div class="cost-card" style="margin-bottom:12px;">
+        <div class="label">Azure budget tracker <span style="font-weight:400;color:#666;font-size:11px;">(Azure subscription spend only — excludes licenses + GitHub)</span></div>
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin:6px 0;">
+          <div><strong style="font-size:18px;">${fmt(budget.used)}</strong> of ${fmt(budget.amount)}</div>
+          <div style="font-size:13px;color:${budget.status==='over' ? '#d13438' : budget.status==='warning' ? '#d29922' : '#107c10'};font-weight:600;">${budget.usedPercent}% used</div>
+        </div>
+        <div class="budget-bar"><div class="budget-fill ${budget.status}" style="width:${pct}%"></div></div>
+        <div class="sub">${budget.status === 'over' ? `⚠ Over budget by ${fmt(-budget.remaining)}` : `${fmt(budget.remaining)} remaining`}</div>
+      </div>
+    `;
+  }
+
+  const overviewHtml = `
+    ${budgetHtml}
+    <div class="cost-cards">${cardsHtml}</div>
+    <h5 style="margin:14px 0 4px 0;">Cost breakdown by category</h5>
+    <div class="breakdown-bar">${segHtml || '<div class="breakdown-seg" style="width:100%;background:#ccc;color:#666;">No costs</div>'}</div>
+    <div class="breakdown-legend">${legendHtml}</div>
+    <div class="cost-cards" style="grid-template-columns:repeat(auto-fit, minmax(120px, 1fr));">
+      <div class="cost-card"><div class="label">Total users</div><div class="value">${summary.totalUsers || 0}</div></div>
+      <div class="cost-card"><div class="label">Participants</div><div class="value">${summary.participantUsers || 0}</div></div>
+      <div class="cost-card"><div class="label">Admins</div><div class="value">${summary.adminUsers || 0}</div></div>
+      <div class="cost-card"><div class="label">Teams</div><div class="value">${summary.teams || 0}</div></div>
+      <div class="cost-card"><div class="label">Created</div><div class="value">${summary.created || 0}</div></div>
+      <div class="cost-card"><div class="label">Failed</div><div class="value" style="color:${(summary.failed||0)>0?'#d13438':'#222'};">${summary.failed || 0}</div></div>
+    </div>
+    <div style="position:relative;height:240px;margin-top:16px;"><canvas id="mh-reportChart"></canvas></div>
+  `;
+
+  // ── TEAMS PANE ───────────────────────────────────────────────
+  const teams = (report.teams || []).slice().sort((a,b) => (b.totalEstimatedCost||0) - (a.totalEstimatedCost||0));
+  const maxTeamCost = Math.max(1, ...teams.map(t => t.totalEstimatedCost || 0));
+  const teamsTableHtml = teams.length ? `
+    <table><thead><tr>
+      <th>Team</th><th>Users</th><th>License</th><th>Azure</th><th>GitHub share</th><th>Total</th><th>Per user</th><th style="width:120px;">Share</th>
+    </tr></thead><tbody>
+    ${teams.map(t => {
+      const ghShare = (report.github || {}).enabled && summary.participantUsers ? ((report.github.periodCost || 0) * (t.users || 0) / summary.participantUsers) : 0;
+      const totalWithGh = (t.totalEstimatedCost || 0) + ghShare;
+      const perUser = (t.users || 0) > 0 ? totalWithGh / t.users : 0;
+      const pct = (totalWithGh / maxTeamCost * 100);
+      return `<tr>
+        <td><strong>${esc(t.team)}</strong></td>
+        <td>${t.users || 0}</td>
+        <td>${fmt(t.licenseCost)}</td>
+        <td>${fmt(t.subscriptionCost)}</td>
+        <td>${fmt(ghShare)}</td>
+        <td><strong>${fmt(totalWithGh)}</strong></td>
+        <td>${fmt(perUser)}</td>
+        <td><div style="background:#eee;height:10px;border-radius:5px;overflow:hidden;"><div style="width:${pct}%;height:100%;background:#0078d4;"></div></div></td>
+      </tr>`;
+    }).join('')}
+    </tbody></table>
+  ` : '<div class="empty">No team allocation available</div>';
+
+  // Team ↔ Subscription ↔ Cost matrix (shows which sub allocates to which team)
+  const subItemsForMatrix = (report.subscriptions || {}).items || [];
+  const matrixRows = subItemsForMatrix.map(s => {
+    const teamLabel = s.team || 'all participants';
+    return `<tr>
+      <td><strong>${esc(teamLabel)}</strong></td>
+      <td>
+        <div style="font-weight:500;">${esc(s.displayName || s.subscriptionId)}</div>
+        <div style="font-size:10px;color:#888;font-family:monospace;">${esc(s.subscriptionId)}</div>
+      </td>
+      <td><span class="conf-badge conf-${s.confidence || 'missing'}">${esc(_confidenceLabel(s.confidence || 'missing'))}</span></td>
+      <td>${s.targetUsers || 0}</td>
+      <td><strong>${fmt(s.cost)}</strong></td>
+      <td>${fmt(s.costPerUser)}</td>
+      <td style="font-size:11px;color:#888;">${esc(s.allocation || '')}</td>
+    </tr>`;
+  }).join('');
+  const matrixHtml = subItemsForMatrix.length ? `
+    <h5 style="margin:18px 0 6px 0;">Team ↔ Subscription ↔ Cost</h5>
+    <p class="hint">How each subscription's cost flows to a team (or all participants).</p>
+    <table><thead><tr>
+      <th>Team</th><th>Subscription</th><th>Confidence</th><th>Users</th><th>Cost</th><th>Per user</th><th>Allocation</th>
+    </tr></thead><tbody>${matrixRows}</tbody></table>
+  ` : '';
+  const teamsHtml = teamsTableHtml + matrixHtml;
+
+  // ── USERS PANE ───────────────────────────────────────────────
+  const usersHtml = `
+    <div class="filter-bar no-print">
+      <input type="text" id="mh-userFilter" placeholder="Search UPN or team…" oninput="_filterReportUsers()" style="flex:1;min-width:200px;" />
+      <label style="font-size:12px;"><input type="checkbox" id="mh-hideAdmins" onchange="_filterReportUsers()" /> Hide admins</label>
+      <label style="font-size:12px;"><input type="checkbox" id="mh-hideZero" onchange="_filterReportUsers()" /> Hide $0 users</label>
+      <span id="mh-userFilterCount" style="font-size:12px;color:#666;"></span>
+    </div>
+    <div class="results-scroll" style="max-height:480px;">
+      <table><thead><tr>
+        <th></th><th>UPN</th><th>Team</th><th>Status</th><th>Licenses</th>
+        <th>License $</th><th>Azure $</th><th>GitHub $</th><th>Total</th><th>Confidence</th>
+      </tr></thead><tbody id="mh-userTbody">
+      ${(report.users || []).map((u, i) => _renderUserRow(u, i, currency, report)).join('')}
+      </tbody></table>
+    </div>
+  `;
+
+  // ── SUBSCRIPTIONS PANE ───────────────────────────────────────
+  const subs = (report.subscriptions || {}).items || [];
+  const cf = report.costFetch || {};
+  const cacheStr = (cf.cacheHits || cf.cacheFetched)
+    ? ` · <strong>${cf.cacheHits || 0}</strong> from cache, <strong>${cf.cacheFetched || 0}</strong> freshly fetched`
+    : '';
+  let sourceBanner = '';
+  if (cf.subSource === 'hack_state') {
+    sourceBanner = `<div class="cost-card" style="background:#e7f3ff;border-color:#b3d4f0;margin-bottom:10px;">
+      <div class="label">🎯 Hack subscriptions</div>
+      <div style="font-size:13px;margin-top:4px;">Queried <strong>${(cf.subscriptionsQueried || 0)}</strong> subscription(s) recorded for this hack${cacheStr}.</div>
+    </div>`;
+  } else if (cf.subSource === 'group_rbac') {
+    const groupCount = Object.keys(cf.groupSubMap || {}).length;
+    sourceBanner = `<div class="cost-card" style="background:#e7f9ed;border-color:#9ad4a8;margin-bottom:10px;">
+      <div class="label">🔐 Resolved via group RBAC</div>
+      <div style="font-size:13px;margin-top:4px;">Queried Azure RBAC for <strong>${groupCount}</strong> hack group(s) and found <strong>${(cf.subscriptionsQueried || 0)}</strong> subscription(s) they have access to${cacheStr}. These subs have been saved to the hack state — future reports will use them directly.</div>
+    </div>`;
+  } else if (cf.subSource === 'user_rbac') {
+    const usm = cf.userSubMap || {};
+    const userCount = Object.keys(usm).length;
+    const usersWithSubs = Object.values(usm).filter(v => Array.isArray(v) && v.length).length;
+    sourceBanner = `<div class="cost-card" style="background:#e7f9ed;border-color:#9ad4a8;margin-bottom:10px;">
+      <div class="label">👤 Resolved via user RBAC (group fallback)</div>
+      <div style="font-size:13px;margin-top:4px;">Hack groups had no subscription-scope assignments, so we checked role assignments for <strong>${userCount}</strong> hack user(s) — <strong>${usersWithSubs}</strong> had Azure access — and found <strong>${(cf.subscriptionsQueried || 0)}</strong> unique subscription(s)${cacheStr}. Saved to hack state for next time.</div>
+    </div>`;
+  } else if (cf.subSource === 'explicit') {
+    sourceBanner = `<div class="cost-card" style="background:#f3f3f3;border-color:#ccc;margin-bottom:10px;">
+      <div class="label">📋 Explicit subscription list</div>
+      <div style="font-size:13px;margin-top:4px;">Queried <strong>${(cf.subscriptionsQueried || 0)}</strong> subscription(s) you specified${cacheStr}.</div>
+    </div>`;
+  } else if (cf.autoDiscovered) {
+    sourceBanner = `<div class="cost-card" style="background:#fff4ce;border-color:#d29922;margin-bottom:10px;">
+      <div class="label">⚠️ Auto-discovered ALL accessible subscriptions</div>
+      <div style="font-size:13px;margin-top:4px;">This hack has no recorded subscription IDs and no hack groups had any RBAC assignments, so we queried every sub the SPN can read (<strong>${(cf.accessibleSubscriptions || []).length}</strong> total)${cacheStr}.</div>
+    </div>`;
+  }
+  const subsHtml = sourceBanner + (subs.length ? subs.map(s => `
+    <div class="sub-card">
+      <div class="head">
+        <div>
+          <div><strong>${esc(s.displayName || 'Subscription')}</strong> <span class="conf-badge conf-${s.confidence || 'missing'}">${esc(_confidenceLabel(s.confidence || 'missing'))}</span></div>
+          <div class="sub-id">${esc(s.subscriptionId)}</div>
+        </div>
+        <div class="sub-cost">${fmt(s.cost)}</div>
+      </div>
+      <div class="sub-meta">
+        <span>👥 ${s.targetUsers} users (${esc(s.team || 'all participants')})</span>
+        <span>📊 ${esc(s.allocation || '')}</span>
+        <span>💰 Per user: ${fmt(s.costPerUser)}</span>
+        <span>📡 Source: ${esc(s.source || 'manual')}</span>
+        ${s.periodStart ? `<span>📅 ${esc(s.periodStart)} → ${esc(s.periodEnd)}</span>` : ''}
+      </div>
+      ${s.error ? `<div style="color:#d13438;font-size:12px;margin-top:6px;">⚠ ${esc(s.error)}</div>` : ''}
+    </div>
+  `).join('') : '<div class="empty">No subscriptions configured. Tick "Fetch actual Azure costs" to auto-discover, or add subscription IDs in Advanced cost inputs.</div>');
+
+  // ── ISSUES PANE ──────────────────────────────────────────────
+  const issues = [];
+  for (const s of subs) {
+    if (s.error) {
+      let fix = 'Check subscription ID, SPN permissions, and that costs exist for the period.';
+      if (s.error.includes('SubscriptionCostDisabled')) {
+        fix = 'Grant the SPN the Cost Management Reader role on this subscription, or have an admin enable "View charges" for the subscription.';
+      } else if (s.error.includes('429') || s.error.toLowerCase().includes('throttl')) {
+        fix = 'Azure Cost Management is rate-limiting this tenant. Wait ~60 seconds and click Generate again. The backend already retries with backoff up to 4 times.';
+      } else if (s.error.toLowerCase().includes('timed out')) {
+        fix = 'Cost API was slow to respond. Retry the report; if persistent, check your network or try a narrower date range.';
+      }
+      issues.push({ severity: 'error', title: `Azure cost fetch failed for ${s.displayName || s.subscriptionId}`, detail: s.error, fix });
+    }
+  }
+  for (const lic of (report.licenses || {}).unknownCostLicenses || []) {
+    issues.push({ severity: 'warn', title: `No price for license: ${lic}`, detail: 'License is assigned but no unit cost is known.', fix: `Add an override under Advanced cost inputs: <code>${lic}=&lt;monthly_unit_cost&gt;</code>` });
+  }
+  for (const note of report.notes || []) issues.push({ severity: 'warn', title: 'Note', detail: note });
+  const issuesHtml = issues.length ? issues.map(i => `
+    <div class="issue-card ${i.severity === 'error' ? 'error' : ''}">
+      <div class="issue-title">${i.severity === 'error' ? '❌' : '⚠️'} ${esc(i.title)}</div>
+      <div style="font-size:12px;color:#555;">${esc(i.detail)}</div>
+      ${i.fix ? `<div class="issue-fix">💡 ${i.fix}</div>` : ''}
+    </div>
+  `).join('') : '<div class="cost-card" style="text-align:center;color:#107c10;"><div class="value" style="color:#107c10;">✓ No issues</div><div class="sub">All costs are sourced and confident.</div></div>';
+
+  // ── ASSEMBLE ─────────────────────────────────────────────────
+  box.classList.remove('hidden');
+  box.innerHTML = `
+    ${hero}
+    ${tabsBar}
+    <div class="report-pane active" data-rpane="overview">${overviewHtml}</div>
+    <div class="report-pane" data-rpane="teams">${teamsHtml}</div>
+    <div class="report-pane" data-rpane="users">${usersHtml}</div>
+    <div class="report-pane" data-rpane="subs">${subsHtml}</div>
+    <div class="report-pane" data-rpane="issues">${issuesHtml}</div>
+  `;
+
+  // Render Chart.js doughnut
+  setTimeout(() => _renderReportChart(breakdown, currency), 50);
+}
+
+function _confidenceLabel(c) {
+  return ({ actual: '✓ Actual', estimated: '~ Estimated', partial: '⚠ Partial', missing: '✗ Missing', none: '— No data' })[c] || c;
+}
+
+function _renderUserRow(u, idx, currency, report) {
+  const fmt = (v) => _money(v, currency);
+  const ghEnabled = (report.github || {}).enabled;
+  const ghPerUser = ghEnabled && (report.github || {}).users
+    ? ((report.github.periodCost || 0) / report.github.users)
+    : 0;
+  const ghCost = (!u.isAdmin && ghEnabled) ? ghPerUser : 0;
+  const total = (u.licenseCost || 0) + (u.subscriptionCost || 0) + ghCost;
+  const conf = u.confidence || 'none';
+  const breakdownRows = (u.breakdown || []).map(b => `<tr>
+    <td>${esc(b.category)}</td>
+    <td>${esc(b.label)}</td>
+    <td>${b.qty != null ? b.qty : (b.shareOf ? '1/' + b.shareOf : '')}</td>
+    <td>${b.unit != null ? fmt(b.unit) : (b.period != null ? fmt(b.period) : '—')}</td>
+    <td>${b.monthly != null ? fmt(b.monthly) : (b.period != null ? fmt(b.period) : '—')}</td>
+    <td><span class="conf-badge conf-${b.confidence || 'estimated'}">${esc(_confidenceLabel(b.confidence || 'estimated'))}</span></td>
+  </tr>`).join('');
+  const expandRow = `<tr class="user-expand-row hidden" data-uidx="${idx}"><td colspan="10"><div class="user-row-expand">
+    <strong>Cost breakdown for ${esc(u.userPrincipalName)}</strong>
+    ${breakdownRows ? `<table style="width:100%;margin-top:6px;font-size:11px;"><thead><tr><th>Category</th><th>Item</th><th>Qty</th><th>Unit</th><th>Cost</th><th>Confidence</th></tr></thead><tbody>${breakdownRows}</tbody></table>` : '<div style="color:#888;margin-top:6px;">No cost line items.</div>'}
+  </div></td></tr>`;
+  return `<tr class="clickable-row" data-uidx="${idx}" data-upn="${escAttr((u.userPrincipalName||'').toLowerCase())}" data-team="${escAttr((u.team||'').toLowerCase())}" data-isadmin="${u.isAdmin?'1':'0'}" data-total="${total}" onclick="_toggleUserRow(${idx})">
+    <td style="width:18px;color:#888;">▸</td>
+    <td><code style="font-size:11px;">${esc(u.userPrincipalName)}</code></td>
+    <td>${esc(u.isAdmin ? 'admin' : (u.team || '—'))}</td>
+    <td>${esc(u.status || '')}</td>
+    <td style="font-size:11px;">${esc(formatLicenseList(u.licenses)) || '—'}</td>
+    <td>${fmt(u.licenseCost)}</td>
+    <td>${fmt(u.subscriptionCost)}</td>
+    <td>${fmt(ghCost)}</td>
+    <td><strong>${fmt(total)}</strong></td>
+    <td><span class="conf-badge conf-${conf}">${esc(_confidenceLabel(conf))}</span></td>
+  </tr>${expandRow}`;
+}
+
+function _toggleUserRow(idx) {
+  const expand = document.querySelector(`tr.user-expand-row[data-uidx="${idx}"]`);
+  if (!expand) return;
+  expand.classList.toggle('hidden');
+  const main = document.querySelector(`tr.clickable-row[data-uidx="${idx}"]`);
+  if (main) main.firstElementChild.textContent = expand.classList.contains('hidden') ? '▸' : '▾';
+}
+
+function _switchReportTab(btn) {
+  const name = btn.getAttribute('data-rtab');
+  document.querySelectorAll('.report-tab').forEach(b => b.classList.toggle('active', b === btn));
+  document.querySelectorAll('.report-pane').forEach(p => p.classList.toggle('active', p.getAttribute('data-rpane') === name));
+}
+
+function _filterReportUsers() {
+  const q = (document.getElementById('mh-userFilter').value || '').toLowerCase();
+  const hideAdmins = document.getElementById('mh-hideAdmins').checked;
+  const hideZero = document.getElementById('mh-hideZero').checked;
+  let visible = 0, total = 0;
+  document.querySelectorAll('#mh-userTbody tr.clickable-row').forEach(row => {
+    total++;
+    const upn = row.getAttribute('data-upn') || '';
+    const team = row.getAttribute('data-team') || '';
+    const isAdmin = row.getAttribute('data-isadmin') === '1';
+    const t = parseFloat(row.getAttribute('data-total') || '0');
+    let show = true;
+    if (q && !upn.includes(q) && !team.includes(q)) show = false;
+    if (hideAdmins && isAdmin) show = false;
+    if (hideZero && t === 0) show = false;
+    row.classList.toggle('hidden', !show);
+    const expand = document.querySelector(`tr.user-expand-row[data-uidx="${row.getAttribute('data-uidx')}"]`);
+    if (expand && !show) expand.classList.add('hidden');
+    if (show) visible++;
+  });
+  document.getElementById('mh-userFilterCount').textContent = `${visible} / ${total}`;
+}
+
+let _reportChartInstance = null;
+function _renderReportChart(breakdown, currency) {
+  const canvas = document.getElementById('mh-reportChart');
+  if (!canvas || !window.Chart) return;
+  if (_reportChartInstance) { _reportChartInstance.destroy(); _reportChartInstance = null; }
+  const data = breakdown.filter(b => (b.amount || 0) > 0);
+  if (!data.length) return;
+  _reportChartInstance = new Chart(canvas, {
+    type: 'doughnut',
+    data: {
+      labels: data.map(b => b.category),
+      datasets: [{
+        data: data.map(b => b.amount),
+        backgroundColor: data.map(b => b.category === 'Licenses' ? '#0078d4' : b.category === 'Azure' ? '#742774' : '#24292e'),
+        borderWidth: 2,
+        borderColor: '#fff',
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'right' },
+        tooltip: { callbacks: { label: (ctx) => `${ctx.label}: ${_money(ctx.parsed, currency)} (${data[ctx.dataIndex].share}%)` } },
+      },
+    },
+  });
+}
+
+function _prefillReportInputs(state) {
+  const r = (state || {}).reportInputs || {};
+  // Reset all report inputs first so switching between hacks doesn't leak the
+  // previous hack's textarea / budget / currency values.
+  ['mh-costStart','mh-costEnd','mh-reportCurrency','mh-reportBudget','mh-subCosts','mh-licenseCosts'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  const fetchElReset = document.getElementById('mh-fetchAzureCosts');
+  if (fetchElReset) fetchElReset.checked = true;  // default ON
+  const setVal = (id, v) => { const el = document.getElementById(id); if (el && v != null && v !== '') el.value = v; };
+  // Always prefer saved values when present; otherwise default to creation→today.
+  const todayIso = new Date().toISOString().substring(0, 10);
+  const createdIso = (state.hackStartDate || state.hackDate || state.createdAt || '').substring(0, 10);
+  const startEl = document.getElementById('mh-costStart');
+  const endEl = document.getElementById('mh-costEnd');
+  if (startEl && !startEl.value) startEl.value = (r.startDate || '').substring(0, 10) || createdIso || '';
+  if (endEl && !endEl.value) endEl.value = (r.endDate || '').substring(0, 10) || todayIso;
+  // Currency defaults to USD if neither saved nor user input present
+  const curEl = document.getElementById('mh-reportCurrency');
+  if (curEl) curEl.value = r.currency || 'USD';
+  setVal('mh-reportBudget', r.budget);
+  const fetchEl = document.getElementById('mh-fetchAzureCosts');
+  if (fetchEl && r.fetchSubscriptionCosts != null) fetchEl.checked = !!r.fetchSubscriptionCosts;
+  if (Array.isArray(r.subscriptionCosts) && r.subscriptionCosts.length) {
+    const lines = r.subscriptionCosts.map(s => {
+      const parts = [s.subscriptionId];
+      if (s.cost != null) parts.push(s.cost);
+      if (s.team) { if (s.cost == null) parts.push(''); parts.push(s.team); }
+      return parts.join(',');
+    });
+    const ta = document.getElementById('mh-subCosts'); if (ta) ta.value = lines.join('\n');
+  }
+  if (r.licenseUnitCosts && Object.keys(r.licenseUnitCosts).length) {
+    const lines = Object.entries(r.licenseUnitCosts).map(([k, v]) => `${k}=${v}`);
+    const ta = document.getElementById('mh-licenseCosts'); if (ta) ta.value = lines.join('\n');
+  }
+  // If there are persisted inputs, expand the advanced section so user sees them
+  if ((r.subscriptionCosts && r.subscriptionCosts.length) || (r.licenseUnitCosts && Object.keys(r.licenseUnitCosts).length)) {
+    const adv = document.getElementById('mh-advancedCostInputs');
+    const toggle = adv && adv.previousElementSibling;
+    if (adv) adv.classList.remove('hidden');
+    if (toggle && toggle.classList) toggle.classList.add('open');
+  }
+}
+
+function printManagedHackReport() {
+  if (!_managedHackReport) { toast('Generate a report first', 'warn'); return; }
+  // Switch all tabs to visible for print
+  document.querySelectorAll('.report-pane').forEach(p => p.classList.add('active'));
+  setTimeout(() => {
+    window.print();
+    // Restore single-tab view
+    setTimeout(() => {
+      document.querySelectorAll('.report-pane').forEach(p => p.classList.remove('active'));
+      const active = document.querySelector('.report-tab.active');
+      if (active) {
+        const name = active.getAttribute('data-rtab');
+        const pane = document.querySelector(`.report-pane[data-rpane="${name}"]`);
+        if (pane) pane.classList.add('active');
+      }
+    }, 500);
+  }, 100);
 }
 
 function _downloadText(filename, text, type) {
@@ -6796,7 +7334,7 @@ function downloadManagedHackReportCsv() {
 
 async function generateAdminGuide() {
   if (!_managedHackState) { toast('Load a hack first', 'danger'); return; }
-  const prefix = _managedHackState.prefix.replace(/-$/, '');
+  const prefix = _getHackPrefix(); if (!prefix) { toast('No hack prefix available', 'danger'); return; }
   toast('Generating Admin Guide...', 'info');
   try {
     const resp = await fetch('/api/generate-doc', {
@@ -6874,7 +7412,7 @@ async function saveHackDates() {
   if (!deleteDate) { toast('Delete / End Date is required for scheduling', 'danger'); return; }
   if (!validateMhDateSequence()) { toast('Fix date sequence before saving', 'danger'); return; }
   const endDate = new Date(deleteDate).toISOString();
-  const prefix = _managedHackState.prefix.replace(/-$/, '');
+  const prefix = _getHackPrefix(); if (!prefix) { toast('No hack prefix available', 'danger'); return; }
   const creds = getSPNCreds();
   if (!creds.tenant_id) { toast('Enter SPN credentials', 'danger'); return; }
   const subsText = (document.getElementById('mh-endDateSubs').value || '').trim();
@@ -6916,7 +7454,7 @@ async function saveHackDates() {
 async function clearHackEndDate() {
   if (!_managedHackState) { toast('Load a hack first', 'danger'); return; }
   if (_managedHackState.isArchived || _managedHackState.archivedAt) { toast('Archived hacks are report-only', 'warn'); return; }
-  const prefix = _managedHackState.prefix.replace(/-$/, '');
+  const prefix = _getHackPrefix(); if (!prefix) { toast('No hack prefix available', 'danger'); return; }
   const creds = getSPNCreds();
   if (!creds.tenant_id) { toast('Enter SPN credentials', 'danger'); return; }
   try {
@@ -6941,7 +7479,7 @@ async function clearHackEndDate() {
 
 async function loadScheduledJobsForHack() {
   if (!_managedHackState) return;
-  const prefix = _managedHackState.prefix.replace(/-$/, '');
+  const prefix = _getHackPrefix(); if (!prefix) { toast('No hack prefix available', 'danger'); return; }
   const box = document.getElementById('mh-scheduledJobs');
   box.innerHTML = '<span class="spinner" style="display:inline-block;width:14px;height:14px;"></span> Loading…';
   try {
@@ -8142,6 +8680,199 @@ document.addEventListener('keydown', (e) => {
   // ? -> Help
   if (e.key === '?' && !e.ctrlKey && !e.metaKey) { switchView('help'); e.preventDefault(); }
 });
+
+// ──────────── Audit Trail ────────────
+async function loadAuditTrail() {
+  if (!_managedHackState) { toast('Load a hack first', 'danger'); return; }
+  const prefix = _getHackPrefix(); if (!prefix) { toast('No hack prefix available', 'danger'); return; }
+  const eventType = document.getElementById('mh-auditType').value;
+  const limit = document.getElementById('mh-auditLimit').value || '50';
+  const params = new URLSearchParams({ limit });
+  if (eventType) params.set('type', eventType);
+
+  const r = await fetch(`${API}/hack-state/${prefix}/audit?${params}`);
+  const data = await r.json();
+  if (!r.ok) { toast(data.error || 'Failed to load audit', 'danger'); return; }
+
+  document.getElementById('mh-auditEmpty').classList.add('hidden');
+  document.getElementById('mh-auditResults').classList.remove('hidden');
+  document.getElementById('mh-auditCount').textContent = `${data.count} event(s)`;
+
+  const tbody = document.getElementById('mh-auditBody');
+  tbody.innerHTML = '';
+  if (!data.events.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);">No audit events recorded yet. Events appear after provisions, cleanups, config changes, and drift checks.</td></tr>';
+    return;
+  }
+  for (const ev of data.events) {
+    const tr = document.createElement('tr');
+    const sevColor = ev.severity === 'error' ? 'var(--danger)' : ev.severity === 'warning' ? 'var(--color-warning)' : 'var(--muted)';
+    const detailStr = ev.details && Object.keys(ev.details).length ? JSON.stringify(ev.details) : '—';
+    tr.innerHTML = `<td style="white-space:nowrap;font-size:12px;">${_fmtTime(ev.timestamp)}</td>
+      <td><code style="font-size:12px;">${_esc(ev.type)}</code></td>
+      <td style="font-size:12px;">${_esc(ev.actor)}</td>
+      <td style="color:${sevColor};font-size:12px;font-weight:600;">${_esc(ev.severity)}</td>
+      <td style="font-size:11px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${_esc(detailStr)}">${_esc(detailStr)}</td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+// ──────────── Drift Detection ────────────
+async function runDriftCheck() {
+  if (!_managedHackState) { toast('Load a hack first', 'danger'); return; }
+  const creds = getCreds();
+  if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
+  const prefix = _getHackPrefix(); if (!prefix) { toast('No hack prefix available', 'danger'); return; }
+
+  document.getElementById('mh-driftSpinner').classList.remove('hidden');
+  try {
+    const r = await fetch(`${API}/hack-state/${prefix}/drift`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(creds),
+    });
+    const data = await r.json();
+    if (!r.ok) { toast(data.error || 'Drift check failed', 'danger'); return; }
+
+    document.getElementById('mh-driftResults').classList.remove('hidden');
+    const summaryEl = document.getElementById('mh-driftSummary');
+    if (data.hasDrift) {
+      summaryEl.innerHTML = `<span style="color:var(--danger);">⚠ Drift detected:</span> ${_esc(data.summary)}`;
+    } else {
+      summaryEl.innerHTML = `<span style="color:var(--success);">✅ No drift — state matches Entra</span>`;
+    }
+
+    // Stats
+    document.getElementById('mh-driftStats').innerHTML = `
+      <div class="stat-card"><div class="stat-value">${data.stateUserCount}</div><div class="stat-label">State users</div></div>
+      <div class="stat-card"><div class="stat-value">${data.liveUserCount}</div><div class="stat-label">Live users</div></div>
+      <div class="stat-card"><div class="stat-value">${data.stateGroupCount}</div><div class="stat-label">State groups</div></div>
+      <div class="stat-card"><div class="stat-value">${data.liveGroupCount}</div><div class="stat-label">Live groups</div></div>`;
+
+    // Missing
+    _fillDriftTable('mh-driftMissing', 'mh-driftMissingBody', [...(data.missingUsers||[]), ...(data.missingGroups||[])]);
+    // Extra
+    _fillDriftTable('mh-driftExtra', 'mh-driftExtraBody', [...(data.extraUsers||[]), ...(data.extraGroups||[])]);
+    // Modified
+    _fillDriftTable('mh-driftModified', 'mh-driftModifiedBody', data.modifiedUsers || []);
+  } finally {
+    document.getElementById('mh-driftSpinner').classList.add('hidden');
+  }
+}
+
+function _fillDriftTable(sectionId, tbodyId, items) {
+  const section = document.getElementById(sectionId);
+  const tbody = document.getElementById(tbodyId);
+  tbody.innerHTML = '';
+  if (!items.length) { section.classList.add('hidden'); return; }
+  section.classList.remove('hidden');
+  for (const item of items) {
+    const tr = document.createElement('tr');
+    const name = item.userPrincipalName || item.displayName || '—';
+    tr.innerHTML = `<td style="font-size:12px;">${_esc(name)}</td><td style="font-size:12px;">${_esc(item.issue)}</td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+async function absorbDriftExtras() {
+  if (!_managedHackState) { toast('Load a hack first', 'danger'); return; }
+  const creds = getCreds();
+  if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
+  const prefix = _getHackPrefix(); if (!prefix) { toast('No hack prefix available', 'danger'); return; }
+
+  const resultEl = document.getElementById('mh-driftAbsorbResult');
+  resultEl.textContent = '⏳ Absorbing…';
+  try {
+    const r = await fetch(`${API}/hack-state/${prefix}/drift/sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(creds),
+    });
+    const data = await r.json();
+    if (!r.ok) { toast(data.error || 'Absorb failed', 'danger'); resultEl.textContent = ''; return; }
+
+    const parts = [];
+    if (data.absorbedUsers && data.absorbedUsers.length) parts.push(`${data.absorbedUsers.length} users`);
+    if (data.absorbedGroups && data.absorbedGroups.length) parts.push(`${data.absorbedGroups.length} groups`);
+    resultEl.innerHTML = `<span style="color:var(--success);">✅ Absorbed ${parts.join(', ')} — total users: ${data.totalUsers}</span>`;
+    toast(data.message, 'success');
+
+    // Reload state to reflect changes
+    await loadHackState();
+  } catch (e) {
+    resultEl.textContent = '';
+    toast('Absorb failed: ' + e.message, 'danger');
+  }
+}
+
+// ──────────── Operation History ────────────
+async function loadOperationHistory() {
+  if (!_managedHackState) { toast('Load a hack first', 'danger'); return; }
+  const prefix = _getHackPrefix(); if (!prefix) { toast('No hack prefix available', 'danger'); return; }
+
+  const r = await fetch(`${API}/hack-state/${prefix}/operations`);
+  const data = await r.json();
+  if (!r.ok) { toast(data.error || 'Failed to load operations', 'danger'); return; }
+
+  // Active
+  const activeSection = document.getElementById('mh-opsActiveSection');
+  if (data.active && data.active.length) {
+    activeSection.classList.remove('hidden');
+    document.getElementById('mh-opsActiveList').innerHTML = data.active.map(op =>
+      `<div style="padding:8px 12px;background:#fff3e0;border:1px solid #ffe0b2;border-radius:6px;margin-bottom:6px;font-size:13px;">
+        <strong>${_esc(op.type)}</strong> — <span class="badge" style="background:var(--color-warning);color:#fff;">running</span>
+        started ${_fmtTime(op.startedAt)} by ${_esc(op.actor)}
+        (${op.steps.length} steps)
+      </div>`
+    ).join('');
+  } else {
+    activeSection.classList.add('hidden');
+  }
+
+  // History
+  document.getElementById('mh-opsEmpty').classList.add('hidden');
+  document.getElementById('mh-opsResults').classList.remove('hidden');
+  document.getElementById('mh-opsCount').textContent = `${data.totalHistory} operation(s)`;
+
+  const tbody = document.getElementById('mh-opsBody');
+  tbody.innerHTML = '';
+  if (!data.history.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--muted);">No operations recorded yet.</td></tr>';
+    return;
+  }
+  for (const op of data.history) {
+    const tr = document.createElement('tr');
+    const statusColor = op.status === 'completed' ? 'var(--success)' : op.status === 'failed' ? 'var(--danger)' : 'var(--color-warning)';
+    const duration = op.completedAt && op.startedAt ? _duration(op.startedAt, op.completedAt) : '—';
+    const stepsHtml = (op.steps || []).map(s => {
+      const ic = s.status === 'completed' ? '✅' : s.status === 'failed' ? '❌' : '🔄';
+      return `${ic} ${_esc(s.name)}`;
+    }).join(', ') || '—';
+    tr.innerHTML = `<td style="white-space:nowrap;font-size:12px;">${_fmtTime(op.startedAt)}</td>
+      <td style="font-size:12px;font-weight:600;">${_esc(op.type)}</td>
+      <td style="color:${statusColor};font-size:12px;font-weight:600;">${_esc(op.status)}</td>
+      <td style="font-size:12px;">${_esc(op.actor)}</td>
+      <td style="font-size:12px;">${duration}</td>
+      <td style="font-size:11px;">${stepsHtml}</td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+// ──────────── Helpers ────────────
+function _fmtTime(iso) {
+  if (!iso) return '—';
+  try { return new Date(iso).toLocaleString(undefined, { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit' }); }
+  catch { return iso; }
+}
+function _duration(start, end) {
+  try {
+    const ms = new Date(end) - new Date(start);
+    if (ms < 1000) return `${ms}ms`;
+    if (ms < 60000) return `${(ms/1000).toFixed(1)}s`;
+    return `${(ms/60000).toFixed(1)}m`;
+  } catch { return '—'; }
+}
+function _esc(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = String(s); return d.innerHTML; }
 </script>
 </body>
 </html>

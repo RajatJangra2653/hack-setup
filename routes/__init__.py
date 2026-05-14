@@ -14,6 +14,7 @@ def register_blueprints(app: Flask) -> None:
     from .scheduler import bp as scheduler_bp
     from .docs import bp as docs_bp
     from .chat import bp as chat_bp
+    from .lifecycle import bp as lifecycle_bp
 
     for blueprint in (
         static_bp,
@@ -25,5 +26,6 @@ def register_blueprints(app: Flask) -> None:
         scheduler_bp,
         docs_bp,
         chat_bp,
+        lifecycle_bp,
     ):
         app.register_blueprint(blueprint)

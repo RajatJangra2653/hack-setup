@@ -23,6 +23,7 @@ from ._state import (
     extract_creds, get_state_manager,
     entra_sessions, entra_lock, MAX_ENTRA_SESSIONS,
     prov_sessions, prov_lock,
+    audit_logger, operation_tracker,
 )
 
 bp = Blueprint("provision", __name__)
@@ -57,10 +58,18 @@ def _run_entra_provision(session_id: str, cfg_dict: dict,
         if not cfg.domain:
             raise ValueError("'domain' is required (e.g. WWPS319.onmicrosoft.com)")
 
+        prefix = cfg_dict.get("prefix", "unknown")
+        op = operation_tracker.start("provision", prefix, actor=cfg_dict.get("createdBy", ""))
+        audit_logger.log("provision.started", prefix, actor=cfg_dict.get("createdBy", ""),
+                         details={"sessionId": session_id, "userCount": cfg_dict.get("userCount")})
+        op.step("create_users", f"Provisioning users for {prefix}")
+
         azure = AzureConfig(tenant_id=tenant_id, client_id=client_id,
                             client_secret=client_secret)
         orch = EntraOrchestrator(azure, concurrency=int(cfg_dict.get("concurrency", 6)))
         report = asyncio.run(orch.provision(cfg, on_user_done=_on_user_done))
+
+        op.step_done("create_users", result={"total": report.total_users, "created": report.created})
 
         _set(status="completed", result=report.to_dict(),
              processed=report.total_users, total=report.total_users)
@@ -73,8 +82,19 @@ def _run_entra_provision(session_id: str, cfg_dict: dict,
                 mgr.save_state(cfg_dict.get("prefix", "unknown"), state)
         except Exception as blob_exc:
             print(f"[WARN] Failed to save state to blob: {blob_exc}")
+
+        op.complete(result={"totalUsers": report.total_users, "created": report.created})
+        audit_logger.log("provision.completed", prefix, actor=cfg_dict.get("createdBy", ""),
+                         details={"totalUsers": report.total_users, "created": report.created})
+        operation_tracker.finish(op)
     except Exception as exc:
         _set(status="failed", error=str(exc))
+        prefix = cfg_dict.get("prefix", "unknown")
+        audit_logger.log("provision.failed", prefix, actor=cfg_dict.get("createdBy", ""),
+                         details={"error": str(exc)}, severity="error")
+        if "op" in locals():
+            op.fail(str(exc))
+            operation_tracker.finish(op)
 
 
 async def _async_preflight(t, c, s, *, cfg_dict, subscriptions):
