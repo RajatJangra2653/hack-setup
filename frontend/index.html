@@ -3326,9 +3326,10 @@ function _renderDashboard() {
     const st = _dashLifecycleStatus(h);
     const teams = h.teams ? `${h.teams}×${h.usersPerTeam || 0}` : '—';
     const lrc = h.lastReportCosts || {};
-    const costCell = lrc.totalEstimated
+    const costVal = lrc.totalEstimated
       ? `<span style="font-weight:600;">${lrc.currency === 'USD' ? '$' : lrc.currency + ' '}${lrc.totalEstimated.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>${lrc.budgetStatus ? `<div class="hint" style="font-size:10px;">${_budgetPill(lrc)}</div>` : ''}`
       : '<span class="hint">—</span>';
+    const costBtn = `<button class="btn-micro" onclick="event.stopPropagation();dashGetCost('${esc(h.prefix)}',this)" title="Calculate cost for this hack" id="dash-cost-${esc(h.prefix)}">💰</button>`;
     return `<tr class="dash-row${h.archived ? ' dash-archived' : ''}" onclick="dashOpenHack('${esc(h.prefix)}')" style="cursor:pointer;">
       <td><strong>${esc(h.hackName || h.prefix)}</strong></td>
       <td><code style="font-size:11px;">${esc(h.prefix)}</code></td>
@@ -3337,7 +3338,7 @@ function _renderDashboard() {
       <td style="text-align:center;font-size:12px;">${teams}</td>
       <td style="text-align:center;">${h.adminUsers || 0}</td>
       <td><span class="dash-status ${st.cls}">${st.label}</span></td>
-      <td style="text-align:right;">${costCell}</td>
+      <td style="text-align:right;"><span class="dash-cost-val">${costVal}</span> ${costBtn}</td>
       <td>${_fmtDashDate(h.hackDate)}</td>
       <td>${_fmtDashDate(h.readonlyDate)}</td>
       <td>${_fmtDashDate(h.deleteDate || h.endDate)}</td>
@@ -3379,6 +3380,65 @@ function dashOpenHack(prefix) {
   if (mhSelect) mhSelect.value = cleanPrefix;
   switchView('manage');
   loadHackState();
+}
+
+// ──────────── Dashboard: Get Cost per hack ────────────
+async function dashGetCost(prefix, btn) {
+  const creds = getCreds();
+  btn.disabled = true;
+  btn.textContent = '⏳';
+  try {
+    // Fetch hack state to get dates
+    const stRes = await fetch(`${API}/hack-state/${encodeURIComponent(prefix)}`);
+    if (!stRes.ok) throw new Error('Could not load hack state');
+    const st = await stRes.json();
+    const cfg = st.config || {};
+    const body = {
+      ...creds,
+      fetchSubscriptionCosts: true,
+      startDate: cfg.hackDate || new Date().toISOString().substring(0, 10),
+      endDate: cfg.deleteDate || cfg.endDate || cfg.readonlyDate || '',
+      budget: cfg.budget || null,
+      githubEnabled: !!cfg.enableGithub,
+      githubCopilot: !!cfg.enableGithubCopilot,
+      persistInputs: true,
+    };
+    const res = await fetch(`${API}/hack-state/${encodeURIComponent(prefix)}/report`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    const total = (data.costs || {}).totalEstimated || 0;
+    const cur = data.currency || (data.costs || {}).currency || 'USD';
+    // Update the cost cell inline
+    const valSpan = btn.parentElement.querySelector('.dash-cost-val');
+    if (valSpan) {
+      valSpan.innerHTML = total
+        ? `<span style="font-weight:600;">${cur === 'USD' ? '$' : cur + ' '}${total.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>`
+        : '<span class="hint">—</span>';
+    }
+    // Update _dashData so KPI refreshes
+    const hack = _dashData.find(h => h.prefix === prefix);
+    if (hack) {
+      hack.lastReportCosts = { totalEstimated: total, currency: cur, ...(data.budget || {}), generatedAt: new Date().toISOString() };
+      // Refresh KPI totals
+      const totalCost = _dashData.reduce((s, h) => s + ((h.lastReportCosts || {}).totalEstimated || 0), 0);
+      const anyCur = _dashData.find(h => (h.lastReportCosts || {}).currency);
+      const c = (anyCur && anyCur.lastReportCosts.currency) || 'USD';
+      document.getElementById('dash-kCost').textContent = totalCost > 0
+        ? `${c === 'USD' ? '$' : c + ' '}${totalCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+        : '—';
+    }
+    btn.textContent = '💰';
+    toast(`Cost for ${prefix}: ${cur === 'USD' ? '$' : cur + ' '}${total.toLocaleString()}`, 'success');
+  } catch (e) {
+    btn.textContent = '⚠️';
+    toast('Cost failed: ' + e.message, 'danger');
+    setTimeout(() => { btn.textContent = '💰'; }, 3000);
+  }
+  btn.disabled = false;
 }
 
 // ──────────── Dashboard: Sync with Entra ────────────
