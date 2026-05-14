@@ -445,8 +445,13 @@ def expand_hack(prefix):
     merged_cfg["adminUsers"] = new_admins
     merged_cfg["skipExisting"] = True
     merged_cfg["dryRun"] = bool(data.get("dryRun"))
-    # Don't carry an old initial password through — let orchestrator generate fresh ones
-    merged_cfg.pop("initialPassword", None)
+    # By default keep the same initial password from the original hack;
+    # caller can override with 'password' to set a new one, or 'randomPasswords'
+    # to force random generation for the new batch.
+    if data.get("password"):
+        merged_cfg["initialPassword"] = data["password"]
+    elif data.get("randomPasswords"):
+        merged_cfg.pop("initialPassword", None)
 
     delta = {
         "addTeams": add_teams,

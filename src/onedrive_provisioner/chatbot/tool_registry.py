@@ -510,6 +510,8 @@ TOOLS = [
                     "addParticipantsPerTeam": {"type": "integer", "description": "Extra participants to add to EVERY team (existing + new). Default 0.", "minimum": 0},
                     "addAdmins": {"type": "integer", "description": "Number of new admin users to add. Default 0.", "minimum": 0},
                     "dryRun": {"type": "boolean", "description": "When true, simulate without creating users."},
+                    "password": {"type": "string", "description": "Set a specific password for the new users. Omit to reuse the original hack password."},
+                    "randomPasswords": {"type": "boolean", "description": "When true, generate a unique random password for each new user instead of reusing the original."},
                 },
                 "required": ["prefix"],
             },

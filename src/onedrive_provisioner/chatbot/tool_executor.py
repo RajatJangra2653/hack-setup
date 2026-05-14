@@ -146,6 +146,8 @@ class ToolExecutor:
         addParticipantsPerTeam: int = 0,
         addAdmins: int = 0,
         dryRun: bool = False,
+        password: str = "",
+        randomPasswords: bool = False,
     ) -> Any:
         """Expand an existing hack by adding more teams, more participants per
         team, and/or more admins. Indices continue from the current max — no
@@ -167,6 +169,10 @@ class ToolExecutor:
             "addAdmins": int(addAdmins or 0),
             "dryRun": bool(dryRun),
         }
+        if password:
+            payload["password"] = password
+        elif randomPasswords:
+            payload["randomPasswords"] = True
         with app.test_client() as client:
             resp = client.post(f"/api/hack-state/{prefix}/expand", json=payload)
             try:

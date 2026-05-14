@@ -1375,6 +1375,10 @@
                   <input type="number" id="mh-expAddAdmins" value="0" min="0" max="50" />
                 </div>
               </div>
+              <div style="margin-top:8px;max-width:380px;">
+                <label for="mh-expPassword">Password for new users <span class="hint">(blank = reuse original)</span></label>
+                <input type="text" id="mh-expPassword" placeholder="Leave blank to reuse the original password" style="font-size:13px;" />
+              </div>
               <div id="mh-expPreview" class="hint" style="margin:8px 0;"></div>
               <div class="actions">
                 <button class="btn" data-archived-disabled="true" onclick="withBusy(this, () => expandHackUsers(true))">🔍 Dry Run</button>
@@ -5754,6 +5758,7 @@ async function expandHackUsers(dryRun) {
         ...creds,
         addTeams, addParticipantsPerTeam: addUpt, addAdmins,
         dryRun: !!dryRun,
+        ...(document.getElementById('mh-expPassword').value.trim() ? { password: document.getElementById('mh-expPassword').value.trim() } : {}),
       }),
     });
     const data = await res.json();
