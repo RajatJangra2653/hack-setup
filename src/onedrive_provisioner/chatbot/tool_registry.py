@@ -55,6 +55,10 @@ TOOLS = [
                         "type": "boolean",
                         "description": "When true (default), call Azure Cost Management to get actual costs for the hack's subscriptions. Set false only if the user explicitly wants manual-input-only mode.",
                     },
+                    "forceRefresh": {
+                        "type": "boolean",
+                        "description": "When true, bypass the 15-minute cost cache and re-query Azure. Use only if the user explicitly asks for fresh data.",
+                    },
                     "startDate": {
                         "type": "string",
                         "description": "ISO YYYY-MM-DD start of the cost window. Defaults to the hack's creation date.",

@@ -227,101 +227,62 @@ class ToolExecutor:
         startDate: Optional[str] = None,
         endDate: Optional[str] = None,
         budget: Optional[float] = None,
+        forceRefresh: bool = False,
     ) -> Any:
-        from datetime import datetime, timedelta, timezone
-        from onedrive_provisioner.hack_report import build_hack_report
-        from onedrive_provisioner.entra.cost_service import CostManagementService
+        """Delegate to the production /api/hack-state/<prefix>/report endpoint
+        so the chatbot uses the SAME pipeline as the UI: group-RBAC + user-RBAC
+        sub discovery, displayName + team-map enrichment, cost cache, state
+        persistence, and budget tracking. Any feature added to that route is
+        automatically available here.
+        """
+        from datetime import datetime, timezone
+        from flask import current_app
 
-        mgr = self._get_mgr()
-        if not mgr:
-            return {"error": "Storage not configured"}
-        state = mgr.get_state(prefix)
-        if not state:
-            return {"error": f"No state found for prefix '{prefix}'"}
+        try:
+            app = current_app._get_current_object()  # noqa: SLF001
+        except Exception:
+            return {"error": "No Flask app context — cannot invoke report endpoint."}
 
-        # Default date window: hack creation date → today, else last 30 days.
         if not endDate:
             endDate = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        if not startDate:
-            created = (state.get("hackStartDate") or state.get("hackDate")
-                       or state.get("createdAt") or "")
-            if created:
-                startDate = str(created)[:10]
-            else:
-                startDate = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d")
 
-        merged_costs: list = list(subscriptionCosts or [])
+        payload = {
+            "tenant_id": self._creds[0],
+            "client_id": self._creds[1],
+            "client_secret": self._creds[2],
+            "currency": (currency or "USD"),
+            "fetchSubscriptionCosts": bool(fetchSubscriptionCosts),
+            "forceRefresh": bool(forceRefresh),
+            "endDate": endDate,
+        }
+        if startDate:
+            payload["startDate"] = startDate
+        if budget is not None:
+            payload["budget"] = budget
+        if subscriptionCosts:
+            payload["subscriptionCosts"] = subscriptionCosts
+            payload["subscriptionIds"] = [
+                c.get("subscriptionId") for c in subscriptionCosts
+                if c.get("subscriptionId")
+            ]
+        if licenseUnitCosts:
+            payload["licenseUnitCosts"] = licenseUnitCosts
 
-        if fetchSubscriptionCosts:
-            tp = _make_tp(self._creds)
-
-            async def _fetch() -> list:
-                async with CostManagementService(tp) as cost_svc:
-                    sub_ids = list(state.get("subscriptionIds") or [])
-                    accessible = []
-                    if not sub_ids:
-                        accessible = await cost_svc.list_accessible_subscriptions()
-                        sub_ids = [s.get("subscriptionId") for s in accessible if s.get("subscriptionId")]
-                    if not sub_ids:
-                        return []
-                    rows = await cost_svc.query_subscription_costs(
-                        sub_ids, start_date=startDate, end_date=endDate,
-                    )
-                    # Best-effort displayName enrichment
-                    if not accessible:
-                        try:
-                            accessible = await cost_svc.list_accessible_subscriptions()
-                        except Exception:
-                            accessible = []
-                    name_by_id = {s.get("subscriptionId"): s.get("displayName")
-                                  for s in accessible if s.get("subscriptionId")}
-                    for r in rows:
-                        sid = r.get("subscriptionId")
-                        if sid and name_by_id.get(sid) and not r.get("displayName"):
-                            r["displayName"] = name_by_id[sid]
-                    return rows
-
+        with app.test_client() as client:
+            resp = client.post(
+                f"/api/hack-state/{prefix}/report",
+                json=payload,
+            )
             try:
-                fetched = asyncio.run(_fetch())
-            except Exception as exc:
-                fetched = []
-                merged_costs.append({"error": f"Cost fetch failed: {exc}"})
-
-            # Merge: explicit overrides win on cost; team is preserved from
-            # explicit if provided, otherwise blank (build_hack_report will
-            # try to derive teams from state.subscriptionTeamMap if present).
-            explicit_by_id = {c.get("subscriptionId"): c for c in merged_costs if c.get("subscriptionId")}
-            sub_team_map = (state.get("subscriptionTeamMap") or {})
-            for r in fetched:
-                sid = r.get("subscriptionId")
-                if not sid:
-                    continue
-                row = dict(r)
-                if sid in sub_team_map and not row.get("team"):
-                    row["team"] = sub_team_map[sid]
-                ex = explicit_by_id.get(sid)
-                if ex:
-                    if ex.get("cost") is not None:
-                        row["cost"] = ex["cost"]
-                    if ex.get("team"):
-                        row["team"] = ex["team"]
-                    explicit_by_id.pop(sid, None)
-                merged_costs = [c for c in merged_costs if c.get("subscriptionId") != sid]
-                merged_costs.append(row)
-            # Re-add any explicit-only rows that weren't in fetched
-            for sid, ex in explicit_by_id.items():
-                if not any(c.get("subscriptionId") == sid for c in merged_costs):
-                    merged_costs.append(ex)
-
-        return build_hack_report(
-            state,
-            subscription_costs=merged_costs,
-            license_unit_costs=licenseUnitCosts or {},
-            currency=currency or "USD",
-            start_date=startDate or "",
-            end_date=endDate or "",
-            budget=budget,
-        )
+                body = resp.get_json()
+            except Exception:
+                body = {"error": "Invalid JSON from report endpoint", "status": resp.status_code}
+            if resp.status_code >= 400:
+                if not isinstance(body, dict):
+                    body = {"error": str(body), "status": resp.status_code}
+                body.setdefault("status", resp.status_code)
+                return body
+            return body
 
     def _tool_get_provisioning_sessions(self) -> Any:
         with self._entra_lock:
