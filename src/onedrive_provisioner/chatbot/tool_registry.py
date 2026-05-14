@@ -488,6 +488,33 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "expand_hack",
+            "description": (
+                "Expand an EXISTING hack by adding more teams, more participants per team, "
+                "and/or more admins. Indices continue from the current max — existing users, "
+                "passwords, TAPs, licenses, and group memberships are NEVER touched. "
+                "Example: a hack with 5 teams × 4 participants and 5 admins, called with "
+                "addTeams=1, addParticipantsPerTeam=1, addAdmins=2 will create team t06 (with "
+                "u01..u05), add u05 to t01..t05, and create admin06 + admin07. "
+                "This is a MUTATION tool — only available when CHATBOT_ENABLE_MUTATION_TOOLS is set. "
+                "Returns a session_id; poll get_session_status to monitor progress."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prefix": {"type": "string", "description": "Hack prefix (e.g. 'fbi-cjis-')"},
+                    "addTeams": {"type": "integer", "description": "Number of new teams to add (>=0). Default 0.", "minimum": 0},
+                    "addParticipantsPerTeam": {"type": "integer", "description": "Extra participants to add to EVERY team (existing + new). Default 0.", "minimum": 0},
+                    "addAdmins": {"type": "integer", "description": "Number of new admin users to add. Default 0.", "minimum": 0},
+                    "dryRun": {"type": "boolean", "description": "When true, simulate without creating users."},
+                },
+                "required": ["prefix"],
+            },
+        },
+    },
 ]
 
 READ_ONLY_TOOL_NAMES = {

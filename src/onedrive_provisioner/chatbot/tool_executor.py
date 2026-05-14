@@ -37,6 +37,7 @@ MUTATION_TOOLS = {
     "modify_hack_dates",
     "repair_groups",
     "repair_licenses",
+    "expand_hack",
 }
 
 SECRET_KEYS = {
@@ -137,6 +138,47 @@ class ToolExecutor:
             "admins": sum(1 for u in users if u.get("isAdmin")),
             "upns": [u.get("userPrincipalName", "") for u in users],
         }
+
+    def _tool_expand_hack(
+        self,
+        prefix: str,
+        addTeams: int = 0,
+        addParticipantsPerTeam: int = 0,
+        addAdmins: int = 0,
+        dryRun: bool = False,
+    ) -> Any:
+        """Expand an existing hack by adding more teams, more participants per
+        team, and/or more admins. Indices continue from the current max — no
+        existing user is touched (orchestrator runs with skip_existing=True).
+        Returns a session_id; caller polls get_session_status to monitor.
+        """
+        from flask import current_app
+        try:
+            app = current_app._get_current_object()  # noqa: SLF001
+        except Exception:
+            return {"error": "No Flask app context — cannot invoke expand endpoint."}
+
+        payload = {
+            "tenant_id": self._creds[0],
+            "client_id": self._creds[1],
+            "client_secret": self._creds[2],
+            "addTeams": int(addTeams or 0),
+            "addParticipantsPerTeam": int(addParticipantsPerTeam or 0),
+            "addAdmins": int(addAdmins or 0),
+            "dryRun": bool(dryRun),
+        }
+        with app.test_client() as client:
+            resp = client.post(f"/api/hack-state/{prefix}/expand", json=payload)
+            try:
+                body = resp.get_json()
+            except Exception:
+                body = {"error": "Invalid JSON from expand endpoint", "status": resp.status_code}
+            if resp.status_code >= 400:
+                if not isinstance(body, dict):
+                    body = {"error": str(body), "status": resp.status_code}
+                body.setdefault("status", resp.status_code)
+                return body
+            return body
 
     def _tool_get_subscription_cost(
         self,

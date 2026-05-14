@@ -1347,6 +1347,53 @@
             </div>
 
             <div class="card" style="margin-top:10px;">
+              <h4>➕ Expand Hack (add more teams / participants / admins)</h4>
+              <p class="hint">Add more capacity to this hack without touching existing users. Indices continue from the current max — e.g. if there are already 5 teams, +1 team becomes <code>t06</code>; if each team has 4 participants, +1 per team adds <code>u05</code> to every team. Existing passwords, TAPs, licenses and group memberships are preserved.</p>
+              <div class="input-grid" style="grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;">
+                <div>
+                  <label for="mh-expCurTeams">Current teams</label>
+                  <input type="text" id="mh-expCurTeams" readonly />
+                </div>
+                <div>
+                  <label for="mh-expCurUpt">Participants per team</label>
+                  <input type="text" id="mh-expCurUpt" readonly />
+                </div>
+                <div>
+                  <label for="mh-expCurAdmins">Admins</label>
+                  <input type="text" id="mh-expCurAdmins" readonly />
+                </div>
+                <div>
+                  <label for="mh-expAddTeams">+ Add teams</label>
+                  <input type="number" id="mh-expAddTeams" value="0" min="0" max="50" />
+                </div>
+                <div>
+                  <label for="mh-expAddUpt">+ Add participants per team</label>
+                  <input type="number" id="mh-expAddUpt" value="0" min="0" max="50" />
+                </div>
+                <div>
+                  <label for="mh-expAddAdmins">+ Add admins</label>
+                  <input type="number" id="mh-expAddAdmins" value="0" min="0" max="50" />
+                </div>
+              </div>
+              <div id="mh-expPreview" class="hint" style="margin:8px 0;"></div>
+              <div class="actions">
+                <button class="btn" data-archived-disabled="true" onclick="withBusy(this, () => expandHackUsers(true))">🔍 Dry Run</button>
+                <button class="btn btn-primary" data-archived-disabled="true" onclick="withBusy(this, () => expandHackUsers(false))">➕ Expand Hack</button>
+                <span id="mh-expSpinner" class="hidden"><span class="spinner"></span></span>
+              </div>
+              <div id="mh-exp-progress" class="op-progress"><div class="op-progress-track"><div class="op-progress-fill"></div></div><div class="op-progress-text"></div></div>
+              <div id="mh-expResultBox" class="hidden" style="margin-top:12px;">
+                <div id="mh-expSummary" style="font-weight:600;margin-bottom:6px;"></div>
+                <div class="results-scroll" style="max-height:260px;">
+                  <table>
+                    <thead><tr><th>UPN</th><th>Status</th><th>Password</th><th>TAP</th></tr></thead>
+                    <tbody id="mh-expBody"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <div class="card" style="margin-top:10px;">
               <h4>⚡ Power Apps Environment</h4>
               <p class="hint">Create or delete a Power Apps environment for this hack. Environment name: "AI HACK - {Hack Name}".</p>
               <div id="mh-paStatus" style="font-size:13px;margin-bottom:8px;"></div>
@@ -5549,6 +5596,18 @@ function _renderManagedHackState(state) {
   document.getElementById('mh-stCreated').textContent = (state.createdAt || '').substring(0, 19);
   document.getElementById('mh-stUpdated').textContent = (state.lastUpdated || '').substring(0, 19);
 
+  // Populate Expand-Hack current counts
+  try {
+    const cfg = state.config || {};
+    const elT = document.getElementById('mh-expCurTeams');
+    const elU = document.getElementById('mh-expCurUpt');
+    const elA = document.getElementById('mh-expCurAdmins');
+    if (elT) elT.value = String(cfg.teams || 0);
+    if (elU) elU.value = String(cfg.usersPerTeam || 0);
+    if (elA) elA.value = String(cfg.adminUsers || 0);
+    _updateExpandPreview();
+  } catch (_) { /* expand card optional */ }
+
   const lifecycle = state || {};
   const lifecycleDate = (value) => value ? `${new Date(value).toLocaleString()} (UTC: ${String(value).substring(0, 19)})` : 'Not set';
   document.getElementById('mh-stHackStart').textContent = lifecycleDate(lifecycle.hackStartDate);
@@ -5625,6 +5684,140 @@ function _renderManagedHackState(state) {
 
   // Refresh SharePoint status in Actions tab
   _refreshSharePointStatus();
+}
+
+// ──────────── Expand Hack (add teams/participants/admins) ────────────
+function _updateExpandPreview() {
+  const out = document.getElementById('mh-expPreview');
+  if (!out) return;
+  const curT = parseInt(document.getElementById('mh-expCurTeams').value || '0', 10);
+  const curU = parseInt(document.getElementById('mh-expCurUpt').value || '0', 10);
+  const curA = parseInt(document.getElementById('mh-expCurAdmins').value || '0', 10);
+  const addT = parseInt(document.getElementById('mh-expAddTeams').value || '0', 10);
+  const addU = parseInt(document.getElementById('mh-expAddUpt').value || '0', 10);
+  const addA = parseInt(document.getElementById('mh-expAddAdmins').value || '0', 10);
+  if (addT === 0 && addU === 0 && addA === 0) {
+    out.textContent = 'No expansion requested.';
+    return;
+  }
+  const newT = curT + addT;
+  const newU = curU + addU;
+  const newA = curA + addA;
+  const newUsers = (addT * newU) + (addU * curT) + addA;
+  out.innerHTML = `<strong>Plan:</strong> ${curT}\u00d7${curU} teams \u2192 <strong>${newT}\u00d7${newU}</strong>, admins ${curA} \u2192 <strong>${newA}</strong>. Estimated <strong>${newUsers}</strong> new user(s) will be created.`;
+}
+
+document.addEventListener('input', (e) => {
+  if (e.target && (e.target.id === 'mh-expAddTeams' || e.target.id === 'mh-expAddUpt' || e.target.id === 'mh-expAddAdmins')) {
+    _updateExpandPreview();
+  }
+});
+
+let _expandPollTimer = null;
+async function expandHackUsers(dryRun) {
+  if (!_managedHackState) { toast('Load a hack first', 'danger'); return; }
+  if (_managedHackState.isArchived || _managedHackState.archivedAt) { toast('Archived hacks are read-only', 'warn'); return; }
+  const creds = getCreds();
+  if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
+  const prefix = _getHackPrefix(); if (!prefix) { toast('No hack prefix available', 'danger'); return; }
+
+  const addTeams = parseInt(document.getElementById('mh-expAddTeams').value || '0', 10);
+  const addUpt = parseInt(document.getElementById('mh-expAddUpt').value || '0', 10);
+  const addAdmins = parseInt(document.getElementById('mh-expAddAdmins').value || '0', 10);
+  if (addTeams <= 0 && addUpt <= 0 && addAdmins <= 0) {
+    toast('Specify at least one of: +teams, +participants/team, +admins', 'warn');
+    return;
+  }
+  if (!dryRun) {
+    const cur = (_managedHackState.config) || {};
+    const newT = (cur.teams || 0) + addTeams;
+    const newU = (cur.usersPerTeam || 0) + addUpt;
+    const newA = (cur.adminUsers || 0) + addAdmins;
+    const ok = window.confirm(
+      `Confirm expansion of "${prefix}":\n\n` +
+      `Teams: ${cur.teams || 0} → ${newT}\n` +
+      `Participants/team: ${cur.usersPerTeam || 0} → ${newU}\n` +
+      `Admins: ${cur.adminUsers || 0} → ${newA}\n\n` +
+      `New users will be created in tenant ${creds.tenant_id}. Continue?`
+    );
+    if (!ok) return;
+  }
+
+  document.getElementById('mh-expSpinner').classList.remove('hidden');
+  document.getElementById('mh-expResultBox').classList.add('hidden');
+  showOpProgress('mh-exp', dryRun ? 'Dry-run expansion…' : 'Expanding hack…');
+  try {
+    const res = await fetch(`${API}/hack-state/${encodeURIComponent(prefix)}/expand`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...creds,
+        addTeams, addParticipantsPerTeam: addUpt, addAdmins,
+        dryRun: !!dryRun,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    const sessionId = data.session_id;
+    const expected = (data.delta && data.delta.expectedNewUsers) || 0;
+    if (_expandPollTimer) clearInterval(_expandPollTimer);
+    _expandPollTimer = setInterval(() => _pollExpand(sessionId, expected, dryRun), 1500);
+    _pollExpand(sessionId, expected, dryRun);
+  } catch (e) {
+    completeOpProgress('mh-exp', 'Expand failed: ' + e.message, false);
+    toast('Expand failed: ' + e.message, 'danger');
+    document.getElementById('mh-expSpinner').classList.add('hidden');
+  }
+}
+
+async function _pollExpand(sessionId, expected, dryRun) {
+  try {
+    const res = await fetch(`${API}/provision-users/${sessionId}`);
+    if (!res.ok) return;
+    const s = await res.json();
+    const processed = s.processed || (s.partial_users || []).length || 0;
+    const total = s.total || expected || 0;
+    document.querySelector('#mh-exp-progress .op-progress-text').textContent =
+      `${processed}/${total || '?'} processed (${s.status})`;
+    if (total > 0) {
+      const pct = Math.min(100, Math.round((processed / total) * 100));
+      document.querySelector('#mh-exp-progress .op-progress-fill').style.width = pct + '%';
+    }
+    if (s.status === 'completed' || s.status === 'failed') {
+      clearInterval(_expandPollTimer); _expandPollTimer = null;
+      document.getElementById('mh-expSpinner').classList.add('hidden');
+      const report = s.result || {};
+      const newUsers = report.users || s.partial_users || [];
+      const created = newUsers.filter(u => u.status === 'created').length;
+      const failed = newUsers.filter(u => u.status === 'failed').length;
+      document.getElementById('mh-expResultBox').classList.remove('hidden');
+      document.getElementById('mh-expSummary').textContent =
+        `${dryRun ? 'Dry-run' : 'Expansion'} ${s.status}: ${created} created, ${failed} failed (${newUsers.length} processed)`;
+      const body = document.getElementById('mh-expBody');
+      body.innerHTML = newUsers.map(u => {
+        const sCls = u.status === 'created' ? 'color:var(--success)' : u.status === 'failed' ? 'color:var(--danger)' : 'color:var(--muted)';
+        return `<tr>
+          <td><code style="font-size:11px;">${esc(u.userPrincipalName || u.upn || '')}</code></td>
+          <td style="${sCls}">${esc(u.status || '')}</td>
+          <td style="font-family:monospace;font-size:11px;">${esc(u.password || '-')}</td>
+          <td style="font-family:monospace;font-size:11px;">${esc(u.tap || '-')}</td>
+        </tr>`;
+      }).join('');
+      if (s.status === 'failed') {
+        completeOpProgress('mh-exp', 'Expand failed: ' + (s.error || 'Unknown'), false);
+        toast('Expand failed: ' + (s.error || 'Unknown'), 'danger');
+      } else {
+        completeOpProgress('mh-exp', `${dryRun ? 'Dry-run' : 'Expanded'}: ${created} new user(s)`, true);
+        toast(`${dryRun ? 'Dry-run' : 'Expansion'} complete: ${created} new user(s)`, 'success');
+        if (!dryRun) {
+          // Reload state so counts/users reflect the new totals
+          await loadHackState();
+        }
+      }
+    }
+  } catch (e) {
+    // transient
+  }
 }
 
 async function _loadHackVersions(prefix) {
