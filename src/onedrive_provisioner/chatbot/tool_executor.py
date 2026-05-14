@@ -138,14 +138,99 @@ class ToolExecutor:
             "upns": [u.get("userPrincipalName", "") for u in users],
         }
 
+    def _tool_get_subscription_cost(
+        self,
+        subscription: str,
+        startDate: Optional[str] = None,
+        endDate: Optional[str] = None,
+    ) -> Any:
+        """Fetch actual Azure cost for a single subscription, identified by GUID
+        OR display name (case-insensitive contains match).
+
+        - ``subscription`` may be a subscription GUID or a (partial) display name.
+        - ``startDate`` / ``endDate`` are ISO ``YYYY-MM-DD``. Defaults: last 30 days.
+        Requires the SPN to have Reader + Cost Management Reader on the sub.
+        """
+        from datetime import datetime, timedelta, timezone
+        from onedrive_provisioner.entra.cost_service import CostManagementService
+
+        if not subscription or not isinstance(subscription, str):
+            return {"error": "subscription is required (GUID or display name)"}
+        if not endDate:
+            endDate = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        if not startDate:
+            startDate = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d")
+
+        tp = _make_tp(self._creds)
+
+        async def _run() -> dict:
+            async with CostManagementService(tp) as cost_svc:
+                # Resolve the subscription: if it looks like a GUID, use it
+                # directly; otherwise list accessible subs and substring-match
+                # the display name.
+                sub_id = subscription.strip()
+                display_name = None
+                is_guid = (
+                    len(sub_id) == 36 and sub_id.count("-") == 4
+                )
+                if not is_guid:
+                    accessible = await cost_svc.list_accessible_subscriptions()
+                    needle = sub_id.lower()
+                    matches = [
+                        s for s in accessible
+                        if needle in (s.get("displayName") or "").lower()
+                    ]
+                    if not matches:
+                        return {
+                            "error": f"No accessible subscription matched '{subscription}'.",
+                            "accessibleCount": len(accessible),
+                        }
+                    if len(matches) > 1:
+                        return {
+                            "error": f"Ambiguous: '{subscription}' matched {len(matches)} subscriptions.",
+                            "candidates": [
+                                {"subscriptionId": m.get("subscriptionId"), "displayName": m.get("displayName")}
+                                for m in matches[:10]
+                            ],
+                        }
+                    sub_id = matches[0].get("subscriptionId")
+                    display_name = matches[0].get("displayName")
+                else:
+                    # Look up display name (best-effort; ignore failures)
+                    try:
+                        accessible = await cost_svc.list_accessible_subscriptions()
+                        for s in accessible:
+                            if s.get("subscriptionId") == sub_id:
+                                display_name = s.get("displayName")
+                                break
+                    except Exception:
+                        pass
+                row = await cost_svc.query_subscription_cost(
+                    sub_id, start_date=startDate, end_date=endDate,
+                )
+                if display_name and not row.get("displayName"):
+                    row["displayName"] = display_name
+                return row
+
+        try:
+            return asyncio.run(_run())
+        except Exception as exc:
+            return {"error": f"Cost query failed: {exc}"}
+
     def _tool_generate_hack_report(
         self,
         prefix: str,
         currency: str = "USD",
         licenseUnitCosts: Optional[dict] = None,
         subscriptionCosts: Optional[list] = None,
+        fetchSubscriptionCosts: bool = True,
+        startDate: Optional[str] = None,
+        endDate: Optional[str] = None,
+        budget: Optional[float] = None,
     ) -> Any:
+        from datetime import datetime, timedelta, timezone
         from onedrive_provisioner.hack_report import build_hack_report
+        from onedrive_provisioner.entra.cost_service import CostManagementService
 
         mgr = self._get_mgr()
         if not mgr:
@@ -153,11 +238,89 @@ class ToolExecutor:
         state = mgr.get_state(prefix)
         if not state:
             return {"error": f"No state found for prefix '{prefix}'"}
+
+        # Default date window: hack creation date → today, else last 30 days.
+        if not endDate:
+            endDate = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        if not startDate:
+            created = (state.get("hackStartDate") or state.get("hackDate")
+                       or state.get("createdAt") or "")
+            if created:
+                startDate = str(created)[:10]
+            else:
+                startDate = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d")
+
+        merged_costs: list = list(subscriptionCosts or [])
+
+        if fetchSubscriptionCosts:
+            tp = _make_tp(self._creds)
+
+            async def _fetch() -> list:
+                async with CostManagementService(tp) as cost_svc:
+                    sub_ids = list(state.get("subscriptionIds") or [])
+                    accessible = []
+                    if not sub_ids:
+                        accessible = await cost_svc.list_accessible_subscriptions()
+                        sub_ids = [s.get("subscriptionId") for s in accessible if s.get("subscriptionId")]
+                    if not sub_ids:
+                        return []
+                    rows = await cost_svc.query_subscription_costs(
+                        sub_ids, start_date=startDate, end_date=endDate,
+                    )
+                    # Best-effort displayName enrichment
+                    if not accessible:
+                        try:
+                            accessible = await cost_svc.list_accessible_subscriptions()
+                        except Exception:
+                            accessible = []
+                    name_by_id = {s.get("subscriptionId"): s.get("displayName")
+                                  for s in accessible if s.get("subscriptionId")}
+                    for r in rows:
+                        sid = r.get("subscriptionId")
+                        if sid and name_by_id.get(sid) and not r.get("displayName"):
+                            r["displayName"] = name_by_id[sid]
+                    return rows
+
+            try:
+                fetched = asyncio.run(_fetch())
+            except Exception as exc:
+                fetched = []
+                merged_costs.append({"error": f"Cost fetch failed: {exc}"})
+
+            # Merge: explicit overrides win on cost; team is preserved from
+            # explicit if provided, otherwise blank (build_hack_report will
+            # try to derive teams from state.subscriptionTeamMap if present).
+            explicit_by_id = {c.get("subscriptionId"): c for c in merged_costs if c.get("subscriptionId")}
+            sub_team_map = (state.get("subscriptionTeamMap") or {})
+            for r in fetched:
+                sid = r.get("subscriptionId")
+                if not sid:
+                    continue
+                row = dict(r)
+                if sid in sub_team_map and not row.get("team"):
+                    row["team"] = sub_team_map[sid]
+                ex = explicit_by_id.get(sid)
+                if ex:
+                    if ex.get("cost") is not None:
+                        row["cost"] = ex["cost"]
+                    if ex.get("team"):
+                        row["team"] = ex["team"]
+                    explicit_by_id.pop(sid, None)
+                merged_costs = [c for c in merged_costs if c.get("subscriptionId") != sid]
+                merged_costs.append(row)
+            # Re-add any explicit-only rows that weren't in fetched
+            for sid, ex in explicit_by_id.items():
+                if not any(c.get("subscriptionId") == sid for c in merged_costs):
+                    merged_costs.append(ex)
+
         return build_hack_report(
             state,
-            subscription_costs=subscriptionCosts or [],
+            subscription_costs=merged_costs,
             license_unit_costs=licenseUnitCosts or {},
             currency=currency or "USD",
+            start_date=startDate or "",
+            end_date=endDate or "",
+            budget=budget,
         )
 
     def _tool_get_provisioning_sessions(self) -> Any:

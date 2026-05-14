@@ -45,12 +45,28 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "generate_hack_report",
-            "description": "Generate a saved hack report with user/admin counts, licenses assigned, and optional cost allocation by subscription/team/user.",
+            "description": "Generate a saved hack report with user/admin counts, licenses assigned, and cost allocation by subscription/team/user. By default it auto-fetches actual Azure costs for every subscription on the hack (or every accessible sub if none recorded). Pass fetchSubscriptionCosts=false to skip the Azure call and only use manual subscriptionCosts.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "prefix": {"type": "string", "description": "The hack prefix"},
-                    "currency": {"type": "string", "description": "Currency code for manual cost inputs, default USD"},
+                    "currency": {"type": "string", "description": "Currency code, default USD"},
+                    "fetchSubscriptionCosts": {
+                        "type": "boolean",
+                        "description": "When true (default), call Azure Cost Management to get actual costs for the hack's subscriptions. Set false only if the user explicitly wants manual-input-only mode.",
+                    },
+                    "startDate": {
+                        "type": "string",
+                        "description": "ISO YYYY-MM-DD start of the cost window. Defaults to the hack's creation date.",
+                    },
+                    "endDate": {
+                        "type": "string",
+                        "description": "ISO YYYY-MM-DD end of the cost window. Defaults to today (UTC).",
+                    },
+                    "budget": {
+                        "type": "number",
+                        "description": "Optional Azure-only budget to compare actual Azure spend against.",
+                    },
                     "licenseUnitCosts": {
                         "type": "object",
                         "description": "Optional map of license/SKU name to monthly unit cost",
@@ -58,7 +74,7 @@ TOOLS = [
                     },
                     "subscriptionCosts": {
                         "type": "array",
-                        "description": "Optional subscription costs to allocate. Each item may include subscriptionId, cost, and team.",
+                        "description": "Optional manual subscription cost overrides. Each item may include subscriptionId, cost, and team.",
                         "items": {
                             "type": "object",
                             "properties": {
@@ -437,6 +453,37 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_subscription_cost",
+            "description": (
+                "Fetch the actual Azure cost for ONE subscription, identified "
+                "by GUID or display name (case-insensitive substring). "
+                "Returns total cost, currency, and date range. Defaults to "
+                "the last 30 days. Requires Reader + Cost Management Reader "
+                "on the subscription."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "subscription": {
+                        "type": "string",
+                        "description": "Subscription GUID (e.g. 77086d22-...) OR display name / partial name (e.g. 'CopilotLabs DS - 1015').",
+                    },
+                    "startDate": {
+                        "type": "string",
+                        "description": "ISO start date YYYY-MM-DD (inclusive). Defaults to 30 days ago.",
+                    },
+                    "endDate": {
+                        "type": "string",
+                        "description": "ISO end date YYYY-MM-DD (inclusive). Defaults to today (UTC).",
+                    },
+                },
+                "required": ["subscription"],
+            },
+        },
+    },
 ]
 
 READ_ONLY_TOOL_NAMES = {
@@ -444,6 +491,7 @@ READ_ONLY_TOOL_NAMES = {
     "get_hack_state",
     "get_hack_users_summary",
     "generate_hack_report",
+    "get_subscription_cost",
     "get_provisioning_sessions",
     "get_session_status",
     "detect_tenant_info",

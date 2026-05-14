@@ -7233,6 +7233,11 @@ function _prefillReportInputs(state) {
   });
   const fetchElReset = document.getElementById('mh-fetchAzureCosts');
   if (fetchElReset) fetchElReset.checked = true;  // default ON
+  // Clear any previously rendered report from the prior hack so the user
+  // doesn't see stale data after switching hacks.
+  _managedHackReport = null;
+  const box = document.getElementById('mh-reportBox');
+  if (box) box.innerHTML = '';
   const setVal = (id, v) => { const el = document.getElementById(id); if (el && v != null && v !== '') el.value = v; };
   // Always prefer saved values when present; otherwise default to creation→today.
   const todayIso = new Date().toISOString().substring(0, 10);
