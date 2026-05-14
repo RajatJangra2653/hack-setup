@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -2155,153 +2155,269 @@
 
     <!-- ────────── Help / Documentation View ────────── -->
     <div id="view-help" class="hidden">
-      <h2>❓ Help & Documentation</h2>
-      <p class="hint">Complete guide to all features of the Spektra Hack Setup tool.</p>
-
-      <div class="card">
-        <h3>🏠 Overview</h3>
-        <div style="font-size:13px;line-height:1.8;">
-          <p><b>Spektra Hack Setup</b> is a comprehensive tool for provisioning and managing hackathon environments on Microsoft Azure & Entra ID. It automates user creation, licensing, RBAC assignments, file uploads to OneDrive, lifecycle management (scheduling read-only and cleanup), and more.</p>
-          <p style="margin-top:8px;">The tool uses a <b>Service Principal (App Registration)</b> to interact with Microsoft Graph API and Azure ARM API. Enter your SPN credentials at the top of the page — they are used for all operations and never stored on the server.</p>
+      <!-- Help Header -->
+      <div style="display:flex;align-items:center;gap:16px;margin-bottom:24px;">
+        <div style="width:52px;height:52px;border-radius:16px;display:grid;place-items:center;font-size:28px;background:linear-gradient(135deg,#eff6ff,#dbeafe);border:1px solid #bfdbfe;flex-shrink:0;">📖</div>
+        <div>
+          <h2 style="margin:0;font-size:22px;font-weight:800;letter-spacing:-.03em;">Help &amp; Documentation</h2>
+          <p class="hint" style="margin:2px 0 0;font-size:13px;">Everything you need to know about Spektra HackOps — from first connection to final cleanup.</p>
         </div>
       </div>
 
+      <!-- Quick Navigation -->
+      <div class="card" style="padding:16px 20px;margin-bottom:20px;background:linear-gradient(135deg,#f0f9ff,#eff6ff);border:1px solid #bfdbfe;">
+        <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:var(--primary);margin-bottom:8px;">Jump to section</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;" id="helpJumpLinks">
+          <a href="#help-getting-started" class="help-jump-link">🚀 Getting Started</a>
+          <a href="#help-connection" class="help-jump-link">🔗 Connection</a>
+          <a href="#help-setup" class="help-jump-link">📋 Setup Hack</a>
+          <a href="#help-rbac" class="help-jump-link">🔐 RBAC</a>
+          <a href="#help-upload" class="help-jump-link">📁 Upload</a>
+          <a href="#help-manage" class="help-jump-link">⚙️ Manage</a>
+          <a href="#help-readonly" class="help-jump-link">🔒 Read-only</a>
+          <a href="#help-cleanup" class="help-jump-link">🧹 Cleanup</a>
+          <a href="#help-tools" class="help-jump-link">🛠 Tools</a>
+          <a href="#help-glossary" class="help-jump-link">📖 Glossary</a>
+          <a href="#help-keyboard" class="help-jump-link">⌨️ Shortcuts</a>
+        </div>
+      </div>
+
+      <!-- Getting Started -->
+      <div class="card" id="help-getting-started">
+        <div class="help-section-head"><span style="font-size:20px;">🚀</span><h3>Getting Started</h3></div>
+        <div class="help-body">
+          <p><b>Spektra HackOps</b> automates provisioning and managing hackathon environments on Microsoft Azure &amp; Entra ID. It handles user creation, licensing, RBAC assignments, OneDrive file uploads, lifecycle automation (read-only transitions and cleanup), cost tracking, and more.</p>
+          <div style="margin-top:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;">
+            <div class="help-step-card" style="background:#f0fdf4;border-color:#bbf7d0;">
+              <div class="help-step-num" style="color:#16a34a;">Step 1</div>
+              <div class="help-step-title">Connect</div>
+              <div class="help-step-desc">Enter your SPN credentials on the <a href="#" onclick="event.preventDefault();switchView('connection')">Connection</a> page and click <b>Test Connection</b>.</div>
+            </div>
+            <div class="help-step-card" style="background:#eff6ff;border-color:#bfdbfe;">
+              <div class="help-step-num" style="color:var(--primary);">Step 2</div>
+              <div class="help-step-title">Verify Permissions</div>
+              <div class="help-step-desc">Go to <a href="#" onclick="event.preventDefault();switchView('tenant-setup')">Tenant Check</a> and confirm your SPN has the required Graph API permissions.</div>
+            </div>
+            <div class="help-step-card" style="background:#fdf4ff;border-color:#e9d5ff;">
+              <div class="help-step-num" style="color:#7c3aed;">Step 3</div>
+              <div class="help-step-title">Follow the Lifecycle</div>
+              <div class="help-step-desc">Use the sidebar steps <b>01–06</b> in order: Setup → RBAC → Upload → Manage → Read-only → Cleanup.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Navigation -->
       <div class="card">
-        <h3>🛠 Setup Hack</h3>
-        <div style="font-size:13px;line-height:1.8;">
-          <p>The primary tab for creating a new hackathon environment. Provisions users, groups, licenses, TAPs, and RBAC roles in one go.</p>
-          <table style="margin-top:10px;">
-            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Hack Prefix</td><td style="padding:6px 0;">A short identifier (e.g. <code>nyc-esri-gcc-</code>) prepended to all user and group names. Used to discover and manage hack resources later.</td></tr>
-            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Mode</td><td style="padding:6px 0;"><b>Team-based</b>: Creates team groups (team01, team02, …) with users distributed across them. <b>Flat</b>: Creates all users without team grouping.</td></tr>
-            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Teams / Users per team</td><td style="padding:6px 0;">Controls how many teams and users per team to create. Total users = teams × users per team.</td></tr>
-            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Admin users</td><td style="padding:6px 0;">Number of admin accounts to create. Admins are assigned Global Reader role and placed in an admins group.</td></tr>
-            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Licenses</td><td style="padding:6px 0;">Select M365/Azure licenses to assign to participants. Enable “Assign selected M365 licenses to admin users also” when admins need Teams, SharePoint/OneDrive, Copilot, Power BI, or Office apps. Click "Load from Tenant" to see available licenses with remaining capacity.</td></tr>
-            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">TAP lifetime</td><td style="padding:6px 0;">Temporary Access Pass duration in minutes. Set to 0 to use the tenant's maximum. Users use TAP to sign in without a password.</td></tr>
-            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Password</td><td style="padding:6px 0;">Optional shared password for all users. Leave blank for unique random passwords per user.</td></tr>
-            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Force password change</td><td style="padding:6px 0;">If checked, users must change their password on first sign-in.</td></tr>
-            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Hack name</td><td style="padding:6px 0;">Stamped as <code>companyName</code> on each user object for easy identification.</td></tr>
-            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Lifecycle dates</td><td style="padding:6px 0;">Hack Start Date, Hack Date, Read-Only Mode Date, and Delete Date are stored with the hack. Read-only and delete dates schedule lifecycle jobs automatically when provided.</td></tr>
-            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Skip existing</td><td style="padding:6px 0;">If checked, skip users that already exist in the tenant instead of failing.</td></tr>
-            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Pre-flight check</td><td style="padding:6px 0;">Validates permissions, license availability, and subscription access before provisioning.</td></tr>
-            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Schedule Hack</td><td style="padding:6px 0;">Schedule provisioning for a future date/time instead of running immediately.</td></tr>
+        <div class="help-section-head"><span style="font-size:20px;">🧭</span><h3>Navigating the App</h3></div>
+        <div class="help-body">
+          <table class="help-table">
+            <tr><td class="help-term">Sidebar</td><td>The left panel organizes all views: <b>Overview</b> (Connection &amp; Dashboard), <b>Lifecycle Steps</b> (01–06), <b>Tools</b>, and <b>AI Chat / Help</b>. Status dots next to lifecycle steps show progress. On mobile, tap ☰ to open.</td></tr>
+            <tr><td class="help-term">Top bar</td><td>Shows the <b>Active Hack</b> selector — pick a saved hack and all views auto-fill with its prefix, dates, and config. The <b>Activity</b> button opens a feed of recent operations.</td></tr>
+            <tr><td class="help-term">Dashboard</td><td>Bird's-eye view of all hacks — active and archived. See user counts, lifecycle phase, countdown timers, and per-hack cost estimates.</td></tr>
+            <tr><td class="help-term">Connection dot</td><td>The green/red dot in the sidebar footer shows real-time connection state. Updates as you type credentials. Click it to jump back to Connection.</td></tr>
           </table>
-          <div style="margin-top:10px;padding:8px 12px;background:#dff6dd;border-radius:6px;">💡 <b>Tip:</b> After provisioning, the tool automatically schedules read-only and cleanup jobs if lifecycle dates are provided.</div>
         </div>
       </div>
 
-      <div class="card">
-        <h3>🔐 Assign Permissions</h3>
-        <div style="font-size:13px;line-height:1.8;">
-          <p>Assign Azure RBAC roles (Owner, Contributor, or Reader) on one or more Azure subscriptions to the hack's team groups or individual users.</p>
-          <p style="margin-top:6px;">The tool discovers principals (groups/users) by hack prefix and assigns the selected role on each specified subscription.</p>
-          <div style="margin-top:10px;padding:8px 12px;background:#fff4ce;border-radius:6px;">⚠️ <b>Requires:</b> The SPN must have <code>Owner</code> or <code>User Access Administrator</code> role on the target subscriptions.</div>
-        </div>
-      </div>
-
-      <div class="card">
-        <h3>📤 Upload Files</h3>
-        <div style="font-size:13px;line-height:1.8;">
-          <p>Upload files or folders to every user's OneDrive in bulk. Supports drag-and-drop, folder selection, and maintains folder structure.</p>
-          <table style="margin-top:10px;">
-            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Users</td><td style="padding:6px 0;">Enter UPNs (one per line) or click "Load from tenant" to fetch all users.</td></tr>
-            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Files</td><td style="padding:6px 0;">Drag & drop files/folders or use the file picker. Folder structure is preserved.</td></tr>
-            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Destination</td><td style="padding:6px 0;">Root-relative path in each user's OneDrive (e.g. <code>/Documents/HackFiles</code>).</td></tr>
-            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Concurrency</td><td style="padding:6px 0;">Number of parallel uploads. Higher = faster but may hit API throttling.</td></tr>
-            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Dry run</td><td style="padding:6px 0;">Preview the upload plan without actually uploading anything.</td></tr>
+      <!-- Connection -->
+      <div class="card" id="help-connection">
+        <div class="help-section-head"><span style="font-size:20px;">🔗</span><h3>Connection</h3></div>
+        <div class="help-body">
+          <p>The <b>Connection</b> page is where you enter your Azure Service Principal (SPN) credentials. These are used for all Graph and Azure ARM API calls. Credentials are sent per-request and <b>never stored on the server</b>.</p>
+          <table class="help-table" style="margin-top:10px;">
+            <tr><td class="help-term">Tenant ID</td><td>Your Entra directory ID (GUID). Found in Azure Portal → <b>Entra ID → Overview</b>.</td></tr>
+            <tr><td class="help-term">Client ID</td><td>The Application (client) ID from your App Registration.</td></tr>
+            <tr><td class="help-term">Client Secret</td><td>The secret value (not the secret ID) from <b>Certificates &amp; secrets</b>.</td></tr>
+            <tr><td class="help-term">Remember</td><td>Optionally save Tenant/Client ID in localStorage. Secret storage is optional but not recommended on shared machines.</td></tr>
+            <tr><td class="help-term">Test Connection</td><td>Validates credentials via the Graph API. Shows your tenant's primary domain on success.</td></tr>
           </table>
-          <div style="margin-top:10px;padding:8px 12px;background:#dff6dd;border-radius:6px;">💡 <b>Tip:</b> Check licenses first to ensure users have OneDrive (SharePoint Online) enabled.</div>
+          <div class="help-tip">💡 If saved credentials exist, the app auto-redirects to Dashboard on load. Change credentials anytime via the sidebar Connection link or the footer dot.</div>
         </div>
       </div>
 
-      <div class="card">
-        <h3>👀 Read-Only Mode</h3>
-        <div style="font-size:13px;line-height:1.8;">
-          <p>Downgrade all hack users' Azure subscription access to <b>Reader</b> role. This is useful when the hack ends and you want to prevent further changes while keeping read access for review.</p>
-          <p style="margin-top:6px;">Enter the hack prefix and subscription IDs. The tool discovers all principals (groups/users) by prefix and downgrades their RBAC assignments from Owner/Contributor to Reader.</p>
-          <p style="margin-top:6px;">Two modes: <b>team</b> (discovers groups) or <b>flat</b> (discovers individual users).</p>
+      <!-- 01 Setup Hack -->
+      <div class="card" id="help-setup">
+        <div class="help-section-head">
+          <span class="help-step-badge">01</span><span style="font-size:20px;">📋</span><h3>Setup Hack</h3>
+        </div>
+        <div class="help-body">
+          <p>Create a new hackathon environment — provisions users, groups, licenses, TAPs, and optionally RBAC roles in one operation.</p>
+          <table class="help-table" style="margin-top:10px;">
+            <tr><td class="help-term">Hack Prefix</td><td>Short identifier (e.g. <code>nyc-esri-gcc-</code>) prepended to all users/groups. Used to discover and manage resources later.</td></tr>
+            <tr><td class="help-term">Mode</td><td><b>Team-based</b>: Creates team groups with users distributed. <b>Flat</b>: Users without grouping.</td></tr>
+            <tr><td class="help-term">Teams / Users</td><td>Controls team count and users per team. Total = teams × users per team.</td></tr>
+            <tr><td class="help-term">Admin Users</td><td>Number of admin accounts. Admins get Global Reader role and their own admins group.</td></tr>
+            <tr><td class="help-term">Licenses</td><td>M365/Azure licenses to assign. <b>Load from Tenant</b> shows available SKUs with remaining capacity.</td></tr>
+            <tr><td class="help-term">TAP Lifetime</td><td>Temporary Access Pass duration in minutes. 0 = tenant maximum.</td></tr>
+            <tr><td class="help-term">Password</td><td>Optional shared password. Blank = unique random per user. "Reuse last" restores previous hack's password.</td></tr>
+            <tr><td class="help-term">Hack Name</td><td>Stamped as <code>companyName</code> on each user for easy identification.</td></tr>
+            <tr><td class="help-term">Lifecycle Dates</td><td>Start, Hack, Read-Only, Delete dates. Read-only and delete auto-schedule lifecycle jobs.</td></tr>
+            <tr><td class="help-term">Pre-flight</td><td>Validates permissions, license availability, and subscription access before provisioning.</td></tr>
+            <tr><td class="help-term">Schedule</td><td>Defer provisioning to a future date/time instead of running immediately.</td></tr>
+          </table>
+          <div class="help-tip">💡 After provisioning, lifecycle jobs are automatically scheduled if read-only and delete dates are provided.</div>
         </div>
       </div>
 
-      <div class="card">
-        <h3>🗑️ Cleanup Hack</h3>
-        <div style="font-size:13px;line-height:1.8;">
-          <p>Completely remove all resources created for a hack. This includes:</p>
-          <ul style="margin:8px 0 0 20px;">
-            <li>Delete all users matching the hack prefix</li>
-            <li>Delete all groups (team groups + admin group)</li>
-            <li>Remove all RBAC role assignments on specified subscriptions</li>
-            <li>Move blob state data into Archive for future reports</li>
+      <!-- 02 RBAC -->
+      <div class="card" id="help-rbac">
+        <div class="help-section-head">
+          <span class="help-step-badge">02</span><span style="font-size:20px;">🔐</span><h3>Azure RBAC</h3>
+        </div>
+        <div class="help-body">
+          <p>Assign Azure RBAC roles (<b>Owner</b>, <b>Contributor</b>, or <b>Reader</b>) on one or more subscriptions to hack team groups or individual users.</p>
+          <p style="margin-top:6px;">Discovers principals by hack prefix and assigns the selected role on each subscription. The interactive picker shows subscription names, IDs, and states.</p>
+          <div class="help-warn">⚠️ <b>Requires:</b> The SPN must have <code>Owner</code> or <code>User Access Administrator</code> role on target subscriptions.</div>
+        </div>
+      </div>
+
+      <!-- 03 Upload -->
+      <div class="card" id="help-upload">
+        <div class="help-section-head">
+          <span class="help-step-badge">03</span><span style="font-size:20px;">📁</span><h3>Upload Files</h3>
+        </div>
+        <div class="help-body">
+          <p>Upload files or folders to every user's OneDrive in bulk. Supports drag-and-drop, folder selection, and preserves folder structure.</p>
+          <table class="help-table" style="margin-top:10px;">
+            <tr><td class="help-term">Users</td><td>Enter UPNs (one per line) or click "Load from tenant" to fetch hack users.</td></tr>
+            <tr><td class="help-term">Files</td><td>Drag &amp; drop files/folders or use the file picker. Folder structure is preserved.</td></tr>
+            <tr><td class="help-term">Destination</td><td>Root-relative path in each user's OneDrive (e.g. <code>/Documents/HackFiles</code>).</td></tr>
+            <tr><td class="help-term">Concurrency</td><td>Parallel uploads. Higher = faster but may hit API throttling.</td></tr>
+            <tr><td class="help-term">Dry Run</td><td>Preview the upload plan without uploading.</td></tr>
+            <tr><td class="help-term">License Check</td><td>Verify users have SharePoint Online (OneDrive) licenses before uploading.</td></tr>
+          </table>
+          <div class="help-tip">💡 Upload supports files up to 250 MB using resumable sessions.</div>
+        </div>
+      </div>
+
+      <!-- 04 Manage -->
+      <div class="card" id="help-manage">
+        <div class="help-section-head">
+          <span class="help-step-badge">04</span><span style="font-size:20px;">⚙️</span><h3>Manage &amp; Report</h3>
+        </div>
+        <div class="help-body">
+          <p>Load and manage a previously provisioned hack. Active Hacks for live operations; Archived Hacks for historical reports.</p>
+          <table class="help-table" style="margin-top:10px;">
+            <tr><td class="help-term">Load Hack</td><td>Enter prefix or select from dropdown. View users, passwords, TAPs, licenses, and groups.</td></tr>
+            <tr><td class="help-term">Regenerate TAP</td><td>New Temporary Access Passes for users with expired TAPs.</td></tr>
+            <tr><td class="help-term">Reset Password</td><td>Reset passwords for one or more hack users.</td></tr>
+            <tr><td class="help-term">Assign Licenses</td><td>Add missing licenses. Admins excluded by default; toggle to include.</td></tr>
+            <tr><td class="help-term">GitHub EMU</td><td>Enable GitHub Enterprise Managed User access for participants.</td></tr>
+            <tr><td class="help-term">Report</td><td>Cost and usage summaries — per subscription, team, and user. Works for active and archived hacks.</td></tr>
+            <tr><td class="help-term">Drift Detection</td><td>Compare saved state against live Entra to detect changes made outside this tool.</td></tr>
+            <tr><td class="help-term">Expand Hack</td><td>Add more teams or users to an existing hack without re-provisioning.</td></tr>
+            <tr><td class="help-term">Set End Date</td><td>Schedule automatic read-only and cleanup lifecycle jobs.</td></tr>
+            <tr><td class="help-term">Export</td><td>Download results as Excel (.xls) or CSV.</td></tr>
+          </table>
+        </div>
+      </div>
+
+      <!-- 05 Read-only -->
+      <div class="card" id="help-readonly">
+        <div class="help-section-head">
+          <span class="help-step-badge">05</span><span style="font-size:20px;">🔒</span><h3>Read-only Mode</h3>
+        </div>
+        <div class="help-body">
+          <p>Freeze participant access when submissions close. Downgrades RBAC from Owner/Contributor to <b>Reader</b>, so judges can review but participants can't change resources.</p>
+          <p style="margin-top:6px;">Two modes: <b>team</b> (discovers groups) or <b>flat</b> (discovers individual users). Preview mode shows what will change before executing.</p>
+        </div>
+      </div>
+
+      <!-- 06 Cleanup -->
+      <div class="card" id="help-cleanup">
+        <div class="help-section-head">
+          <span class="help-step-badge">06</span><span style="font-size:20px;">🧹</span><h3>Cleanup</h3>
+        </div>
+        <div class="help-body">
+          <p>Completely remove all resources created for a hack:</p>
+          <ul class="help-checklist">
+            <li>✓ Delete all users matching the hack prefix</li>
+            <li>✓ Delete all groups (team groups + admin group)</li>
+            <li>✓ Remove all RBAC role assignments on specified subscriptions</li>
+            <li>✓ Archive state data for future reports (passwords &amp; TAPs stripped)</li>
           </ul>
-          <div style="margin-top:10px;padding:8px 12px;background:#fde7e9;border-radius:6px;">🚨 <b>Warning:</b> This action is <b>irreversible</b>. All hack users, groups, and permissions will be permanently deleted. The saved hack record is retained under Archive without passwords or TAPs.</div>
+          <div class="help-danger">🚨 <b>Warning:</b> Cleanup is <b>irreversible</b>. All users, groups, and permissions are permanently deleted. A confirmation dialog shows exactly what will be removed.</div>
         </div>
       </div>
 
-      <div class="card">
-        <h3>📋 Manage Hack</h3>
-        <div style="font-size:13px;line-height:1.8;">
-          <p>Load and manage a previously provisioned hack from Azure Blob Storage. Use Active Hacks for operations and Archived Hacks for historical reports after cleanup.</p>
-          <table style="margin-top:10px;">
-            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Load Hack</td><td style="padding:6px 0;">Enter the hack prefix to load state from blob storage. View all created users, their passwords, TAPs, licenses, and group memberships.</td></tr>
-            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Regenerate TAP</td><td style="padding:6px 0;">Generate new Temporary Access Passes for users whose TAPs have expired.</td></tr>
-            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Assign Licenses</td><td style="padding:6px 0;">Assign additional licenses to hack users who are missing them. Admin users are excluded by default and can be included with the admin checkbox.</td></tr>
-            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Report</td><td style="padding:6px 0;">Generate a summary of created users/admins, assigned licenses, and cost allocation by subscription, team, and user. Reports work for active and archived hacks.</td></tr>
-            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Set End Date</td><td style="padding:6px 0;">Schedule automatic read-only and cleanup jobs for the hack.</td></tr>
-            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Export</td><td style="padding:6px 0;">Download results as Excel (.xls) or CSV for distribution to hack participants.</td></tr>
+      <!-- Tools -->
+      <div class="card" id="help-tools">
+        <div class="help-section-head"><span style="font-size:20px;">🛠</span><h3>Tools</h3></div>
+        <div class="help-body">
+          <div style="display:grid;gap:10px;">
+            <div class="help-tool-card">
+              <div class="help-tool-head"><span>🐙</span><b>GitHub Access</b></div>
+              <p>Add hack users to GitHub EMU groups and trigger SCIM sync. Requires a GitHub EMU org with Entra ID as the identity provider.</p>
+            </div>
+            <div class="help-tool-card">
+              <div class="help-tool-head"><span>⏰</span><b>Scheduler</b></div>
+              <p>Create and manage scheduled jobs for automated provisioning, read-only transitions, and cleanup. Filter by status, cancel pending jobs, monitor execution.</p>
+            </div>
+            <div class="help-tool-card">
+              <div class="help-tool-head"><span>💰</span><b>Cost Calculator</b></div>
+              <p>Estimate hack costs before setup. Select licenses, user count, date range, GitHub options, and Azure subscriptions for a projected total.</p>
+            </div>
+            <div class="help-tool-card">
+              <div class="help-tool-head"><span>🔧</span><b>Tenant Check</b></div>
+              <p>Verify your SPN has all required Graph API permissions. Auto-grant missing permissions if your SPN has <code>AppRoleAssignment.ReadWrite.All</code>.</p>
+            </div>
+            <div class="help-tool-card">
+              <div class="help-tool-head"><span>🤖</span><b>AI Chat Assistant</b></div>
+              <p>Natural language assistant (GPT-4o). List hacks, show tenant info, regenerate TAPs, assign licenses, check upload status, generate admin guide DOCX, and explain next actions.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Glossary -->
+      <div class="card" id="help-glossary">
+        <div class="help-section-head"><span style="font-size:20px;">📖</span><h3>Glossary</h3></div>
+        <div class="help-body">
+          <div class="help-glossary-grid">
+            <div class="help-glossary-row"><span class="help-glossary-term">SPN</span><span>Service Principal — the identity for API calls. Created via App Registration in Entra ID.</span></div>
+            <div class="help-glossary-row"><span class="help-glossary-term">UPN</span><span>User Principal Name — the sign-in name (e.g. <code>user01@contoso.onmicrosoft.com</code>).</span></div>
+            <div class="help-glossary-row"><span class="help-glossary-term">TAP</span><span>Temporary Access Pass — a time-limited passcode for initial sign-in without a password.</span></div>
+            <div class="help-glossary-row"><span class="help-glossary-term">RBAC</span><span>Role-Based Access Control — Azure's permission system for subscriptions and resources.</span></div>
+            <div class="help-glossary-row"><span class="help-glossary-term">SKU</span><span>Stock Keeping Unit — a license plan identifier (e.g. ENTERPRISEPACK = Office 365 E3).</span></div>
+            <div class="help-glossary-row"><span class="help-glossary-term">EMU</span><span>Enterprise Managed Users — GitHub accounts managed through Entra ID via SCIM.</span></div>
+            <div class="help-glossary-row"><span class="help-glossary-term">Hack Prefix</span><span>Short string prepended to all users/groups, making them easy to discover and clean up.</span></div>
+            <div class="help-glossary-row"><span class="help-glossary-term">Drift</span><span>Difference between saved state and live Entra — changes made outside this tool.</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Keyboard Shortcuts -->
+      <div class="card" id="help-keyboard">
+        <div class="help-section-head"><span style="font-size:20px;">⌨️</span><h3>Keyboard Shortcuts</h3></div>
+        <div class="help-body">
+          <table class="help-table">
+            <tr><td style="white-space:nowrap;"><kbd class="kbd">1</kbd> – <kbd class="kbd">6</kbd></td><td>Jump to lifecycle step 01–06</td></tr>
+            <tr><td><kbd class="kbd">D</kbd></td><td>Open Dashboard</td></tr>
+            <tr><td><kbd class="kbd">C</kbd></td><td>Open Connection page</td></tr>
+            <tr><td><kbd class="kbd">?</kbd></td><td>Open Help &amp; Docs (this page)</td></tr>
           </table>
+          <p class="hint" style="margin-top:8px;">Shortcuts are disabled when a text input or textarea is focused.</p>
         </div>
       </div>
 
-      <div class="card" style="margin-top:16px;">
-        <h3>📅 Scheduler Tab</h3>
-        <p>Create and manage scheduled provisioning, read-only, and cleanup jobs. Jobs run automatically at the scheduled time.</p>
-        <div class="hint" style="margin-top:8px;">
-          <table style="font-size:13px;">
-            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Create Job</td><td style="padding:6px 0;">Schedule a provision, read-only, or cleanup job for a future date/time. Provision config is inherited from Setup Hack tab.</td></tr>
-            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Filter Jobs</td><td style="padding:6px 0;">Filter the jobs list by status (pending, running, completed, failed, cancelled).</td></tr>
-            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Cancel Job</td><td style="padding:6px 0;">Cancel a pending job before it executes.</td></tr>
-          </table>
-        </div>
-      </div>
-
+      <!-- Security -->
       <div class="card">
-        <h3>🤖 AI Chat Assistant</h3>
-        <div style="font-size:13px;line-height:1.8;">
-          <p>An AI-powered assistant that can help you manage hacks through natural language commands. Powered by Azure OpenAI (GPT-4o).</p>
-          <p style="margin-top:6px;"><b>What it can do:</b></p>
-          <ul style="margin:6px 0 0 20px;">
-            <li>List and search saved hacks</li>
-            <li>Show tenant info and available licenses</li>
-            <li>Regenerate TAPs for specific users</li>
-            <li>Assign licenses to users</li>
-            <li>Show upload job status</li>
-            <li>Generate admin guide documents (DOCX) for hack participants</li>
+        <div class="help-section-head"><span style="font-size:20px;">🛡️</span><h3>Security Best Practices</h3></div>
+        <div class="help-body">
+          <ul class="help-checklist">
+            <li>🔑 Use <b>least-privilege</b> app permissions — only grant what each lifecycle action needs.</li>
+            <li>🔄 <b>Rotate</b> the client secret after each hack event.</li>
+            <li>🚫 Avoid saving the client secret in localStorage on shared machines.</li>
+            <li>📋 Run <b>Tenant Check</b> before your first hack to verify permissions.</li>
+            <li>🧹 Always run <b>Cleanup</b> after the event to remove all provisioned resources.</li>
+            <li>📊 Use <b>Drift Detection</b> to catch unexpected changes during the event.</li>
           </ul>
-          <p style="margin-top:8px;"><b>Quick actions:</b> Use the buttons below the chat input for common operations.</p>
         </div>
       </div>
 
-      <div class="card">
-        <h3>⚙ Setup Tenant</h3>
-        <div style="font-size:13px;line-height:1.8;">
-          <p>Check whether your Service Principal has all the required Microsoft Graph permissions. If your SPN has <code>AppRoleAssignment.ReadWrite.All</code>, missing permissions can be auto-granted directly from the UI.</p>
-          <p style="margin-top:8px;">See also the <b>Azure Subscription RBAC</b> section for subscription-level role requirements.</p>
-        </div>
-      </div>
-
-      <div class="card">
-        <h3>📖 Glossary</h3>
-        <div style="font-size:13px;line-height:1.8;">
-          <table>
-            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">SPN</td><td style="padding:6px 0;">Service Principal — the identity used to authenticate API calls. Created via App Registration in Azure AD.</td></tr>
-            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">UPN</td><td style="padding:6px 0;">User Principal Name — the sign-in name of a user (e.g. <code>user01@contoso.onmicrosoft.com</code>).</td></tr>
-            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">TAP</td><td style="padding:6px 0;">Temporary Access Pass — a time-limited passcode that can be used instead of a password for initial sign-in.</td></tr>
-            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">RBAC</td><td style="padding:6px 0;">Role-Based Access Control — Azure's system for managing permissions on subscriptions and resources.</td></tr>
-            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">SKU</td><td style="padding:6px 0;">Stock Keeping Unit — an identifier for a Microsoft license plan (e.g. ENTERPRISEPACK = Office 365 E3).</td></tr>
-            <tr><td style="font-weight:600;vertical-align:top;padding:6px 12px 6px 0;">Hack Prefix</td><td style="padding:6px 0;">A short string prepended to all users/groups for a hack, making them easy to discover and clean up.</td></tr>
-          </table>
-        </div>
-      </div>
     </div><!-- /view-help -->
+
 
   </div><!-- /app-content -->
   </div><!-- /app-shell -->
@@ -9374,6 +9490,12 @@ document.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT' || e.target.isContentEditable) return;
   // ? -> Help
   if (e.key === '?' && !e.ctrlKey && !e.metaKey) { switchView('help'); e.preventDefault(); }
+  // D -> Dashboard, C -> Connection
+  if (e.key === 'd' && !e.ctrlKey && !e.metaKey && !e.altKey) { switchView('dashboard'); e.preventDefault(); }
+  if (e.key === 'c' && !e.ctrlKey && !e.metaKey && !e.altKey) { switchView('connection'); e.preventDefault(); }
+  // 1-6 -> Lifecycle steps
+  const stepMap = { '1': 'provision', '2': 'permissions', '3': 'upload', '4': 'manage', '5': 'readonly', '6': 'cleanup' };
+  if (stepMap[e.key] && !e.ctrlKey && !e.metaKey && !e.altKey) { switchView(stepMap[e.key]); e.preventDefault(); }
 });
 
 // ──────────── Audit Trail ────────────
