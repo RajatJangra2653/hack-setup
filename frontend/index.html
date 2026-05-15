@@ -10993,7 +10993,7 @@ function _pollScheduledJobs() {
   setInterval(async () => {
     if (!getCreds()) return;
     try {
-      const r = await fetch(`${API}/scheduler/jobs/list`);
+      const r = await fetch(`${API}/scheduled-hacks`);
       if (!r.ok) return;
       const jobs = await r.json();
       const since = _lastJobCheck;
