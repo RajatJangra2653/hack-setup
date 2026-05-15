@@ -3,13 +3,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Spektra hack setup</title>
+  <title>Spektra HackOps</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
   <link rel="stylesheet" href="styles/tokens.css">
   <link rel="stylesheet" href="styles/base.css">
   <link rel="stylesheet" href="styles/components.css">
   <link rel="stylesheet" href="styles/layout.css">
   <link rel="stylesheet" href="styles/views.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
   <style>
     /* ── Report redesign ─────────────────────────────────────── */
     .report-hero { background: linear-gradient(135deg, #0078d4 0%, #005a9e 100%); color: #fff; padding: 24px; border-radius: 10px; margin-bottom: 16px; }
@@ -126,7 +128,42 @@
   <button class="sidebar-toggle" id="sidebarToggle" onclick="toggleSidebar()" title="Toggle navigation menu">☰</button>
   <div class="sidebar-backdrop" id="sidebarBackdrop" onclick="toggleSidebar(false)"></div>
 
-  <div class="app-shell">
+  <!-- ════════════ Command Palette ════════════ -->
+  <div id="cmdPaletteBackdrop" class="cmd-palette-backdrop" onclick="if(event.target===this)closeCmdPalette()">
+    <div class="cmd-palette" role="dialog" aria-label="Command palette">
+      <div class="cmd-palette-input-wrap">
+        <span class="cmd-icon">🔍</span>
+        <input id="cmdPaletteInput" class="cmd-palette-input" type="text" placeholder="Type a command or view name…" autocomplete="off" oninput="filterCmdPalette()" onkeydown="cmdPaletteKeydown(event)" />
+        <span class="cmd-palette-kbd">Esc</span>
+      </div>
+      <div id="cmdPaletteResults" class="cmd-palette-results"></div>
+      <div class="cmd-palette-footer">
+        <span><kbd>↑↓</kbd> navigate</span>
+        <span><kbd>↵</kbd> select</span>
+        <span><kbd>Esc</kbd> close</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════ Notification Center ════════════ -->
+  <div id="notifPanel" class="notif-panel" role="complementary" aria-label="Notifications">
+    <div class="notif-panel-head">
+      <h3>🔔 Notifications</h3>
+      <div style="display:flex;gap:6px;">
+        <button class="btn btn-secondary btn-sm" onclick="clearNotifications()">Clear all</button>
+        <button class="btn btn-secondary btn-sm" onclick="toggleNotifPanel(false)">✕</button>
+      </div>
+    </div>
+    <div class="notif-panel-body" id="notifPanelBody">
+      <div class="notif-empty">No notifications yet.</div>
+    </div>
+  </div>
+
+  <!-- ════════════ Onboarding Tour ════════════ -->
+  <div id="tourBackdrop" class="tour-backdrop"></div>
+  <div id="tourTooltip" class="tour-tooltip" style="display:none;"></div>
+
+  <div class="app-shell" id="appShell">
 
   <!-- ════════════ Sidebar ════════════ -->
   <aside class="app-sidebar" id="appSidebar">
@@ -215,6 +252,13 @@
     </div>
 
     <div class="sidebar-footer">
+      <button class="sidebar-theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Toggle dark mode">
+        <span id="themeIcon">🌙</span>
+        <span id="themeLabel" class="nav-label">Dark Mode</span>
+      </button>
+      <button class="sidebar-collapse-btn" id="sidebarCollapseBtn" onclick="toggleSidebarCollapse()" title="Collapse sidebar">
+        <span>◀</span> <span>Collapse</span>
+      </button>
       <div class="sidebar-conn" onclick="switchView('connection')" title="Click to manage your Azure Service Principal connection">
         <span class="conn-dot disconnected" id="sidebarConnDotBottom"></span>
         <span id="sidebarConnLabel" style="font-size:11px;color:rgba(255,255,255,.6);">Not connected</span>
@@ -242,6 +286,16 @@
       </div>
     </div>
     <div class="topbar-actions">
+      <div id="breadcrumbBar" class="breadcrumb-bar" style="margin-right:8px;">
+        <span>⚡</span> <span class="breadcrumb-sep">›</span> <span id="breadcrumbView" class="breadcrumb-current">Connection</span>
+      </div>
+      <button class="topbar-btn" onclick="openCmdPalette()" title="Command palette (Ctrl+K)" style="margin-right:2px;">
+        <span class="tb-icon">🔍</span> <span style="font-size:11px;color:var(--muted);">Ctrl+K</span>
+      </button>
+      <button class="topbar-btn" onclick="toggleNotifPanel()" id="notifToggleBtn" title="Notifications" style="position:relative;">
+        <span class="tb-icon">🔔</span>
+        <span id="notifBadge" class="notif-badge" style="display:none;">0</span>
+      </button>
       <button class="topbar-btn" onclick="toggleActivityDrawer()" id="activityToggleBtn" title="View a real-time feed of all provisioning, upload, and cleanup operations" style="position:relative;">
         <span class="tb-icon">📋</span> Activity
         <span id="activityBadge" class="hidden" style="position:absolute;top:-2px;right:-2px;background:var(--danger);color:#fff;font-size:10px;font-weight:700;min-width:16px;height:16px;border-radius:8px;display:grid;place-items:center;line-height:1;">0</span>
@@ -257,10 +311,11 @@
       <div class="card" style="max-width:640px;">
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
           <span style="font-size:28px;">🔗</span>
-          <div>
+          <div style="flex:1;">
             <h2 style="margin:0;">Connect to Azure Entra</h2>
             <p class="hint" style="margin:0;">Enter your Service Principal credentials to get started. These are used for Microsoft Graph and Azure management API calls.</p>
           </div>
+          <button class="btn btn-secondary btn-sm" onclick="startTour()" title="Take a guided tour of the app">🎓 Tour</button>
         </div>
         <div class="row">
           <div class="form-group">
@@ -329,6 +384,18 @@
             <div style="font-weight:600;font-size:13px;">Cleanup</div>
             <div class="hint" style="font-size:11px;">Remove &amp; archive</div>
           </div>
+        </div>
+      </div>
+
+      <!-- Connection Profiles -->
+      <div class="card" style="max-width:640px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <h3 style="margin:0;">💾 Saved Profiles</h3>
+          <button class="btn btn-secondary btn-sm" onclick="saveConnectionProfile()" title="Save current credentials as a named profile">+ Save Profile</button>
+        </div>
+        <p class="hint" style="margin-bottom:8px;">Switch between multiple tenants without re-entering credentials.</p>
+        <div id="profileList" class="profile-list">
+          <div class="hint" style="text-align:center;padding:16px;">No saved profiles. Enter credentials above and click "Save Profile".</div>
         </div>
       </div>
     </div>
@@ -464,6 +531,19 @@
 
     <!-- ────────── Provision Users View (4-step wizard) ────────── -->
     <div id="view-provision">
+
+      <!-- Hack Templates -->
+      <div class="card" style="margin-bottom:16px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+          <h3 style="margin:0;font-size:15px;">📑 Templates</h3>
+          <div style="display:flex;gap:6px;">
+            <button class="btn btn-secondary btn-sm" onclick="saveAsTemplate()" title="Save current wizard settings as a reusable template">💾 Save as Template</button>
+          </div>
+        </div>
+        <div id="templateGrid" class="template-grid">
+          <div class="hint" style="grid-column:1/-1;text-align:center;padding:8px;">No saved templates. Configure the wizard below and click "Save as Template".</div>
+        </div>
+      </div>
 
       <div class="card wizard" id="setupWizard">
         <h2>Setup Hack</h2>
@@ -1286,9 +1366,19 @@
           <div data-tab-content="mh-users">
             <div class="results-scroll" style="max-height:400px;">
               <table>
-                <thead><tr><th>UPN</th><th>Status</th><th>Password</th><th>TAP</th><th>Licenses</th><th>Groups</th><th>GitHub</th></tr></thead>
+                <thead><tr><th><input type="checkbox" id="mh-selectAll" onchange="toggleBulkSelectAll(this)" title="Select all users" /></th><th>UPN</th><th>Status</th><th>Password</th><th>TAP</th><th>Licenses</th><th>Groups</th><th>GitHub</th></tr></thead>
                 <tbody id="mh-usersBody"></tbody>
               </table>
+            </div>
+            <!-- Bulk Actions Bar -->
+            <div id="bulkBar" class="bulk-bar">
+              <span class="bulk-count"><span id="bulkCount">0</span> selected</span>
+              <div class="bulk-actions">
+                <button class="btn btn-sm" onclick="bulkAction('tap')">🔑 Regen TAP</button>
+                <button class="btn btn-sm" onclick="bulkAction('password')">🔐 Reset Password</button>
+                <button class="btn btn-sm" onclick="bulkAction('copy')">📋 Copy UPNs</button>
+                <button class="btn btn-sm" onclick="clearBulkSelection()">✕ Clear</button>
+              </div>
             </div>
             <div style="margin-top:8px;">
               <button class="btn btn-secondary btn-sm" onclick="downloadManagedHackExcel()">📊 Export Excel</button>
@@ -2033,21 +2123,65 @@
     <!-- ────────── Setup Tenant View ────────── -->
     <div id="view-tenant-setup" class="hidden">
       <h2>⚙ Setup Your Tenant</h2>
-      <p class="hint">Check and configure the required permissions for your Service Principal (App Registration). Some permissions can be auto-granted if your SPN has <code>AppRoleAssignment.ReadWrite.All</code>.</p>
+      <p class="hint">Check and configure the required permissions, connectivity, and tenant health for your Service Principal.</p>
 
+      <!-- ── Connectivity Test ── -->
       <div class="card">
-        <h3>Prerequisites</h3>
-        <div style="background:#fff9e6;padding:14px 16px;border-left:4px solid var(--warn);border-radius:0 6px 6px 0;margin-bottom:16px;font-size:13px;line-height:1.7;">
-          <b>Before using this tool, ensure you have:</b>
-          <ol style="margin:8px 0 0 16px;padding:0;">
-            <li>An <b>Azure AD App Registration</b> (Service Principal) in your tenant</li>
-            <li>A <b>Client Secret</b> generated for the app registration</li>
-            <li>The app must be granted <b>admin consent</b> for the required permissions listed below</li>
-            <li>For Azure RBAC features: the SPN needs <b>Owner</b> or <b>User Access Administrator</b> role on target subscriptions</li>
-          </ol>
+        <h3>🌐 Connectivity Test</h3>
+        <p class="hint" style="margin-bottom:12px;">Verify the SPN can reach all required Azure endpoints.</p>
+        <div class="actions">
+          <button class="btn btn-secondary" onclick="withBusy(this, runConnectivityTest)">⚡ Test Connectivity</button>
+          <span id="ts-connSpin" class="hidden"><span class="spinner"></span> Testing…</span>
         </div>
+        <div id="ts-connResults" class="hidden" style="margin-top:12px;">
+          <table style="font-size:13px;">
+            <thead><tr><th style="width:30px;">Status</th><th>Endpoint</th><th>URL</th><th>Latency</th><th>Details</th></tr></thead>
+            <tbody id="ts-connBody"></tbody>
+          </table>
+        </div>
+      </div>
 
-        <div class="section-label">Required Microsoft Graph API Permissions</div>
+      <!-- ── Tenant Health Summary ── -->
+      <div class="card">
+        <h3>🏥 Tenant Health Summary</h3>
+        <p class="hint" style="margin-bottom:12px;">Comprehensive overview of your tenant — users, groups, licenses, TAP policy, and credential status.</p>
+        <div class="actions">
+          <button class="btn btn-secondary" onclick="withBusy(this, runTenantHealth)">🔍 Check Tenant Health</button>
+          <span id="ts-healthSpin" class="hidden"><span class="spinner"></span> Gathering…</span>
+        </div>
+        <div id="ts-healthResults" class="hidden" style="margin-top:16px;">
+          <!-- KPI row -->
+          <div id="ts-healthKpis" class="stats" style="margin-bottom:16px;"></div>
+
+          <!-- TAP Policy -->
+          <div id="ts-tapCard" class="hidden" style="margin-bottom:16px;">
+            <div class="section-label">🔑 TAP Policy</div>
+            <div id="ts-tapBody" style="font-size:13px;"></div>
+          </div>
+
+          <!-- License table -->
+          <div id="ts-licenseCard" class="hidden" style="margin-bottom:16px;">
+            <div class="section-label">📋 License Summary</div>
+            <table style="font-size:13px;">
+              <thead><tr><th>SKU</th><th>Used</th><th>Total</th><th>Available</th><th>Usage</th></tr></thead>
+              <tbody id="ts-licenseBody"></tbody>
+            </table>
+          </div>
+
+          <!-- Credential Expiry -->
+          <div id="ts-credCard" class="hidden">
+            <div class="section-label">🔐 SPN Credential Expiry</div>
+            <table style="font-size:13px;">
+              <thead><tr><th>Type</th><th>Name / Hint</th><th>Created</th><th>Expires</th><th>Status</th></tr></thead>
+              <tbody id="ts-credBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Graph API Permissions Check ── -->
+      <div class="card">
+        <h3>🛡️ Graph API Permissions</h3>
         <div class="hint" style="margin-bottom:12px;">These are <b>Application</b> permissions (not Delegated). They require admin consent.</div>
 
         <div class="actions" style="margin-bottom:16px;">
@@ -2061,6 +2195,25 @@
             <thead><tr><th style="width:30px;">Status</th><th>Permission</th><th>Purpose</th><th>Type</th></tr></thead>
             <tbody id="ts-permBody"></tbody>
           </table>
+
+          <!-- Quick-fix commands -->
+          <div id="ts-fixCmds" class="hidden" style="margin-top:16px;">
+            <div class="section-label">📋 Quick-Fix Commands</div>
+            <p class="hint" style="margin-bottom:8px;">Copy and run these commands to grant missing permissions:</p>
+            <div class="tabs" style="margin-bottom:0;">
+              <div class="tab active" onclick="switchFixTab('az')">Azure CLI</div>
+              <div class="tab" onclick="switchFixTab('ps')">PowerShell</div>
+            </div>
+            <pre id="ts-fixAz" style="font-size:12px;max-height:300px;overflow:auto;padding:12px;border-radius:0 0 6px 6px;margin-top:0;position:relative;"></pre>
+            <pre id="ts-fixPs" class="hidden" style="font-size:12px;max-height:300px;overflow:auto;padding:12px;border-radius:0 0 6px 6px;margin-top:0;"></pre>
+            <button class="btn btn-secondary btn-sm" style="margin-top:8px;" onclick="copyFixCommands()">📋 Copy Commands</button>
+          </div>
+
+          <!-- Permission Diff -->
+          <div id="ts-permDiff" class="hidden" style="margin-top:16px;">
+            <div class="section-label">📊 Permission Changes</div>
+            <div id="ts-permDiffBody" style="font-size:13px;"></div>
+          </div>
 
           <div id="ts-grantSection" class="hidden" style="margin-top:16px;padding:16px;border:2px solid var(--warn);border-radius:8px;background:#fffdf5;">
             <h4 style="margin-bottom:8px;">⚡ Auto-Grant Missing Permissions</h4>
@@ -2086,15 +2239,34 @@
         </div>
       </div>
 
+      <!-- ── RBAC Subscription Check ── -->
       <div class="card">
-        <h3>Azure Subscription RBAC</h3>
-        <div style="font-size:13px;line-height:1.7;">
-          <p>For features like <b>Assign Permissions</b>, <b>Read-Only Mode</b>, and <b>Cleanup</b> that manage Azure subscription role assignments, the SPN also needs:</p>
-          <div style="margin:12px 0;padding:10px 14px;background:#f7f9fc;border:1px solid var(--border);border-radius:6px;">
-            <code style="font-weight:700;">Owner</code> or <code style="font-weight:700;">User Access Administrator</code> role on each target Azure subscription
-          </div>
-          <p>This must be granted through the Azure Portal → Subscriptions → Access control (IAM) → Add role assignment.</p>
-          <p style="margin-top:8px;color:var(--muted);">Note: This is an Azure RBAC role, not a Graph API permission, and cannot be auto-granted from this tool.</p>
+        <h3>🔒 Azure Subscription RBAC</h3>
+        <p class="hint" style="margin-bottom:12px;">Check the SPN's actual role assignments across all visible Azure subscriptions. Requires <b>Owner</b> or <b>User Access Administrator</b> for RBAC features.</p>
+        <div class="actions">
+          <button class="btn btn-secondary" onclick="withBusy(this, runRbacCheck)">🔍 Check RBAC Roles</button>
+          <span id="ts-rbacSpin" class="hidden"><span class="spinner"></span> Checking…</span>
+        </div>
+        <div id="ts-rbacResults" class="hidden" style="margin-top:12px;">
+          <table style="font-size:13px;">
+            <thead><tr><th style="width:30px;">Status</th><th>Subscription</th><th>State</th><th>Roles</th></tr></thead>
+            <tbody id="ts-rbacBody"></tbody>
+          </table>
+          <div id="ts-rbacSummary" style="margin-top:10px;font-size:13px;"></div>
+        </div>
+      </div>
+
+      <!-- ── Prerequisites ── -->
+      <div class="card">
+        <h3>📖 Prerequisites Reference</h3>
+        <div style="padding:14px 16px;border-left:4px solid var(--warn);border-radius:0 6px 6px 0;margin-bottom:16px;font-size:13px;line-height:1.7;background:#fff9e6;">
+          <b>Before using this tool, ensure you have:</b>
+          <ol style="margin:8px 0 0 16px;padding:0;">
+            <li>An <b>Azure AD App Registration</b> (Service Principal) in your tenant</li>
+            <li>A <b>Client Secret</b> generated for the app registration</li>
+            <li>The app must be granted <b>admin consent</b> for the required permissions listed below</li>
+            <li>For Azure RBAC features: the SPN needs <b>Owner</b> or <b>User Access Administrator</b> role on target subscriptions</li>
+          </ol>
         </div>
       </div>
     </div><!-- /view-tenant-setup -->
@@ -2105,6 +2277,7 @@
         <h2 style="margin:0;">📊 Hacks Dashboard</h2>
         <button class="btn btn-secondary btn-sm" onclick="withBusy(this, loadDashboard)" title="Reload all hacks from storage and refresh the dashboard table">↻ Refresh</button>
         <button class="btn btn-sm" onclick="withBusy(this, dashSyncAllDrift)" id="dash-syncBtn" title="Sync state with Azure Entra ID for all active hacks">☁️ Sync with Entra</button>
+        <button class="btn btn-secondary btn-sm" onclick="exportDashboardPDF()" title="Export dashboard summary as printable page">🖨️ Export PDF</button>
         <span id="dash-syncSpinner" class="hidden"><span class="spinner"></span></span>
         <span id="dash-syncStatus" class="hint" style="font-size:12px;"></span>
       </div>
@@ -2119,6 +2292,22 @@
         <div class="dash-kpi"><div class="dash-kpi-val" id="dash-kTeams">—</div><div class="dash-kpi-label">Total Teams</div></div>
         <div class="dash-kpi"><div class="dash-kpi-val" id="dash-kAdmins">—</div><div class="dash-kpi-label">Total Admins</div></div>
         <div class="dash-kpi"><div class="dash-kpi-val" id="dash-kCost">—</div><div class="dash-kpi-label">Total Est. Cost</div></div>
+      </div>
+
+      <!-- Dashboard Charts -->
+      <div id="dash-charts" class="dash-charts-row" style="display:none;">
+        <div class="dash-chart-card">
+          <h3>Status Breakdown</h3>
+          <canvas id="dashChartStatus" height="160"></canvas>
+        </div>
+        <div class="dash-chart-card">
+          <h3>Users by Hack</h3>
+          <canvas id="dashChartUsers" height="160"></canvas>
+        </div>
+        <div class="dash-chart-card">
+          <h3>Lifecycle Timeline</h3>
+          <canvas id="dashChartTimeline" height="160"></canvas>
+        </div>
       </div>
 
       <!-- Filter -->
@@ -3368,6 +3557,13 @@ function switchView(name) {
     const el = document.getElementById('view-' + v);
     if (el) el.classList.toggle('hidden', v !== name);
   });
+
+  // Update breadcrumb + page title
+  const viewNames = { connection:'Connection',dashboard:'Dashboard',provision:'Setup Hack',permissions:'Azure RBAC',upload:'Upload Files',manage:'Manage & Report',readonly:'Read-only',cleanup:'Cleanup',github:'GitHub Access',scheduler:'Scheduler','cost-calc':'Cost Calculator','tenant-setup':'Tenant Check',chat:'AI Chat',help:'Help & Docs' };
+  const label = viewNames[name] || name;
+  const bc = document.getElementById('breadcrumbView');
+  if (bc) bc.textContent = label;
+  document.title = `${label} — Spektra HackOps`;
 
   // Update connection status indicators
   _updateConnStatus();
@@ -6267,7 +6463,8 @@ function _renderManagedHackState(state) {
       grpCell += grpFail.map(g => `<span style="color:var(--danger);" title="Failed to add">✗ ${esc(g)}</span>`).join(', ');
     }
     if (!grpCell) grpCell = '-';
-    body.innerHTML += `<tr>
+    body.innerHTML += `<tr data-upn="${esc(u.userPrincipalName)}">
+      <td><input type="checkbox" class="bulk-check" onchange="_updateBulkBar()" /></td>
       <td><code style="font-size:11px;">${esc(u.userPrincipalName)}</code></td>
       <td style="${sCls}">${esc(u.status)}</td>
       <td style="filter:blur(4px);cursor:pointer;" onclick="this.style.filter=this.style.filter?'':'blur(4px)'">${esc(u.password || '-')}<button class="copy-btn" style="margin-left:4px" onclick="event.stopPropagation();navigator.clipboard.writeText('${esc(u.password||'').replace(/'/g,'&#39;')}').then(()=>toast('Copied','success'))" title="Copy password">⧉</button></td>
@@ -9125,6 +9322,61 @@ async function checkTenantPermissions() {
 
     resultsDiv.classList.remove('hidden');
     toast(`Found ${allMissing.length} missing permission(s)`, allMissing.length > 0 ? 'warn' : 'success');
+
+    // Quick-fix commands
+    const fixBox = document.getElementById('ts-fixCmds');
+    if (allMissing.length > 0) {
+      const appId = creds.client_id || '';
+      const azLines = allMissing.map(p =>
+        `az ad app permission add --id ${appId} --api 00000003-0000-0000-c000-000000000000 --api-permissions $(az ad sp show --id 00000003-0000-0000-c000-000000000000 --query "appRoles[?value=='${p}'].id | [0]" -o tsv)=Role`
+      );
+      azLines.push(`az ad app permission admin-consent --id ${appId}`);
+      document.getElementById('ts-fixAz').textContent = azLines.join('\n');
+
+      const psLines = allMissing.map(p =>
+        `# Grant ${p}\n$role = Get-MgServicePrincipalAppRole -ServicePrincipalId $graphSpId | Where-Object { $_.Value -eq '${p}' }\nNew-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $spId -PrincipalId $spId -ResourceId $graphSpId -AppRoleId $role.Id`
+      );
+      psLines.unshift(`$spId = (Get-MgServicePrincipal -Filter "appId eq '${appId}'").Id\n$graphSpId = (Get-MgServicePrincipal -Filter "appId eq '00000003-0000-0000-c000-000000000000'").Id`);
+      document.getElementById('ts-fixPs').textContent = psLines.join('\n\n');
+      fixBox.classList.remove('hidden');
+    } else {
+      fixBox.classList.add('hidden');
+    }
+
+    // Permission diff
+    const diffBox = document.getElementById('ts-permDiff');
+    const prevKey = 'spektra-perm-history';
+    const prevData = JSON.parse(localStorage.getItem(prevKey) || '{}');
+    const current = {};
+    for (const p of data.permissions) current[p.permission] = p.granted;
+    if (Object.keys(prevData).length > 0) {
+      let changes = [];
+      for (const [perm, granted] of Object.entries(current)) {
+        const was = prevData[perm];
+        if (was === undefined) changes.push({ perm, change: 'new', granted });
+        else if (was !== granted) changes.push({ perm, change: granted ? 'granted' : 'revoked' });
+      }
+      for (const perm of Object.keys(prevData)) {
+        if (!(perm in current)) changes.push({ perm, change: 'removed' });
+      }
+      if (changes.length > 0) {
+        let dHtml = '<div style="display:flex;flex-direction:column;gap:4px;">';
+        for (const c of changes) {
+          const icon = c.change === 'granted' ? '🟢' : c.change === 'revoked' ? '🔴' : c.change === 'new' ? '🆕' : '⚪';
+          const label = c.change === 'granted' ? 'Newly granted' : c.change === 'revoked' ? 'Revoked' : c.change === 'new' ? 'New permission' : 'Removed';
+          dHtml += `<div>${icon} <code>${esc(c.perm)}</code> — <span style="font-weight:600;">${label}</span></div>`;
+        }
+        dHtml += '</div>';
+        document.getElementById('ts-permDiffBody').innerHTML = dHtml;
+        diffBox.classList.remove('hidden');
+      } else {
+        document.getElementById('ts-permDiffBody').innerHTML = '<span style="color:var(--muted);">No changes since last check.</span>';
+        diffBox.classList.remove('hidden');
+      }
+    } else {
+      diffBox.classList.add('hidden');
+    }
+    localStorage.setItem(prevKey, JSON.stringify(current));
   } catch (e) {
     toast('Error checking permissions: ' + e.message, 'danger');
   } finally {
@@ -9174,6 +9426,225 @@ async function grantMissingPermissions() {
   } catch (e) {
     resultsDiv.innerHTML = `<span style="color:var(--danger);">Error: ${esc(e.message)}</span>`;
     toast('Error granting permissions: ' + e.message, 'danger');
+  }
+}
+
+// ──────────── Quick-fix tab switch & copy ────────────
+function switchFixTab(tab) {
+  const azEl = document.getElementById('ts-fixAz');
+  const psEl = document.getElementById('ts-fixPs');
+  const tabs = azEl.closest('.card').querySelectorAll('.tab');
+  tabs.forEach(t => t.classList.remove('active'));
+  if (tab === 'az') {
+    azEl.classList.remove('hidden'); psEl.classList.add('hidden');
+    tabs[0].classList.add('active');
+  } else {
+    psEl.classList.remove('hidden'); azEl.classList.add('hidden');
+    tabs[1].classList.add('active');
+  }
+}
+function copyFixCommands() {
+  const az = document.getElementById('ts-fixAz');
+  const ps = document.getElementById('ts-fixPs');
+  const text = az.classList.contains('hidden') ? ps.textContent : az.textContent;
+  navigator.clipboard.writeText(text).then(() => toast('Commands copied!', 'success'));
+}
+
+// ──────────── Connectivity Test ────────────
+async function runConnectivityTest() {
+  const creds = getCreds();
+  if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
+  const spin = document.getElementById('ts-connSpin');
+  const results = document.getElementById('ts-connResults');
+  spin.classList.remove('hidden'); results.classList.add('hidden');
+  try {
+    const res = await fetch(`${API}/connectivity-test`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(creds),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed');
+    const tbody = document.getElementById('ts-connBody');
+    tbody.innerHTML = '';
+    let allOk = true;
+    for (const r of data.results) {
+      const ok = r.status === 'ok';
+      if (!ok) allOk = false;
+      tbody.innerHTML += `<tr>
+        <td style="text-align:center;font-size:18px;">${ok ? '✅' : '❌'}</td>
+        <td><b>${esc(r.endpoint)}</b></td>
+        <td><code>${esc(r.url)}</code></td>
+        <td>${r.latencyMs != null ? r.latencyMs + ' ms' : '—'}</td>
+        <td>${r.error ? '<span style="color:var(--danger);">' + esc(r.error) + '</span>' : (r.statusCode ? 'HTTP ' + r.statusCode : 'OK')}</td>
+      </tr>`;
+    }
+    results.classList.remove('hidden');
+    toast(allOk ? 'All endpoints reachable!' : 'Some endpoints failed', allOk ? 'success' : 'warn');
+  } catch (e) {
+    toast('Connectivity test failed: ' + e.message, 'danger');
+  } finally {
+    spin.classList.add('hidden');
+  }
+}
+
+// ──────────── Tenant Health Summary ────────────
+async function runTenantHealth() {
+  const creds = getCreds();
+  if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
+  const spin = document.getElementById('ts-healthSpin');
+  const results = document.getElementById('ts-healthResults');
+  spin.classList.remove('hidden'); results.classList.add('hidden');
+  try {
+    const res = await fetch(`${API}/tenant-health`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(creds),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed');
+
+    // KPI cards
+    const kpis = document.getElementById('ts-healthKpis');
+    kpis.innerHTML = `
+      <div class="stat-tile"><div class="stat-label">Tenant</div><div class="stat-value" style="font-size:16px;">${esc(data.displayName || '—')}</div><div class="stat-sub">${esc(data.primaryDomain || '')}</div></div>
+      <div class="stat-tile"><div class="stat-label">Users</div><div class="stat-value">${data.userCount != null ? data.userCount.toLocaleString() : '—'}</div></div>
+      <div class="stat-tile"><div class="stat-label">Groups</div><div class="stat-value">${data.groupCount != null ? data.groupCount.toLocaleString() : '—'}</div></div>
+      <div class="stat-tile"><div class="stat-label">Domains</div><div class="stat-value">${(data.allDomains || []).length}</div></div>
+    `;
+
+    // TAP policy
+    const tapCard = document.getElementById('ts-tapCard');
+    const tap = data.tapPolicy;
+    if (tap) {
+      tapCard.classList.remove('hidden');
+      const tapOk = tap.enabled;
+      document.getElementById('ts-tapBody').innerHTML = `
+        <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;">
+          <span style="font-size:18px;">${tapOk ? '✅' : '❌'}</span>
+          <span><b>Status:</b> ${tapOk ? 'Enabled' : 'Disabled'}</span>
+          ${tapOk ? `<span><b>Default Lifetime:</b> ${tap.defaultLifetimeMinutes} min</span>
+          <span><b>Max Lifetime:</b> ${tap.maxLifetimeMinutes} min</span>
+          <span><b>One-time use:</b> ${tap.isUsableOnce ? 'Yes' : 'No'}</span>` : ''}
+          ${tap.error ? `<span style="color:var(--danger);">${esc(tap.error)}</span>` : ''}
+        </div>
+      `;
+    } else {
+      tapCard.classList.add('hidden');
+    }
+
+    // Licenses
+    const licCard = document.getElementById('ts-licenseCard');
+    const lics = data.licenses || [];
+    if (lics.length > 0) {
+      licCard.classList.remove('hidden');
+      const licBody = document.getElementById('ts-licenseBody');
+      licBody.innerHTML = '';
+      for (const l of lics) {
+        const avail = l.total - l.consumed;
+        const pct = l.total > 0 ? Math.round((l.consumed / l.total) * 100) : 0;
+        const color = pct >= 90 ? 'var(--danger)' : pct >= 70 ? 'var(--warn)' : 'var(--success)';
+        licBody.innerHTML += `<tr>
+          <td><code>${esc(l.sku)}</code></td>
+          <td>${l.consumed}</td>
+          <td>${l.total}</td>
+          <td>${avail}</td>
+          <td><div style="display:flex;align-items:center;gap:8px;">
+            <div style="flex:1;height:6px;background:var(--border);border-radius:3px;overflow:hidden;min-width:60px;">
+              <div style="width:${pct}%;height:100%;background:${color};border-radius:3px;"></div>
+            </div>
+            <span style="font-size:12px;font-weight:600;color:${color};">${pct}%</span>
+          </div></td>
+        </tr>`;
+      }
+    } else {
+      licCard.classList.add('hidden');
+    }
+
+    // Credential expiry
+    const credCard = document.getElementById('ts-credCard');
+    const creds2 = data.appCredentials || [];
+    if (creds2.length > 0) {
+      credCard.classList.remove('hidden');
+      const credBody = document.getElementById('ts-credBody');
+      credBody.innerHTML = '';
+      const now = new Date();
+      for (const cr of creds2) {
+        const exp = cr.endDateTime ? new Date(cr.endDateTime) : null;
+        const daysLeft = exp ? Math.ceil((exp - now) / 86400000) : null;
+        let statusHtml;
+        if (daysLeft === null) {
+          statusHtml = '<span style="color:var(--muted);">Unknown</span>';
+        } else if (daysLeft < 0) {
+          statusHtml = '<span style="color:var(--danger);font-weight:700;">⛔ Expired</span>';
+        } else if (daysLeft < 30) {
+          statusHtml = `<span style="color:var(--danger);font-weight:700;">⚠ ${daysLeft}d left</span>`;
+        } else if (daysLeft < 90) {
+          statusHtml = `<span style="color:var(--warn);font-weight:600;">${daysLeft}d left</span>`;
+        } else {
+          statusHtml = `<span style="color:var(--success);">${daysLeft}d left</span>`;
+        }
+        credBody.innerHTML += `<tr>
+          <td>${cr.type === 'secret' ? '🔑 Secret' : '📜 Certificate'}</td>
+          <td>${esc(cr.displayName || cr.hint || '—')}</td>
+          <td>${cr.startDateTime ? new Date(cr.startDateTime).toLocaleDateString() : '—'}</td>
+          <td>${exp ? exp.toLocaleDateString() : '—'}</td>
+          <td>${statusHtml}</td>
+        </tr>`;
+      }
+    } else {
+      credCard.classList.add('hidden');
+    }
+
+    results.classList.remove('hidden');
+    toast('Tenant health check complete', 'success');
+  } catch (e) {
+    toast('Health check failed: ' + e.message, 'danger');
+  } finally {
+    spin.classList.add('hidden');
+  }
+}
+
+// ──────────── RBAC Subscription Check ────────────
+async function runRbacCheck() {
+  const creds = getCreds();
+  if (!creds) { toast('Enter SPN credentials first', 'danger'); return; }
+  const spin = document.getElementById('ts-rbacSpin');
+  const results = document.getElementById('ts-rbacResults');
+  spin.classList.remove('hidden'); results.classList.add('hidden');
+  try {
+    const res = await fetch(`${API}/rbac-check`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(creds),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed');
+    const tbody = document.getElementById('ts-rbacBody');
+    tbody.innerHTML = '';
+    let okCount = 0;
+    for (const s of data.subscriptions) {
+      const ok = s.hasOwnerOrUAA;
+      if (ok) okCount++;
+      const rolesHtml = s.roles.length > 0
+        ? s.roles.map(r => {
+            const cls = (r === 'Owner' || r === 'User Access Administrator') ? 'color:var(--success);font-weight:600;' : 'color:var(--muted);';
+            return `<span style="${cls}">${esc(r)}</span>`;
+          }).join(', ')
+        : '<span style="color:var(--danger);">No roles</span>';
+      tbody.innerHTML += `<tr>
+        <td style="text-align:center;font-size:18px;">${ok ? '✅' : '⚠️'}</td>
+        <td><b>${esc(s.displayName || s.subscriptionId)}</b><br><span style="color:var(--muted);font-size:11px;">${esc(s.subscriptionId)}</span></td>
+        <td>${esc(s.state)}</td>
+        <td>${rolesHtml}${s.error ? '<br><span style="color:var(--danger);font-size:12px;">' + esc(s.error) + '</span>' : ''}</td>
+      </tr>`;
+    }
+    document.getElementById('ts-rbacSummary').innerHTML =
+      `<b>${okCount}</b> of <b>${data.subscriptions.length}</b> subscription(s) have Owner or User Access Administrator role.` +
+      (okCount < data.subscriptions.length ? ' <span style="color:var(--warn);">Some subscriptions may not support RBAC operations.</span>' : ' <span style="color:var(--success);">All ready for RBAC operations.</span>');
+    results.classList.remove('hidden');
+    toast(`RBAC: ${okCount}/${data.subscriptions.length} ready`, okCount === data.subscriptions.length ? 'success' : 'warn');
+  } catch (e) {
+    toast('RBAC check failed: ' + e.message, 'danger');
+  } finally {
+    spin.classList.add('hidden');
   }
 }
 
@@ -9690,6 +10161,601 @@ function _duration(start, end) {
   } catch { return '—'; }
 }
 function _esc(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = String(s); return d.innerHTML; }
+
+// ══════════════════════════════════════════════════════════
+// FEATURE: Dark Mode Toggle
+// ══════════════════════════════════════════════════════════
+function toggleTheme() {
+  const html = document.documentElement;
+  const isDark = html.getAttribute('data-theme') === 'dark';
+  html.setAttribute('data-theme', isDark ? 'light' : 'dark');
+  localStorage.setItem('spektra-theme', isDark ? 'light' : 'dark');
+  document.getElementById('themeIcon').textContent = isDark ? '🌙' : '☀️';
+  document.getElementById('themeLabel').textContent = isDark ? 'Dark Mode' : 'Light Mode';
+}
+(function initTheme() {
+  const saved = localStorage.getItem('spektra-theme');
+  if (saved === 'dark') {
+    document.documentElement.setAttribute('data-theme', 'dark');
+    const icon = document.getElementById('themeIcon');
+    const label = document.getElementById('themeLabel');
+    if (icon) icon.textContent = '☀️';
+    if (label) label.textContent = 'Light Mode';
+  }
+})();
+
+// ══════════════════════════════════════════════════════════
+// FEATURE: Sidebar Collapse
+// ══════════════════════════════════════════════════════════
+function toggleSidebarCollapse() {
+  const shell = document.getElementById('appShell');
+  const isCollapsed = shell.classList.toggle('sidebar-collapsed');
+  localStorage.setItem('spektra-sidebar-collapsed', isCollapsed ? '1' : '0');
+  const btn = document.getElementById('sidebarCollapseBtn');
+  if (btn) btn.querySelector('span').textContent = isCollapsed ? '▶' : '◀';
+}
+(function initSidebarCollapse() {
+  if (localStorage.getItem('spektra-sidebar-collapsed') === '1') {
+    const shell = document.getElementById('appShell');
+    if (shell) { shell.classList.add('sidebar-collapsed'); const btn = document.getElementById('sidebarCollapseBtn'); if (btn) btn.querySelector('span').textContent = '▶'; }
+  }
+})();
+
+// ══════════════════════════════════════════════════════════
+// FEATURE: Command Palette (Ctrl+K)
+// ══════════════════════════════════════════════════════════
+const _cmdItems = [
+  { icon: '🔗', label: 'Connection', action: () => switchView('connection'), hint: 'C' },
+  { icon: '📊', label: 'Dashboard', action: () => switchView('dashboard'), hint: 'D' },
+  { icon: '📋', label: 'Setup Hack', action: () => switchView('provision'), hint: '1' },
+  { icon: '🔐', label: 'Azure RBAC', action: () => switchView('permissions'), hint: '2' },
+  { icon: '📁', label: 'Upload Files', action: () => switchView('upload'), hint: '3' },
+  { icon: '⚙️', label: 'Manage & Report', action: () => switchView('manage'), hint: '4' },
+  { icon: '🔒', label: 'Read-only', action: () => switchView('readonly'), hint: '5' },
+  { icon: '🧹', label: 'Cleanup', action: () => switchView('cleanup'), hint: '6' },
+  { icon: '🐙', label: 'GitHub Access', action: () => switchView('github') },
+  { icon: '⏰', label: 'Scheduler', action: () => switchView('scheduler') },
+  { icon: '💰', label: 'Cost Calculator', action: () => switchView('cost-calc') },
+  { icon: '🔧', label: 'Tenant Check', action: () => switchView('tenant-setup') },
+  { icon: '🤖', label: 'AI Chat', action: () => switchView('chat') },
+  { icon: '❓', label: 'Help & Docs', action: () => switchView('help'), hint: '?' },
+  { icon: '🌙', label: 'Toggle Dark Mode', action: () => toggleTheme() },
+  { icon: '📋', label: 'Refresh Dashboard', action: () => { switchView('dashboard'); loadDashboard(); } },
+  { icon: '🎓', label: 'Start Tour', action: () => startTour() },
+  { icon: '↻', label: 'Reload Hack List', action: () => loadGlobalHackSelect(true) },
+];
+let _cmdActiveIdx = 0;
+
+function openCmdPalette() {
+  const bd = document.getElementById('cmdPaletteBackdrop');
+  bd.classList.add('open');
+  const input = document.getElementById('cmdPaletteInput');
+  input.value = '';
+  input.focus();
+  _cmdActiveIdx = 0;
+  filterCmdPalette();
+}
+function closeCmdPalette() {
+  document.getElementById('cmdPaletteBackdrop').classList.remove('open');
+}
+function filterCmdPalette() {
+  const q = (document.getElementById('cmdPaletteInput').value || '').toLowerCase();
+  const filtered = _cmdItems.filter(i => i.label.toLowerCase().includes(q));
+  const container = document.getElementById('cmdPaletteResults');
+  if (filtered.length === 0) {
+    container.innerHTML = '<div class="cmd-palette-empty">No matching commands</div>';
+    return;
+  }
+  _cmdActiveIdx = Math.min(_cmdActiveIdx, filtered.length - 1);
+  container.innerHTML = filtered.map((item, i) =>
+    `<div class="cmd-palette-item${i === _cmdActiveIdx ? ' active' : ''}" onmouseenter="_cmdActiveIdx=${i};filterCmdPalette()" onclick="_cmdExec(${_cmdItems.indexOf(item)})">
+      <span class="cmd-item-icon">${item.icon}</span>
+      <span class="cmd-item-label">${item.label}</span>
+      ${item.hint ? `<span class="cmd-item-hint">${item.hint}</span>` : ''}
+    </div>`
+  ).join('');
+}
+function cmdPaletteKeydown(e) {
+  const q = (document.getElementById('cmdPaletteInput').value || '').toLowerCase();
+  const filtered = _cmdItems.filter(i => i.label.toLowerCase().includes(q));
+  if (e.key === 'ArrowDown') { e.preventDefault(); _cmdActiveIdx = Math.min(_cmdActiveIdx + 1, filtered.length - 1); filterCmdPalette(); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); _cmdActiveIdx = Math.max(_cmdActiveIdx - 1, 0); filterCmdPalette(); }
+  else if (e.key === 'Enter' && filtered.length > 0) { e.preventDefault(); _cmdExec(_cmdItems.indexOf(filtered[_cmdActiveIdx])); }
+  else if (e.key === 'Escape') { closeCmdPalette(); }
+}
+function _cmdExec(idx) {
+  closeCmdPalette();
+  if (_cmdItems[idx]) _cmdItems[idx].action();
+}
+
+// ══════════════════════════════════════════════════════════
+// FEATURE: Notification Center
+// ══════════════════════════════════════════════════════════
+let _notifications = JSON.parse(localStorage.getItem('spektra-notifications') || '[]');
+
+function addNotification(title, icon = '📌') {
+  const n = { id: Date.now(), icon, title, time: new Date().toISOString(), read: false };
+  _notifications.unshift(n);
+  if (_notifications.length > 50) _notifications = _notifications.slice(0, 50);
+  localStorage.setItem('spektra-notifications', JSON.stringify(_notifications));
+  _renderNotifications();
+}
+function toggleNotifPanel(force) {
+  const panel = document.getElementById('notifPanel');
+  const isOpen = panel.classList.contains('open');
+  const shouldOpen = typeof force === 'boolean' ? force : !isOpen;
+  panel.classList.toggle('open', shouldOpen);
+  if (shouldOpen) {
+    _notifications.forEach(n => n.read = true);
+    localStorage.setItem('spektra-notifications', JSON.stringify(_notifications));
+    _renderNotifications();
+  }
+}
+function clearNotifications() {
+  _notifications = [];
+  localStorage.setItem('spektra-notifications', '[]');
+  _renderNotifications();
+  toggleNotifPanel(false);
+}
+function _renderNotifications() {
+  const body = document.getElementById('notifPanelBody');
+  const badge = document.getElementById('notifBadge');
+  const unread = _notifications.filter(n => !n.read).length;
+  badge.textContent = unread;
+  badge.style.display = unread > 0 ? 'grid' : 'none';
+  if (_notifications.length === 0) {
+    body.innerHTML = '<div class="notif-empty">No notifications yet.</div>';
+    return;
+  }
+  body.innerHTML = _notifications.map(n => {
+    const ago = _timeAgo(n.time);
+    return `<div class="notif-item${n.read ? '' : ' unread'}">
+      <span class="notif-icon">${n.icon}</span>
+      <div class="notif-body">
+        <div class="notif-title">${esc(n.title)}</div>
+        <div class="notif-time">${ago}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+function _timeAgo(isoStr) {
+  const diff = Date.now() - new Date(isoStr).getTime();
+  if (diff < 60000) return 'Just now';
+  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+  return `${Math.floor(diff / 86400000)}d ago`;
+}
+// Init on load
+_renderNotifications();
+
+// ══════════════════════════════════════════════════════════
+// FEATURE: Connection Profiles
+// ══════════════════════════════════════════════════════════
+function _getProfiles() { return JSON.parse(localStorage.getItem('spektra-conn-profiles') || '[]'); }
+function _saveProfiles(profiles) { localStorage.setItem('spektra-conn-profiles', JSON.stringify(profiles)); }
+
+function saveConnectionProfile() {
+  const tid = document.getElementById('tenantId').value.trim();
+  const cid = document.getElementById('clientId').value.trim();
+  const sec = document.getElementById('clientSecret').value.trim();
+  if (!tid || !cid) { toast('Enter at least Tenant ID and Client ID to save a profile', 'danger'); return; }
+  const name = prompt('Profile name (e.g. "Dev Tenant"):');
+  if (!name) return;
+  const profiles = _getProfiles();
+  profiles.push({ name, tenantId: tid, clientId: cid, clientSecret: sec, created: new Date().toISOString() });
+  _saveProfiles(profiles);
+  _renderProfiles();
+  addNotification(`Profile "${name}" saved`, '💾');
+  toast(`Profile "${name}" saved`, 'success');
+}
+function loadProfile(idx) {
+  const profiles = _getProfiles();
+  const p = profiles[idx];
+  if (!p) return;
+  document.getElementById('tenantId').value = p.tenantId;
+  document.getElementById('clientId').value = p.clientId;
+  document.getElementById('clientSecret').value = p.clientSecret || '';
+  toast(`Loaded profile "${p.name}"`, 'success');
+  _renderProfiles();
+}
+function deleteProfile(idx) {
+  const profiles = _getProfiles();
+  if (!confirm(`Delete profile "${profiles[idx].name}"?`)) return;
+  profiles.splice(idx, 1);
+  _saveProfiles(profiles);
+  _renderProfiles();
+}
+function _renderProfiles() {
+  const container = document.getElementById('profileList');
+  if (!container) return;
+  const profiles = _getProfiles();
+  if (profiles.length === 0) {
+    container.innerHTML = '<div class="hint" style="text-align:center;padding:16px;">No saved profiles. Enter credentials above and click "Save Profile".</div>';
+    return;
+  }
+  container.innerHTML = profiles.map((p, i) =>
+    `<div class="profile-item" onclick="loadProfile(${i})">
+      <span style="font-size:18px;">🔑</span>
+      <div style="flex:1;min-width:0;">
+        <div class="profile-name">${esc(p.name)}</div>
+        <div class="profile-tenant">${esc(p.tenantId.substring(0,8))}…</div>
+      </div>
+      <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();deleteProfile(${i})" title="Remove this profile">🗑️</button>
+    </div>`
+  ).join('');
+}
+_renderProfiles();
+
+// ══════════════════════════════════════════════════════════
+// FEATURE: Hack Templates (save/load wizard config)
+// ══════════════════════════════════════════════════════════
+function _getTemplates() { return JSON.parse(localStorage.getItem('spektra-hack-templates') || '[]'); }
+function _saveTemplates(t) { localStorage.setItem('spektra-hack-templates', JSON.stringify(t)); }
+
+function saveAsTemplate() {
+  const name = prompt('Template name (e.g. "Standard 50-user hack"):');
+  if (!name) return;
+  const config = {
+    teams: document.getElementById('teams')?.value,
+    usersPerTeam: document.getElementById('usersPerTeam')?.value,
+    adminUsers: document.getElementById('adminUsers')?.value,
+    mode: document.getElementById('userMode')?.value,
+    passwordPolicy: document.getElementById('passwordPolicy')?.value,
+    tapLifetime: document.getElementById('tapLifetime')?.value,
+    enableGitHub: document.getElementById('enableGitHub')?.checked,
+    enablePowerApps: document.getElementById('enablePowerApps')?.checked,
+    enableSharePoint: document.getElementById('enableSharePoint')?.checked,
+  };
+  const templates = _getTemplates();
+  templates.push({ name, config, created: new Date().toISOString() });
+  _saveTemplates(templates);
+  _renderTemplates();
+  addNotification(`Template "${name}" saved`, '📑');
+  toast(`Template "${name}" saved`, 'success');
+}
+function loadTemplate(idx) {
+  const t = _getTemplates()[idx];
+  if (!t) return;
+  const c = t.config;
+  if (c.teams) { const el = document.getElementById('teams'); if (el) el.value = c.teams; }
+  if (c.usersPerTeam) { const el = document.getElementById('usersPerTeam'); if (el) el.value = c.usersPerTeam; }
+  if (c.adminUsers) { const el = document.getElementById('adminUsers'); if (el) el.value = c.adminUsers; }
+  if (c.mode) { const el = document.getElementById('userMode'); if (el) el.value = c.mode; }
+  if (c.passwordPolicy) { const el = document.getElementById('passwordPolicy'); if (el) el.value = c.passwordPolicy; }
+  if (c.tapLifetime) { const el = document.getElementById('tapLifetime'); if (el) el.value = c.tapLifetime; }
+  if (c.enableGitHub != null) { const el = document.getElementById('enableGitHub'); if (el) el.checked = c.enableGitHub; }
+  if (c.enablePowerApps != null) { const el = document.getElementById('enablePowerApps'); if (el) el.checked = c.enablePowerApps; }
+  if (c.enableSharePoint != null) { const el = document.getElementById('enableSharePoint'); if (el) el.checked = c.enableSharePoint; }
+  if (typeof updateProvisionPreview === 'function') updateProvisionPreview();
+  toast(`Loaded template "${t.name}"`, 'success');
+}
+function deleteTemplate(idx) {
+  const templates = _getTemplates();
+  if (!confirm(`Delete template "${templates[idx].name}"?`)) return;
+  templates.splice(idx, 1);
+  _saveTemplates(templates);
+  _renderTemplates();
+}
+function _renderTemplates() {
+  const container = document.getElementById('templateGrid');
+  if (!container) return;
+  const templates = _getTemplates();
+  if (templates.length === 0) {
+    container.innerHTML = '<div class="hint" style="grid-column:1/-1;text-align:center;padding:8px;">No saved templates. Configure the wizard below and click "Save as Template".</div>';
+    return;
+  }
+  container.innerHTML = templates.map((t, i) => {
+    const c = t.config;
+    const users = (Number(c.teams)||0) * (Number(c.usersPerTeam)||0) + (Number(c.adminUsers)||0);
+    return `<div class="template-card" onclick="loadTemplate(${i})">
+      <div class="template-name">${esc(t.name)}</div>
+      <div class="template-meta">${users} users • ${c.teams||0} teams</div>
+      <div style="margin-top:6px;display:flex;justify-content:flex-end;">
+        <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();deleteTemplate(${i})" style="padding:4px 8px;font-size:11px;">🗑️</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+_renderTemplates();
+
+// ══════════════════════════════════════════════════════════
+// FEATURE: Dashboard Charts (Chart.js)
+// ══════════════════════════════════════════════════════════
+let _dashChartStatus, _dashChartUsers, _dashChartTimeline;
+
+function _renderDashCharts() {
+  if (!_dashData || _dashData.length === 0) {
+    document.getElementById('dash-charts').style.display = 'none';
+    return;
+  }
+  document.getElementById('dash-charts').style.display = '';
+
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const textColor = isDark ? '#e2e8f0' : '#334155';
+  const gridColor = isDark ? '#334155' : '#e2e8f0';
+
+  // Status donut
+  const statuses = {};
+  _dashData.forEach(h => {
+    const st = _dashLifecycleStatus(h).label;
+    statuses[st] = (statuses[st] || 0) + 1;
+  });
+  const statusColors = { 'Active': '#2563eb', 'In progress': '#16a34a', 'Provisioned': '#06b6d4', 'Scheduled': '#f59e0b', 'Archived': '#94a3b8', 'Read-only': '#8b5cf6', 'Draft': '#cbd5e1', 'Hack ended': '#f97316', 'Past delete date': '#dc2626', 'Deleted': '#64748b' };
+
+  if (_dashChartStatus) _dashChartStatus.destroy();
+  _dashChartStatus = new Chart(document.getElementById('dashChartStatus'), {
+    type: 'doughnut',
+    data: {
+      labels: Object.keys(statuses),
+      datasets: [{ data: Object.values(statuses), backgroundColor: Object.keys(statuses).map(k => statusColors[k] || '#94a3b8'), borderWidth: 0 }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: textColor, font: { size: 11 } } } } }
+  });
+
+  // Users bar chart (top 8 hacks)
+  const sorted = [..._dashData].sort((a, b) => (b.totalUsers || 0) - (a.totalUsers || 0)).slice(0, 8);
+  if (_dashChartUsers) _dashChartUsers.destroy();
+  _dashChartUsers = new Chart(document.getElementById('dashChartUsers'), {
+    type: 'bar',
+    data: {
+      labels: sorted.map(h => h.hackName || h.prefix),
+      datasets: [{ label: 'Users', data: sorted.map(h => h.totalUsers || 0), backgroundColor: '#2563eb', borderRadius: 6 }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y', plugins: { legend: { display: false } }, scales: { x: { ticks: { color: textColor }, grid: { color: gridColor } }, y: { ticks: { color: textColor, font: { size: 11 } }, grid: { display: false } } } }
+  });
+
+  // Timeline scatter chart
+  const timelineData = _dashData.filter(h => h.hackDate).map(h => ({
+    x: new Date(h.hackDate),
+    y: h.totalUsers || 0,
+    label: h.hackName || h.prefix
+  }));
+  if (_dashChartTimeline) _dashChartTimeline.destroy();
+  _dashChartTimeline = new Chart(document.getElementById('dashChartTimeline'), {
+    type: 'scatter',
+    data: {
+      datasets: [{ label: 'Hacks', data: timelineData, backgroundColor: '#2563eb', pointRadius: 6, pointHoverRadius: 8 }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `${timelineData[ctx.dataIndex]?.label}: ${ctx.parsed.y} users` } } },
+      scales: { x: { type: 'time', time: { unit: 'day' }, ticks: { color: textColor }, grid: { color: gridColor } }, y: { title: { display: true, text: 'Users', color: textColor }, ticks: { color: textColor }, grid: { color: gridColor } } }
+    }
+  });
+}
+
+// Hook into _renderDashboard
+const _origRenderDashboard = typeof _renderDashboard === 'function' ? _renderDashboard : null;
+if (_origRenderDashboard) {
+  const _wrapped = _origRenderDashboard;
+  _renderDashboard = function() {
+    _wrapped.apply(this, arguments);
+    try { _renderDashCharts(); } catch(e) { console.warn('Chart render failed:', e); }
+  };
+}
+
+// ══════════════════════════════════════════════════════════
+// FEATURE: Export Dashboard as PDF
+// ══════════════════════════════════════════════════════════
+function exportDashboardPDF() {
+  const dash = document.getElementById('view-dashboard');
+  if (!dash) return;
+  const printWin = window.open('', '_blank');
+  const styles = Array.from(document.querySelectorAll('link[rel="stylesheet"], style')).map(el => el.outerHTML).join('\n');
+  printWin.document.write(`<!DOCTYPE html><html><head><title>Spektra HackOps — Dashboard</title>${styles}
+    <style>body{background:#fff!important;padding:24px;} .btn,.topbar-actions,.dash-syncBtn,.bulk-bar{display:none!important;} .hidden{display:none!important;} .results-scroll{max-height:none!important;overflow:visible!important;}</style>
+  </head><body>${dash.innerHTML}</body></html>`);
+  printWin.document.close();
+  setTimeout(() => { printWin.print(); }, 500);
+}
+
+// ══════════════════════════════════════════════════════════
+// FEATURE: Bulk Operations (Manage Users)
+// ══════════════════════════════════════════════════════════
+function toggleBulkSelectAll(el) {
+  const checkboxes = document.querySelectorAll('#mh-usersBody .bulk-check');
+  checkboxes.forEach(cb => cb.checked = el.checked);
+  _updateBulkBar();
+}
+function _updateBulkBar() {
+  const checked = document.querySelectorAll('#mh-usersBody .bulk-check:checked');
+  const bar = document.getElementById('bulkBar');
+  const count = document.getElementById('bulkCount');
+  if (checked.length > 0) {
+    bar.classList.add('show');
+    count.textContent = checked.length;
+  } else {
+    bar.classList.remove('show');
+  }
+}
+function clearBulkSelection() {
+  document.querySelectorAll('#mh-usersBody .bulk-check').forEach(cb => cb.checked = false);
+  const selectAll = document.getElementById('mh-selectAll');
+  if (selectAll) selectAll.checked = false;
+  _updateBulkBar();
+}
+function _getSelectedUPNs() {
+  return Array.from(document.querySelectorAll('#mh-usersBody .bulk-check:checked'))
+    .map(cb => cb.closest('tr')?.dataset.upn).filter(Boolean);
+}
+function bulkAction(type) {
+  const upns = _getSelectedUPNs();
+  if (upns.length === 0) return;
+  if (type === 'copy') {
+    navigator.clipboard.writeText(upns.join('\n'));
+    toast(`Copied ${upns.length} UPN(s) to clipboard`, 'success');
+  } else if (type === 'tap') {
+    if (!confirm(`Regenerate TAP for ${upns.length} user(s)?`)) return;
+    addNotification(`TAP regen requested for ${upns.length} users`, '🔑');
+    toast(`TAP regeneration for ${upns.length} users — use the Actions tab`, 'info');
+  } else if (type === 'password') {
+    if (!confirm(`Reset password for ${upns.length} user(s)?`)) return;
+    addNotification(`Password reset requested for ${upns.length} users`, '🔐');
+    toast(`Password reset for ${upns.length} users — use the Actions tab`, 'info');
+  }
+  clearBulkSelection();
+}
+
+// ══════════════════════════════════════════════════════════
+// FEATURE: Onboarding Tour
+// ══════════════════════════════════════════════════════════
+const _tourSteps = [
+  { target: '.sidebar-brand', title: 'Welcome to Spektra HackOps!', text: 'This is your command center for managing Azure hackathon environments end-to-end.' },
+  { target: '[data-view="connection"]', title: 'Step 1: Connect', text: 'Enter your Azure Service Principal credentials to authenticate with Microsoft Graph and Azure APIs.' },
+  { target: '[data-view="dashboard"]', title: 'Dashboard', text: 'View all your hacks at a glance — status, user counts, costs, and lifecycle phases.' },
+  { target: '#sidebarLifecycleNav', title: 'Lifecycle Steps', text: 'Follow steps 01–06 in order: Setup → RBAC → Upload → Manage → Read-only → Cleanup.' },
+  { target: '[data-view="provision"]', title: 'Setup Hack', text: 'Define your hack name, teams, admin users, licenses, and lifecycle dates. Use templates to save time!' },
+  { target: '[data-view="github"]', title: 'Tools', text: 'Additional tools for GitHub access, scheduling, cost calculation, and tenant verification.' },
+  { target: '#themeToggle', title: 'Dark Mode', text: 'Toggle between light and dark themes. Your preference is saved automatically.' },
+  { target: '.topbar-actions', title: 'Top Bar', text: 'Use Ctrl+K for the command palette, 🔔 for notifications, and 📋 for the activity feed.' },
+];
+let _tourIdx = -1;
+
+function startTour() {
+  _tourIdx = 0;
+  _showTourStep();
+}
+function _showTourStep() {
+  const backdrop = document.getElementById('tourBackdrop');
+  const tooltip = document.getElementById('tourTooltip');
+  if (_tourIdx < 0 || _tourIdx >= _tourSteps.length) {
+    backdrop.classList.remove('active');
+    tooltip.style.display = 'none';
+    _tourIdx = -1;
+    return;
+  }
+  const step = _tourSteps[_tourIdx];
+  const target = document.querySelector(step.target);
+  backdrop.classList.add('active');
+  tooltip.style.display = 'block';
+
+  // Position tooltip near target
+  if (target) {
+    const rect = target.getBoundingClientRect();
+    tooltip.style.top = Math.min(rect.bottom + 12, window.innerHeight - 240) + 'px';
+    tooltip.style.left = Math.min(Math.max(rect.left, 16), window.innerWidth - 380) + 'px';
+    target.style.position = 'relative';
+    target.style.zIndex = '3001';
+    target.style.boxShadow = '0 0 0 4px rgba(37,99,235,.4)';
+    target.style.borderRadius = '12px';
+  } else {
+    tooltip.style.top = '40%';
+    tooltip.style.left = '50%';
+    tooltip.style.transform = 'translateX(-50%)';
+  }
+
+  const dots = _tourSteps.map((_, i) => `<span class="tour-dot${i === _tourIdx ? ' active' : ''}"></span>`).join('');
+  tooltip.innerHTML = `
+    <h4>${step.title}</h4>
+    <p>${step.text}</p>
+    <div class="tour-progress">${dots}</div>
+    <div class="tour-actions">
+      <button class="btn btn-secondary btn-sm" onclick="endTour()">Skip</button>
+      ${_tourIdx > 0 ? `<button class="btn btn-secondary btn-sm" onclick="tourPrev()">← Back</button>` : ''}
+      <button class="btn btn-primary btn-sm" onclick="tourNext()">${_tourIdx === _tourSteps.length - 1 ? 'Finish' : 'Next →'}</button>
+    </div>
+  `;
+}
+function tourNext() {
+  _clearTourHighlight();
+  _tourIdx++;
+  if (_tourIdx >= _tourSteps.length) { endTour(); return; }
+  _showTourStep();
+}
+function tourPrev() {
+  _clearTourHighlight();
+  _tourIdx = Math.max(0, _tourIdx - 1);
+  _showTourStep();
+}
+function endTour() {
+  _clearTourHighlight();
+  _tourIdx = -1;
+  document.getElementById('tourBackdrop').classList.remove('active');
+  document.getElementById('tourTooltip').style.display = 'none';
+}
+function _clearTourHighlight() {
+  if (_tourIdx >= 0 && _tourIdx < _tourSteps.length) {
+    const target = document.querySelector(_tourSteps[_tourIdx].target);
+    if (target) { target.style.zIndex = ''; target.style.boxShadow = ''; target.style.borderRadius = ''; }
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+// FEATURE: Auto-refresh Dashboard
+// ══════════════════════════════════════════════════════════
+let _dashAutoRefresh = null;
+function _startDashAutoRefresh() {
+  _stopDashAutoRefresh();
+  _dashAutoRefresh = setInterval(() => {
+    if (_activeLifecycleView === 'dashboard' && document.visibilityState === 'visible') {
+      loadDashboard();
+    }
+  }, 60000);
+}
+function _stopDashAutoRefresh() {
+  if (_dashAutoRefresh) { clearInterval(_dashAutoRefresh); _dashAutoRefresh = null; }
+}
+_startDashAutoRefresh();
+
+// ══════════════════════════════════════════════════════════
+// FEATURE: Scheduled Job Live Toasts
+// ══════════════════════════════════════════════════════════
+let _lastJobCheck = Date.now();
+
+function _pollScheduledJobs() {
+  setInterval(async () => {
+    if (!getCreds()) return;
+    try {
+      const r = await fetch(`${API}/scheduler/jobs/list`);
+      if (!r.ok) return;
+      const jobs = await r.json();
+      const since = _lastJobCheck;
+      _lastJobCheck = Date.now();
+      for (const j of jobs) {
+        const completed = j.completedAt ? new Date(j.completedAt).getTime() : 0;
+        if (completed > since && completed <= _lastJobCheck) {
+          const status = j.status === 'completed' ? '✅' : '❌';
+          const msg = `${status} Job "${j.type}" for ${j.hackPrefix} ${j.status}`;
+          toast(msg, j.status === 'completed' ? 'success' : 'danger');
+          addNotification(msg, j.status === 'completed' ? '✅' : '❌');
+        }
+      }
+    } catch {}
+  }, 30000);
+}
+_pollScheduledJobs();
+
+// ══════════════════════════════════════════════════════════
+// Keyboard shortcut for Ctrl+K → Command Palette
+// ══════════════════════════════════════════════════════════
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+    e.preventDefault();
+    openCmdPalette();
+  }
+});
+
+// Close notifications when clicking outside
+document.addEventListener('click', (e) => {
+  const panel = document.getElementById('notifPanel');
+  const btn = document.getElementById('notifToggleBtn');
+  if (panel.classList.contains('open') && !panel.contains(e.target) && !btn.contains(e.target)) {
+    toggleNotifPanel(false);
+  }
+});
+
+// Hook notifications into existing toast function
+const _origToast = typeof toast === 'function' ? toast : null;
+if (_origToast) {
+  const _wrappedToast = _origToast;
+  toast = function(msg, type) {
+    _wrappedToast.apply(this, arguments);
+    // Auto-notify for important events
+    if (type === 'success' && (msg.includes('Provision') || msg.includes('Cleanup') || msg.includes('uploaded') || msg.includes('Read-only'))) {
+      addNotification(msg, type === 'success' ? '✅' : '⚠️');
+    }
+  };
+}
 </script>
 </body>
 </html>

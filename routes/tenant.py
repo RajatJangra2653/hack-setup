@@ -377,6 +377,258 @@ async def _async_grant_permissions(t, c, s, permissions_to_grant):
         return results
 
 
+# ────────────────────── Tenant health / RBAC / connectivity ──────────────────────
+
+async def _async_tenant_health(t, c, s):
+    """Gather comprehensive tenant health info in one call."""
+    import httpx
+    tp = make_token_provider(t, c, s)
+    tok = await tp.get_token()
+    H = {"Authorization": f"Bearer {tok}"}
+
+    out: Dict[str, Any] = {}
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        # Org info
+        try:
+            org_resp = await client.get(
+                "https://graph.microsoft.com/v1.0/organization", headers=H
+            )
+            orgs = org_resp.json().get("value", [])
+            if orgs:
+                org = orgs[0]
+                out["tenantId"] = org.get("id", "")
+                out["displayName"] = org.get("displayName", "")
+                domains = org.get("verifiedDomains", [])
+                out["primaryDomain"] = next(
+                    (d["name"] for d in domains if d.get("isDefault")), ""
+                )
+                out["allDomains"] = [d["name"] for d in domains]
+                out["createdDateTime"] = org.get("createdDateTime", "")
+        except Exception as exc:
+            out["orgError"] = str(exc)
+
+        # User count
+        try:
+            u_resp = await client.get(
+                "https://graph.microsoft.com/v1.0/users/$count",
+                headers={**H, "ConsistencyLevel": "eventual"},
+            )
+            out["userCount"] = int(u_resp.text) if u_resp.status_code == 200 else None
+        except Exception:
+            out["userCount"] = None
+
+        # Group count
+        try:
+            g_resp = await client.get(
+                "https://graph.microsoft.com/v1.0/groups/$count",
+                headers={**H, "ConsistencyLevel": "eventual"},
+            )
+            out["groupCount"] = int(g_resp.text) if g_resp.status_code == 200 else None
+        except Exception:
+            out["groupCount"] = None
+
+        # License summary
+        try:
+            sku_resp = await client.get(
+                "https://graph.microsoft.com/v1.0/subscribedSkus", headers=H
+            )
+            skus = sku_resp.json().get("value", [])
+            out["licenses"] = [
+                {
+                    "sku": s.get("skuPartNumber", ""),
+                    "consumed": s.get("consumedUnits", 0),
+                    "total": (s.get("prepaidUnits") or {}).get("enabled", 0),
+                }
+                for s in skus
+            ]
+        except Exception:
+            out["licenses"] = []
+
+        # TAP policy
+        try:
+            tap_resp = await client.get(
+                "https://graph.microsoft.com/v1.0/policies/authenticationMethodsPolicy/authenticationMethodConfigurations/TemporaryAccessPass",
+                headers=H,
+            )
+            if tap_resp.status_code == 200:
+                tap = tap_resp.json()
+                out["tapPolicy"] = {
+                    "enabled": tap.get("state") == "enabled",
+                    "defaultLifetimeMinutes": tap.get("defaultLifetimeInMinutes", 0),
+                    "maxLifetimeMinutes": tap.get("maximumLifetimeInMinutes", 0),
+                    "defaultLength": tap.get("defaultLength", 0),
+                    "isUsableOnce": tap.get("isUsableOnce", False),
+                }
+            else:
+                out["tapPolicy"] = {"enabled": False, "error": "Could not read TAP policy"}
+        except Exception as exc:
+            out["tapPolicy"] = {"enabled": False, "error": str(exc)}
+
+        # SPN info (app registration credential expiry)
+        try:
+            app_resp = await client.get(
+                f"https://graph.microsoft.com/v1.0/applications?$filter=appId eq '{c}'&$select=id,displayName,passwordCredentials,keyCredentials",
+                headers=H,
+            )
+            apps = app_resp.json().get("value", [])
+            if apps:
+                app = apps[0]
+                creds_list = []
+                for pc in app.get("passwordCredentials", []):
+                    creds_list.append({
+                        "type": "secret",
+                        "hint": pc.get("hint", ""),
+                        "displayName": pc.get("displayName", ""),
+                        "startDateTime": pc.get("startDateTime", ""),
+                        "endDateTime": pc.get("endDateTime", ""),
+                    })
+                for kc in app.get("keyCredentials", []):
+                    creds_list.append({
+                        "type": "certificate",
+                        "displayName": kc.get("displayName", ""),
+                        "startDateTime": kc.get("startDateTime", ""),
+                        "endDateTime": kc.get("endDateTime", ""),
+                    })
+                out["appCredentials"] = creds_list
+            else:
+                out["appCredentials"] = []
+        except Exception:
+            out["appCredentials"] = []
+
+    return out
+
+
+async def _async_rbac_check(t, c, s):
+    """Check SPN's own role assignments across all visible subscriptions."""
+    import httpx
+    tp = make_token_provider(t, c, s)
+    tok = await tp.get_token()
+    H = {"Authorization": f"Bearer {tok}"}
+
+    # Get the SPN object id
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        sp_resp = await client.get(
+            f"https://graph.microsoft.com/v1.0/servicePrincipals?$filter=appId eq '{c}'",
+            headers=H,
+        )
+        sp_data = sp_resp.json().get("value", [])
+        if not sp_data:
+            raise ValueError(f"Service principal not found for client_id {c}")
+        sp_id = sp_data[0]["id"]
+
+    # List subscriptions and check role assignments
+    async with RbacService(tp) as rbac:
+        subs = await rbac.list_subscriptions()
+        results = []
+        for sub in subs:
+            sub_id = sub.get("subscriptionId", "")
+            try:
+                assignments = await rbac.list_all_assignments_for_principal(sp_id)
+                sub_assignments = [
+                    a for a in assignments
+                    if subscription_from_assignment(a) == sub_id
+                ]
+                roles = sorted({_role_name_from_assignment(a) for a in sub_assignments if _role_name_from_assignment(a)})
+                results.append({
+                    "subscriptionId": sub_id,
+                    "displayName": sub.get("displayName", ""),
+                    "state": sub.get("state", ""),
+                    "roles": roles,
+                    "hasOwnerOrUAA": any(
+                        r in ("Owner", "User Access Administrator") for r in roles
+                    ),
+                })
+            except Exception as exc:
+                results.append({
+                    "subscriptionId": sub_id,
+                    "displayName": sub.get("displayName", ""),
+                    "state": sub.get("state", ""),
+                    "roles": [],
+                    "hasOwnerOrUAA": False,
+                    "error": str(exc),
+                })
+        return {"spnId": sp_id, "subscriptions": results}
+
+
+async def _async_connectivity_test(t, c, s):
+    """Test connectivity to Graph API, Azure Management, and SharePoint."""
+    import httpx, time
+    tp = make_token_provider(t, c, s)
+    results = []
+
+    # Test 1: Graph API
+    try:
+        tok = await tp.get_token()
+        start = time.monotonic()
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.get(
+                "https://graph.microsoft.com/v1.0/organization",
+                headers={"Authorization": f"Bearer {tok}"},
+            )
+        elapsed = round((time.monotonic() - start) * 1000)
+        results.append({
+            "endpoint": "Microsoft Graph API",
+            "url": "graph.microsoft.com",
+            "status": "ok" if r.status_code == 200 else "error",
+            "statusCode": r.status_code,
+            "latencyMs": elapsed,
+        })
+    except Exception as exc:
+        results.append({
+            "endpoint": "Microsoft Graph API",
+            "url": "graph.microsoft.com",
+            "status": "error",
+            "error": str(exc),
+        })
+
+    # Test 2: Azure Management
+    try:
+        mgmt_tp = make_token_provider(t, c, s)
+        start = time.monotonic()
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            # Try management.azure.com with graph token (will 401 but proves connectivity)
+            r = await client.get(
+                "https://management.azure.com/subscriptions?api-version=2022-12-01",
+                headers={"Authorization": f"Bearer {tok}"},
+            )
+        elapsed = round((time.monotonic() - start) * 1000)
+        results.append({
+            "endpoint": "Azure Management",
+            "url": "management.azure.com",
+            "status": "ok" if r.status_code in (200, 403) else "error",
+            "statusCode": r.status_code,
+            "latencyMs": elapsed,
+        })
+    except Exception as exc:
+        results.append({
+            "endpoint": "Azure Management",
+            "url": "management.azure.com",
+            "status": "error",
+            "error": str(exc),
+        })
+
+    # Test 3: Login endpoint (token acquisition)
+    try:
+        start = time.monotonic()
+        tok2 = await tp.get_token()
+        elapsed = round((time.monotonic() - start) * 1000)
+        results.append({
+            "endpoint": "Azure AD / Entra ID",
+            "url": "login.microsoftonline.com",
+            "status": "ok" if tok2 else "error",
+            "latencyMs": elapsed,
+        })
+    except Exception as exc:
+        results.append({
+            "endpoint": "Azure AD / Entra ID",
+            "url": "login.microsoftonline.com",
+            "status": "error",
+            "error": str(exc),
+        })
+
+    return results
+
+
 # ────────────────────── Route handlers ──────────────────────
 
 @bp.route("/api/tenant-info", methods=["POST"])
@@ -601,6 +853,45 @@ def grant_permissions():
         return jsonify({"error": "permissions[] required"}), 400
     try:
         results = asyncio.run(_async_grant_permissions(*creds, perms))
+        return jsonify({"results": results})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@bp.route("/api/tenant-health", methods=["POST"])
+def tenant_health():
+    data = request.get_json(silent=True) or {}
+    creds = extract_creds(data)
+    if not creds:
+        return jsonify({"error": "Missing SPN credentials"}), 400
+    try:
+        result = asyncio.run(_async_tenant_health(*creds))
+        return jsonify(result)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@bp.route("/api/rbac-check", methods=["POST"])
+def rbac_check():
+    data = request.get_json(silent=True) or {}
+    creds = extract_creds(data)
+    if not creds:
+        return jsonify({"error": "Missing SPN credentials"}), 400
+    try:
+        result = asyncio.run(_async_rbac_check(*creds))
+        return jsonify(result)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@bp.route("/api/connectivity-test", methods=["POST"])
+def connectivity_test():
+    data = request.get_json(silent=True) or {}
+    creds = extract_creds(data)
+    if not creds:
+        return jsonify({"error": "Missing SPN credentials"}), 400
+    try:
+        results = asyncio.run(_async_connectivity_test(*creds))
         return jsonify({"results": results})
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500

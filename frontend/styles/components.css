@@ -89,10 +89,10 @@
 .prefix-validation { font-size: 12px; margin-top: 4px; font-weight: 600; min-height: 18px; }
 
 /* ── Dashboard ── */
-.dash-kpi-row { display: flex; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
-.dash-kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 20px; text-align: center; min-width: 100px; flex: 1; }
-.dash-kpi-val { font-size: 28px; font-weight: 700; color: var(--primary); line-height: 1.1; }
-.dash-kpi-label { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.dash-kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.dash-kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 10px; text-align: center; }
+.dash-kpi-val { font-size: 22px; font-weight: 700; color: var(--primary); line-height: 1.1; }
+.dash-kpi-label { font-size: 11px; color: var(--muted); margin-top: 2px; }
 .dash-status { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
 .dash-st-active { background: #e8f5e9; color: #2e7d32; }
 .dash-st-provisioned { background: #e3f2fd; color: #1565c0; }
