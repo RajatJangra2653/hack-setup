@@ -1781,3 +1781,17 @@ def all_hacks_cost_report():
         "totals": totals,
         "teamsCard": _build_cost_adaptive_card(results, totals),
     })
+
+
+@bp.route("/api/costs/all-hacks/teams-card", methods=["POST"])
+def all_hacks_cost_teams_card():
+    """Return ONLY the Adaptive Card JSON — for Power Automate direct use.
+
+    Same inputs as /api/costs/all-hacks.  Response body IS the card.
+    In Power Automate, just use the Body dynamic content token directly.
+    """
+    resp = all_hacks_cost_report()
+    data = resp.get_json() if hasattr(resp, "get_json") else resp[0].get_json()
+    if "error" in data:
+        return jsonify(data), resp.status_code if hasattr(resp, "status_code") else 400
+    return jsonify(data.get("teamsCard", {}))
