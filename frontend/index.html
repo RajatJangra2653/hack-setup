@@ -189,6 +189,20 @@
     <div class="sidebar-divider"></div>
 
     <div class="sidebar-section">
+      <div class="sidebar-section-label">Planning</div>
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-item" data-view="cost-calc" onclick="switchView('cost-calc')" title="Estimate hack costs before setup — select licenses, user count, date range, GitHub options, and Azure subscriptions">
+          <span class="nav-icon">💰</span><span class="nav-label">Cost Calculator</span>
+        </li>
+        <li class="sidebar-nav-item" data-view="tenant-setup" onclick="switchView('tenant-setup')" title="Verify required Microsoft Graph API permissions, service principal access, tenant domain, and license availability">
+          <span class="nav-icon">🔧</span><span class="nav-label">Tenant Check</span>
+        </li>
+      </ul>
+    </div>
+
+    <div class="sidebar-divider"></div>
+
+    <div class="sidebar-section">
       <div class="sidebar-section-label">Lifecycle Steps</div>
       <ul class="sidebar-nav" id="sidebarLifecycleNav">
         <li class="sidebar-nav-item" data-view="provision" onclick="switchView('provision')" title="Define hack name, teams, admins, TAP policy, passwords, licenses, and lifecycle dates — then provision users in Entra">
@@ -228,12 +242,6 @@
         </li>
         <li class="sidebar-nav-item" data-view="scheduler" onclick="switchView('scheduler')" title="Create and manage scheduled jobs for automated provision, read-only transition, and cleanup at set times">
           <span class="nav-icon">⏰</span><span class="nav-label">Scheduler</span>
-        </li>
-        <li class="sidebar-nav-item" data-view="cost-calc" onclick="switchView('cost-calc')" title="Estimate hack costs before setup — select licenses, user count, date range, GitHub options, and Azure subscriptions">
-          <span class="nav-icon">💰</span><span class="nav-label">Cost Calculator</span>
-        </li>
-        <li class="sidebar-nav-item" data-view="tenant-setup" onclick="switchView('tenant-setup')" title="Verify required Microsoft Graph API permissions, service principal access, tenant domain, and license availability">
-          <span class="nav-icon">🔧</span><span class="nav-label">Tenant Check</span>
         </li>
       </ul>
     </div>
@@ -1830,10 +1838,16 @@
     <!-- ────────── Cost Calculator View ────────── -->
     <div id="view-cost-calc" class="hidden">
       <h2>💰 Cost Calculator</h2>
-      <p class="hint">Estimate hack costs before setting it up. Select licenses, user count, dates, and GitHub options to see a breakdown.</p>
+      <p class="hint">Estimate hack costs before setting it up. Select licenses, user count, dates, and all add-ons to see a full breakdown.</p>
 
       <div class="card">
         <h3 style="margin-top:0;">Hack Parameters</h3>
+        <div class="row">
+          <div class="form-group" style="flex:1;">
+            <label for="cc-hackName">Hack / Event Name</label>
+            <input type="text" id="cc-hackName" placeholder="e.g. Spring Hackathon 2026" oninput="updateCostCalcEstimate()" />
+          </div>
+        </div>
         <div class="row">
           <div class="form-group" style="flex:1;">
             <label for="cc-userCount">Number of users</label>
@@ -1857,6 +1871,10 @@
             <label for="cc-endDate">End Date</label>
             <input type="date" id="cc-endDate" oninput="updateCostCalcEstimate()" />
           </div>
+          <div class="form-group" style="flex:1;">
+            <label for="cc-readonlyDays">Read-only buffer (days)</label>
+            <input type="number" id="cc-readonlyDays" value="0" min="0" max="90" oninput="updateCostCalcEstimate()" title="Extra days licenses are active after hack ends (for read-only access)" />
+          </div>
         </div>
 
         <!-- GitHub options -->
@@ -1864,17 +1882,30 @@
           <div class="field-group-title">GitHub</div>
           <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:center;">
             <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;font-size:13px;">
-              <input type="checkbox" id="cc-enableGithub" onchange="updateCostCalcEstimate()"> Include GitHub Enterprise
+              <input type="checkbox" id="cc-enableGithub" onchange="updateCostCalcEstimate()"> GitHub Enterprise
             </label>
             <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;font-size:13px;">
-              <input type="checkbox" id="cc-enableCopilot" onchange="updateCostCalcEstimate()"> Include GitHub Copilot
+              <input type="checkbox" id="cc-enableCopilot" onchange="updateCostCalcEstimate()"> GitHub Copilot
+            </label>
+          </div>
+        </div>
+
+        <!-- Power Platform -->
+        <div class="field-group" style="margin-top:12px;">
+          <div class="field-group-title">Power Platform (optional)</div>
+          <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:center;">
+            <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;font-size:13px;">
+              <input type="checkbox" id="cc-enablePowerApps" onchange="updateCostCalcEstimate()"> Power Apps per user ($20/mo)
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;font-size:13px;">
+              <input type="checkbox" id="cc-enablePowerAutomate" onchange="updateCostCalcEstimate()"> Power Automate per user ($15/mo)
             </label>
           </div>
         </div>
 
         <!-- Azure subscriptions -->
         <div class="field-group" style="margin-top:12px;">
-          <div class="field-group-title">Azure Subscriptions (optional)</div>
+          <div class="field-group-title">Azure Subscriptions</div>
           <div class="row">
             <div class="form-group" style="flex:1;">
               <label for="cc-teamCount">Number of teams</label>
@@ -1883,6 +1914,25 @@
             <div class="form-group" style="flex:1;">
               <label for="cc-budgetPerTeam">Budget per team ($)</label>
               <input type="number" id="cc-budgetPerTeam" value="0" min="0" step="50" oninput="updateCostCalcEstimate()" />
+            </div>
+          </div>
+        </div>
+
+        <!-- OneDrive / Storage -->
+        <div class="field-group" style="margin-top:12px;">
+          <div class="field-group-title">Storage & Extras</div>
+          <div class="row">
+            <div class="form-group" style="flex:1;">
+              <label for="cc-onedriveSizeGb">OneDrive payload per user (GB)</label>
+              <input type="number" id="cc-onedriveSizeGb" value="0" min="0" step="1" oninput="updateCostCalcEstimate()" title="If uploading content to OneDrive, estimate size per user" />
+            </div>
+            <div class="form-group" style="flex:1;">
+              <label for="cc-customLineItem">Custom line item ($)</label>
+              <input type="number" id="cc-customLineItem" value="0" min="0" step="10" oninput="updateCostCalcEstimate()" title="Any additional flat cost (e.g., venue, swag)" />
+            </div>
+            <div class="form-group" style="flex:1;">
+              <label for="cc-customLineLabel">Custom item label</label>
+              <input type="text" id="cc-customLineLabel" value="" placeholder="e.g. Venue/swag" oninput="updateCostCalcEstimate()" />
             </div>
           </div>
         </div>
@@ -1911,11 +1961,22 @@
       <div id="cc-resultCard" class="card hidden" style="background:linear-gradient(135deg,#e8f5e9 0%,#f1f8e9 100%);border:1px solid #a5d6a7;">
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
           <h3 style="margin:0;">💰 Estimated Cost</h3>
-          <span style="font-size:11px;color:#666;font-style:italic;">Prices from NCE Price List (Monthly ERP, Commercial)</span>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-secondary btn-sm" onclick="saveCostEstimate()">💾 Save Estimate</button>
+            <button class="btn btn-secondary btn-sm" onclick="copyCostEstimate()">📋 Copy Summary</button>
+          </div>
         </div>
+        <div class="hint" style="margin-top:4px;font-style:italic;">Prices from NCE Price List (Monthly ERP, Commercial)</div>
         <div id="cc-resultTiles" class="stats" style="gap:10px;margin-top:10px;"></div>
         <div id="cc-resultTable" style="margin-top:10px;"></div>
         <div id="cc-resultSummary" style="margin-top:12px;padding:10px;background:#fff;border-radius:6px;border:1px solid #c8e6c9;font-size:13px;"></div>
+      </div>
+
+      <!-- Saved estimates -->
+      <div id="cc-savedCard" class="card hidden">
+        <h3>📊 Saved Estimates</h3>
+        <p class="hint">Compare saved estimates side by side.</p>
+        <div id="cc-savedList" style="font-size:13px;"></div>
       </div>
     </div><!-- /view-cost-calc -->
 
@@ -7803,27 +7864,35 @@ function updateCostCalcEstimate() {
   const summary = document.getElementById('cc-resultSummary');
   if (!card || !tiles) return;
 
+  const hackName = (document.getElementById('cc-hackName') || {}).value || '';
   const userCount = Math.max(1, parseInt(document.getElementById('cc-userCount').value) || 10);
   const adminCount = parseInt(document.getElementById('cc-adminCount').value) || 0;
   const licensedUsers = Math.max(0, userCount - adminCount);
   const currency = (document.getElementById('cc-currency') || {}).value || 'USD';
   const enableGithub = document.getElementById('cc-enableGithub').checked;
   const enableCopilot = document.getElementById('cc-enableCopilot').checked;
+  const enablePowerApps = document.getElementById('cc-enablePowerApps').checked;
+  const enablePowerAutomate = document.getElementById('cc-enablePowerAutomate').checked;
   const teamCount = parseInt(document.getElementById('cc-teamCount').value) || 0;
   const budgetPerTeam = parseFloat(document.getElementById('cc-budgetPerTeam').value) || 0;
+  const readonlyDays = parseInt(document.getElementById('cc-readonlyDays').value) || 0;
+  const onedriveSizeGb = parseFloat(document.getElementById('cc-onedriveSizeGb').value) || 0;
+  const customLineItem = parseFloat(document.getElementById('cc-customLineItem').value) || 0;
+  const customLineLabel = (document.getElementById('cc-customLineLabel') || {}).value || 'Custom';
 
   // Billing months
   const startStr = document.getElementById('cc-startDate').value;
   const endStr = document.getElementById('cc-endDate').value;
+  let days = 30;
   let months = 1;
   if (startStr && endStr) {
-    const days = Math.max(1, Math.round((new Date(endStr) - new Date(startStr)) / 86400000));
+    days = Math.max(1, Math.round((new Date(endStr) - new Date(startStr)) / 86400000) + readonlyDays);
     months = Math.max(1, Math.ceil(days / 30));
   }
 
   // Selected licenses
   const checked = Array.from(document.querySelectorAll('#cc-licenses input:checked'));
-  if (!checked.length && !enableGithub && !budgetPerTeam) {
+  if (!checked.length && !enableGithub && !budgetPerTeam && !enablePowerApps && !enablePowerAutomate && !customLineItem) {
     card.classList.add('hidden');
     return;
   }
@@ -7860,6 +7929,30 @@ function updateCostCalcEstimate() {
     </tr>`);
   }
 
+  // Power Platform
+  if (enablePowerApps) {
+    const paUnit = 20;
+    const paMo = paUnit * licensedUsers;
+    totalMonthly += paMo;
+    rows.push(`<tr style="background:#f3e8ff;">
+      <td>⚡ Power Apps (per user)</td>
+      <td>${licensedUsers}</td>
+      <td>${_money(paUnit, currency)}</td>
+      <td>${_money(paMo, currency)}</td>
+    </tr>`);
+  }
+  if (enablePowerAutomate) {
+    const pfUnit = 15;
+    const pfMo = pfUnit * licensedUsers;
+    totalMonthly += pfMo;
+    rows.push(`<tr style="background:#f3e8ff;">
+      <td>🔄 Power Automate (per user)</td>
+      <td>${licensedUsers}</td>
+      <td>${_money(pfUnit, currency)}</td>
+      <td>${_money(pfMo, currency)}</td>
+    </tr>`);
+  }
+
   // Azure budget
   let azureBudget = 0;
   if (teamCount > 0 && budgetPerTeam > 0) {
@@ -7872,17 +7965,30 @@ function updateCostCalcEstimate() {
     </tr>`);
   }
 
+  // Custom line item
+  if (customLineItem > 0) {
+    rows.push(`<tr style="background:#eceff1;">
+      <td>📦 ${esc(customLineLabel)}</td>
+      <td>1</td>
+      <td>${_money(customLineItem, currency)}</td>
+      <td>${_money(customLineItem, currency)}</td>
+    </tr>`);
+  }
+
   const totalPeriod = totalMonthly * months;
-  const grandTotal = totalPeriod + azureBudget;
+  const grandTotal = totalPeriod + azureBudget + customLineItem;
+  const perDay = days > 0 ? grandTotal / days : 0;
+  const perUser = userCount > 0 ? grandTotal / userCount : 0;
 
   // Tiles
   const tileDefs = [
     ['Users (licensed)', licensedUsers],
-    ['License Types', checked.length],
-    ['License Cost / Month', _money(totalMonthly, currency)],
+    ['License Types', checked.length + (enableGithub ? 1 : 0) + (enablePowerApps ? 1 : 0) + (enablePowerAutomate ? 1 : 0)],
+    ['Duration', startStr && endStr ? `${days} days (${months} mo)` : `${months} mo`],
+    ['Cost / Month', _money(totalMonthly, currency)],
+    ['Cost / Day', _money(perDay, currency)],
+    ['Cost / User', _money(perUser, currency)],
   ];
-  if (months > 1) tileDefs.push(['Billing Months', months]);
-  tileDefs.push([months > 1 ? `License ${months}-Month Total` : 'License Total', _money(totalPeriod, currency)]);
   if (azureBudget > 0) tileDefs.push(['Azure Budget', _money(azureBudget, currency)]);
   tileDefs.push(['Grand Total', _money(grandTotal, currency)]);
 
@@ -7893,14 +7999,92 @@ function updateCostCalcEstimate() {
 
   // Summary text
   const parts = [];
+  if (hackName) parts.push(`<b>${esc(hackName)}</b>`);
   if (checked.length) parts.push(`${checked.length} license type(s) × ${licensedUsers} user(s)`);
-  if (enableGithub) parts.push(`GitHub ${enableCopilot ? '+ Copilot' : ''} for ${licensedUsers} user(s)`);
+  if (enableGithub) parts.push(`GitHub ${enableCopilot ? '+ Copilot' : ''}`);
+  if (enablePowerApps) parts.push('Power Apps');
+  if (enablePowerAutomate) parts.push('Power Automate');
   if (azureBudget > 0) parts.push(`Azure budget ${_money(azureBudget, currency)} for ${teamCount} team(s)`);
-  parts.push(`${months} billing month(s)`);
+  if (customLineItem > 0) parts.push(`${esc(customLineLabel)}: ${_money(customLineItem, currency)}`);
+  parts.push(`${days} days (${months} billing month(s))${readonlyDays > 0 ? ` incl. ${readonlyDays}d read-only` : ''}`);
   summary.innerHTML = `<strong>Summary:</strong> ${parts.join(' • ')}.<br>
     <strong>Estimated grand total: ${_money(grandTotal, currency)}</strong>
-    ${months > 1 ? ` (${_money(totalMonthly, currency)}/mo × ${months} months${azureBudget > 0 ? ' + Azure' : ''})` : ''}`;
+    (${_money(perDay, currency)}/day • ${_money(perUser, currency)}/user)`;
+
+  // Store last estimate for save/copy
+  _lastCcEstimate = { hackName, userCount, adminCount, licensedUsers, currency, days, months, readonlyDays,
+    enableGithub, enableCopilot, enablePowerApps, enablePowerAutomate,
+    teamCount, budgetPerTeam, azureBudget, customLineItem, customLineLabel,
+    totalMonthly, totalPeriod, grandTotal, perDay, perUser,
+    licenses: checked.map(c => c.value), timestamp: new Date().toISOString() };
+
   card.classList.remove('hidden');
+  _renderSavedEstimates();
+}
+let _lastCcEstimate = null;
+
+function saveCostEstimate() {
+  if (!_lastCcEstimate) { toast('Calculate an estimate first', 'warn'); return; }
+  const key = 'spektra-cost-estimates';
+  const saved = JSON.parse(localStorage.getItem(key) || '[]');
+  const name = _lastCcEstimate.hackName || `Estimate ${saved.length + 1}`;
+  saved.push({ ...structuredClone(_lastCcEstimate), name, id: Date.now() });
+  localStorage.setItem(key, JSON.stringify(saved));
+  toast(`Saved estimate: ${name}`, 'success');
+  _renderSavedEstimates();
+}
+
+function copyCostEstimate() {
+  if (!_lastCcEstimate) { toast('Calculate an estimate first', 'warn'); return; }
+  const e = _lastCcEstimate;
+  const lines = [
+    `Cost Estimate: ${e.hackName || 'Untitled'}`,
+    `Date: ${new Date().toLocaleDateString()}`,
+    ``,
+    `Users: ${e.userCount} (${e.licensedUsers} licensed, ${e.adminCount} admin)`,
+    `Duration: ${e.days} days (${e.months} billing months)${e.readonlyDays > 0 ? ` + ${e.readonlyDays}d read-only` : ''}`,
+    `Licenses: ${e.licenses.join(', ') || 'None'}`,
+    e.enableGithub ? `GitHub: Enterprise${e.enableCopilot ? ' + Copilot' : ''}` : '',
+    e.enablePowerApps ? `Power Apps: Yes` : '',
+    e.enablePowerAutomate ? `Power Automate: Yes` : '',
+    e.azureBudget > 0 ? `Azure Budget: ${e.teamCount} teams × $${e.budgetPerTeam} = $${e.azureBudget}` : '',
+    e.customLineItem > 0 ? `${e.customLineLabel}: $${e.customLineItem}` : '',
+    ``,
+    `Monthly License Cost: $${e.totalMonthly.toLocaleString(undefined, {maximumFractionDigits:0})}`,
+    `Grand Total: $${e.grandTotal.toLocaleString(undefined, {maximumFractionDigits:0})}`,
+    `Per Day: $${e.perDay.toLocaleString(undefined, {maximumFractionDigits:0})}`,
+    `Per User: $${e.perUser.toLocaleString(undefined, {maximumFractionDigits:0})}`,
+  ].filter(Boolean);
+  navigator.clipboard.writeText(lines.join('\n')).then(() => toast('Estimate copied to clipboard!', 'success'));
+}
+
+function _renderSavedEstimates() {
+  const card = document.getElementById('cc-savedCard');
+  const list = document.getElementById('cc-savedList');
+  if (!card || !list) return;
+  const saved = JSON.parse(localStorage.getItem('spektra-cost-estimates') || '[]');
+  if (!saved.length) { card.classList.add('hidden'); return; }
+  card.classList.remove('hidden');
+  list.innerHTML = `<table><thead><tr><th>Name</th><th>Users</th><th>Duration</th><th>Monthly</th><th>Grand Total</th><th>Per Day</th><th>Saved</th><th></th></tr></thead><tbody>` +
+    saved.map(e => `<tr>
+      <td><b>${esc(e.name)}</b></td>
+      <td>${e.userCount} (${e.licensedUsers} lic)</td>
+      <td>${e.days}d / ${e.months}mo</td>
+      <td>${_money(e.totalMonthly, e.currency)}</td>
+      <td style="font-weight:700;">${_money(e.grandTotal, e.currency)}</td>
+      <td>${_money(e.perDay, e.currency)}</td>
+      <td style="font-size:11px;color:var(--muted);">${new Date(e.timestamp).toLocaleDateString()}</td>
+      <td><button class="btn-micro" onclick="deleteSavedEstimate(${e.id})" title="Delete">🗑️</button></td>
+    </tr>`).join('') +
+    '</tbody></table>';
+}
+
+function deleteSavedEstimate(id) {
+  const key = 'spektra-cost-estimates';
+  const saved = JSON.parse(localStorage.getItem(key) || '[]').filter(e => e.id !== id);
+  localStorage.setItem(key, JSON.stringify(saved));
+  _renderSavedEstimates();
+  toast('Estimate deleted', 'info');
 }
 
 async function generateManagedHackReport() {
