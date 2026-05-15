@@ -197,6 +197,9 @@
         <li class="sidebar-nav-item" data-view="tenant-setup" onclick="switchView('tenant-setup')" title="Verify required Microsoft Graph API permissions, service principal access, tenant domain, and license availability">
           <span class="nav-icon">🔧</span><span class="nav-label">Tenant Check</span>
         </li>
+        <li class="sidebar-nav-item" data-view="license-inventory" onclick="switchView('license-inventory')" title="View all subscribed license SKUs with usage, availability, and progress bars">
+          <span class="nav-icon">🪪</span><span class="nav-label">License Inventory</span>
+        </li>
       </ul>
     </div>
 
@@ -398,7 +401,24 @@
       <!-- Connection Profiles -->
       <div class="card" style="max-width:640px;">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-          <h3 style="margin:0;">💾 Saved Profiles</h3>
+          <h3 style="margin:0;">� Notifications</h3>
+        </div>
+        <p class="hint" style="margin-bottom:8px;">Configure Teams Incoming Webhook to receive lifecycle notifications (batch complete, failures, read-only transitions, cleanup).</p>
+        <div class="form-group">
+          <label for="teamsWebhookUrl" title="Paste an Incoming Webhook URL from your Teams channel">Teams Webhook URL</label>
+          <input type="url" id="teamsWebhookUrl" placeholder="https://outlook.office.com/webhook/..." title="Paste the Incoming Webhook URL from your Teams channel" />
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:8px;">
+          <button class="btn btn-secondary btn-sm" onclick="saveWebhookUrl()" title="Save webhook URL in browser storage">💾 Save</button>
+          <button class="btn btn-secondary btn-sm" onclick="testWebhook()" title="Send a test message to verify the webhook">📡 Test</button>
+          <span id="webhookTestResult" style="font-size:13px;font-weight:600;"></span>
+        </div>
+      </div>
+
+      <!-- Connection Profiles -->
+      <div class="card" style="max-width:640px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <h3 style="margin:0;">�💾 Saved Profiles</h3>
           <button class="btn btn-secondary btn-sm" onclick="saveConnectionProfile()" title="Save current credentials as a named profile">+ Save Profile</button>
         </div>
         <p class="hint" style="margin-bottom:8px;">Switch between multiple tenants without re-entering credentials.</p>
@@ -645,6 +665,16 @@
                 <input type="number" id="ep-admins" value="1" min="0" max="50" oninput="updateProvisionPreview()" title="Number of admin/proctor accounts to create — separate from team members" />
               </div>
             </div>
+            <div class="row" style="margin-top:6px;">
+              <div class="form-group">
+                <label for="ep-padWidth">Pad width</label>
+                <input type="number" id="ep-padWidth" value="2" min="1" max="4" oninput="updateProvisionPreview()" title="Zero-pad width for team and user numbers (2 = t01, 3 = t001)" />
+              </div>
+              <div class="form-group">
+                <label for="ep-startIndex">Start index</label>
+                <input type="number" id="ep-startIndex" value="1" min="0" max="999" oninput="updateProvisionPreview()" title="Starting number for user indices (default 1 = u01)" />
+              </div>
+            </div>
           </div>
 
           <div class="field-group">
@@ -734,6 +764,16 @@
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+
+          <div class="field-group">
+            <div class="field-group-title">Content Seeding</div>
+            <div class="form-group" style="margin-bottom:0;">
+              <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:600;">
+                <input type="checkbox" id="ep-autoSeedWelcome"> 📄 Auto-seed Welcome.txt
+              </label>
+              <div class="hint" style="margin:4px 0 0 22px;">Upload <code>Welcome.txt</code> to each user's OneDrive root immediately after provisioning.</div>
             </div>
           </div>
 
@@ -1391,6 +1431,7 @@
             <div style="margin-top:8px;">
               <button class="btn btn-secondary btn-sm" onclick="downloadManagedHackExcel()">📊 Export Excel</button>
               <button class="btn btn-secondary btn-sm" onclick="downloadManagedHackCsv()">📄 Export CSV</button>
+              <button class="btn btn-secondary btn-sm" onclick="downloadCredentialCards()">🃏 Print Cards (PDF)</button>
               <button class="btn btn-primary btn-sm" onclick="generateAdminGuide()">📝 Generate Admin Guide</button>
             </div>
           </div>
@@ -2331,6 +2372,40 @@
         </div>
       </div>
     </div><!-- /view-tenant-setup -->
+
+    <!-- ────────── License Inventory View ────────── -->
+    <div id="view-license-inventory" class="hidden">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+        <h2 style="margin:0;">🪪 License Inventory</h2>
+        <button class="btn btn-secondary btn-sm" onclick="withBusy(this, loadLicenseInventory)" title="Fetch current license data from the tenant">↻ Refresh</button>
+      </div>
+      <p class="hint" style="margin-bottom:16px;">View all subscribed Microsoft 365 license SKUs with usage, availability, and capacity indicators.</p>
+
+      <div id="licInvKpis" class="stats" style="margin-bottom:16px;">
+        <div class="stat"><span class="stat-value" id="licInvTotalSkus">—</span><span class="stat-label">SKU Types</span></div>
+        <div class="stat"><span class="stat-value" id="licInvTotalEnabled">—</span><span class="stat-label">Total Enabled</span></div>
+        <div class="stat"><span class="stat-value" id="licInvTotalConsumed">—</span><span class="stat-label">Total Consumed</span></div>
+        <div class="stat"><span class="stat-value" id="licInvTotalAvailable">—</span><span class="stat-label">Total Available</span></div>
+      </div>
+
+      <div id="licInvLoading" class="hidden"><span class="spinner"></span> Loading license data…</div>
+      <div id="licInvEmpty" class="hidden hint" style="text-align:center;padding:32px;">Connect to a tenant and click Refresh to load license data.</div>
+      <div id="licInvTable" class="hidden">
+        <table style="font-size:13px;">
+          <thead>
+            <tr>
+              <th>SKU Part Number</th>
+              <th style="text-align:right;">Enabled</th>
+              <th style="text-align:right;">Consumed</th>
+              <th style="text-align:right;">Available</th>
+              <th style="width:180px;">Usage</th>
+              <th style="text-align:center;">Status</th>
+            </tr>
+          </thead>
+          <tbody id="licInvBody"></tbody>
+        </table>
+      </div>
+    </div>
 
     <!-- ────────── Dashboard View (all hacks overview) ────────── -->
     <div id="view-dashboard" class="hidden">
@@ -3614,14 +3689,14 @@ function switchView(name) {
   });
 
   // Show/hide views (including connection)
-  const allViews = ['connection','upload','provision','permissions','readonly','cleanup','manage','scheduler','cost-calc','chat','tenant-setup','help','github','dashboard'];
+  const allViews = ['connection','upload','provision','permissions','readonly','cleanup','manage','scheduler','cost-calc','chat','tenant-setup','help','github','dashboard','license-inventory'];
   allViews.forEach(v => {
     const el = document.getElementById('view-' + v);
     if (el) el.classList.toggle('hidden', v !== name);
   });
 
   // Update breadcrumb + page title
-  const viewNames = { connection:'Connection',dashboard:'Dashboard',provision:'Setup Hack',permissions:'Azure RBAC',upload:'Upload Files',manage:'Manage & Report',readonly:'Read-only',cleanup:'Cleanup',github:'GitHub Access',scheduler:'Scheduler','cost-calc':'Cost Calculator','tenant-setup':'Tenant Check',chat:'AI Chat',help:'Help & Docs' };
+  const viewNames = { connection:'Connection',dashboard:'Dashboard',provision:'Setup Hack',permissions:'Azure RBAC',upload:'Upload Files',manage:'Manage & Report',readonly:'Read-only',cleanup:'Cleanup',github:'GitHub Access',scheduler:'Scheduler','cost-calc':'Cost Calculator','tenant-setup':'Tenant Check','license-inventory':'License Inventory',chat:'AI Chat',help:'Help & Docs' };
   const label = viewNames[name] || name;
   const bc = document.getElementById('breadcrumbView');
   if (bc) bc.textContent = label;
@@ -3643,6 +3718,7 @@ function switchView(name) {
   if (name === 'scheduler') loadAllScheduledJobs();
   if (name === 'cost-calc') initCostCalc();
   if (name === 'dashboard') loadDashboard();
+  if (name === 'license-inventory') loadLicenseInventory();
 }
 
 function toggleSidebar(force) {
@@ -4356,6 +4432,8 @@ function _epCfg() {
     createAdminGroup: document.getElementById('ep-createAdminGroup').checked,
     assignAdminRole: document.getElementById('ep-assignAdminRole').checked,
     dryRun: document.getElementById('ep-dryRun').checked,
+    padWidth: parseInt(document.getElementById('ep-padWidth').value || '2', 10),
+    startIndex: parseInt(document.getElementById('ep-startIndex').value || '1', 10),
     hackName: (document.getElementById('ep-hackName')||{}).value || '',
     createdBy: (document.getElementById('ep-createdBy')||{}).value || '',
     initialPassword: (document.getElementById('ep-password')||{}).value || '',
@@ -4371,6 +4449,7 @@ function _epCfg() {
     powerAppsLocation: (document.getElementById('ep-powerAppsLocation') || {}).value || 'unitedstates',
     enableSharePoint: document.getElementById('ep-enableSharePoint').checked,
     sharePointSiteName: (document.getElementById('ep-sharePointSiteName') || {}).value || '',
+    autoSeedWelcome: document.getElementById('ep-autoSeedWelcome').checked,
     hackStartDate: lifecycle.hackStartDate,
     hackDate: lifecycle.hackDate,
     readonlyDate: lifecycle.readonlyDate,
@@ -4545,6 +4624,15 @@ function validateHackPrefix() {
   }
 }
 
+function _padNum(n, w) { return String(n).padStart(w, '0'); }
+function _genUpn(prefix, domain, isFlat, tIdx, uIdx, pad) {
+  const d = domain || 'DOMAIN';
+  return isFlat ? `${prefix}u${_padNum(uIdx, pad)}@${d}` : `${prefix}t${_padNum(tIdx, pad)}-u${_padNum(uIdx, pad)}@${d}`;
+}
+function _genAdminUpn(prefix, domain, aIdx, pad) {
+  return `${prefix}admin-${_padNum(aIdx, pad)}@${domain || 'DOMAIN'}`;
+}
+
 function updateProvisionPreview() {
   // Any config change invalidates a prior preflight pass
   if (_preflightPassed) _resetPreflightGate();
@@ -4562,15 +4650,33 @@ function updateProvisionPreview() {
   teamsLabel.textContent = isFlat ? 'Teams (n/a in flat mode)' : 'Teams';
   perTeamLabel.textContent = isFlat ? 'Total users' : 'Users per team';
 
+  const pad = Math.max(1, Math.min(4, c.padWidth || 2));
+  const si = c.startIndex || 1;
   const teamUsers = isFlat ? c.usersPerTeam : c.teams * c.usersPerTeam;
   const total = teamUsers + c.adminUsers;
-  const sample = isFlat
-    ? `${c.prefix}u01@${c.domain || 'DOMAIN'}`
-    : `${c.prefix}t01-u01@${c.domain || 'DOMAIN'}`;
   const prefixError = _validateHackPrefix(c.prefix);
+
+  // Build sample UPN list: first 3 + last 1
+  const samples = [];
+  if (isFlat) {
+    for (let i = si; i < si + Math.min(3, c.usersPerTeam); i++) samples.push(_genUpn(c.prefix, c.domain, true, 0, i, pad));
+    if (c.usersPerTeam > 3) { samples.push('…'); samples.push(_genUpn(c.prefix, c.domain, true, 0, si + c.usersPerTeam - 1, pad)); }
+  } else {
+    samples.push(_genUpn(c.prefix, c.domain, false, si, si, pad));
+    if (c.usersPerTeam > 1) samples.push(_genUpn(c.prefix, c.domain, false, si, si + 1, pad));
+    if (c.teams > 1) samples.push(_genUpn(c.prefix, c.domain, false, si + 1, si, pad));
+    const lastT = si + c.teams - 1, lastU = si + c.usersPerTeam - 1;
+    if (lastT > si + 1 || lastU > si + 1) { samples.push('…'); samples.push(_genUpn(c.prefix, c.domain, false, lastT, lastU, pad)); }
+  }
+  if (c.adminUsers > 0) {
+    samples.push(_genAdminUpn(c.prefix, c.domain, si, pad));
+    if (c.adminUsers > 1) { samples.push('…'); samples.push(_genAdminUpn(c.prefix, c.domain, si + c.adminUsers - 1, pad)); }
+  }
+
+  const upnHtml = samples.map(s => s === '…' ? '<span style="color:var(--muted);padding:0 4px;">…</span>' : `<code style="font-size:11px;">${esc(s)}</code>`).join('<br>');
   document.getElementById('ep-preview').innerHTML =
     `${prefixError ? `<span style="color:var(--danger);font-weight:700;">${esc(prefixError)}</span><br>` : ''}` +
-    `Will create ${total} user(s) — sample UPN: <code>${esc(sample)}</code>`;
+    `<strong>${total} user(s)</strong> (${teamUsers} participant${c.adminUsers ? ` + ${c.adminUsers} admin` : ''})<br>${upnHtml}`;
 }
 
 async function startProvision() {
@@ -7528,6 +7634,21 @@ function downloadManagedHackCsv() {
   a.href = URL.createObjectURL(blob);
   a.download = `hack_${_managedHackState.prefix || 'export'}.csv`;
   a.click();
+}
+
+async function downloadCredentialCards() {
+  if (!_managedHackState) { toast('Load a hack first', 'warn'); return; }
+  const prefix = _managedHackState.prefix;
+  try {
+    const r = await fetch(`${API}/hack-state/${encodeURIComponent(prefix)}/cards.pdf`);
+    if (!r.ok) { const e = await r.json().catch(() => ({})); toast(e.error || 'Failed to generate PDF', 'danger'); return; }
+    const blob = await r.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${prefix}credential-cards.pdf`;
+    a.click();
+    toast('Credential cards PDF downloaded', 'success');
+  } catch (err) { toast('PDF generation failed: ' + err.message, 'danger'); }
 }
 
 function _todayIsoDate() {
@@ -10621,6 +10742,95 @@ _renderNotifications();
 function _getProfiles() { return JSON.parse(localStorage.getItem('spektra-conn-profiles') || '[]'); }
 function _saveProfiles(profiles) { localStorage.setItem('spektra-conn-profiles', JSON.stringify(profiles)); }
 
+// ══════════════════════════════════════════════════════════
+// FEATURE: Teams Webhook Notifications
+// ══════════════════════════════════════════════════════════
+function saveWebhookUrl() {
+  const url = document.getElementById('teamsWebhookUrl').value.trim();
+  localStorage.setItem('spektra-teams-webhook', url);
+  toast(url ? 'Webhook URL saved' : 'Webhook URL cleared', 'success');
+}
+function _loadWebhookUrl() {
+  const url = localStorage.getItem('spektra-teams-webhook') || '';
+  const el = document.getElementById('teamsWebhookUrl');
+  if (el) el.value = url;
+}
+async function testWebhook() {
+  const url = document.getElementById('teamsWebhookUrl').value.trim();
+  const span = document.getElementById('webhookTestResult');
+  if (!url) { toast('Enter a webhook URL first', 'danger'); return; }
+  span.textContent = '⏳ Sending…';
+  span.style.color = 'var(--text-secondary)';
+  try {
+    const r = await fetch(`${API}/notifications/test-webhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ webhook_url: url }),
+    });
+    if (r.ok) { span.textContent = '✅ Sent!'; span.style.color = 'var(--color-success)'; }
+    else { const d = await r.json(); span.textContent = '❌ ' + (d.error || 'Failed'); span.style.color = 'var(--color-error)'; }
+  } catch (e) { span.textContent = '❌ ' + e.message; span.style.color = 'var(--color-error)'; }
+}
+_loadWebhookUrl();
+
+// ══════════════════════════════════════════════════════════
+// FEATURE: License Inventory Panel
+// ══════════════════════════════════════════════════════════
+async function loadLicenseInventory() {
+  const creds = getCreds();
+  if (!creds) {
+    document.getElementById('licInvEmpty').classList.remove('hidden');
+    document.getElementById('licInvTable').classList.add('hidden');
+    return;
+  }
+  document.getElementById('licInvEmpty').classList.add('hidden');
+  document.getElementById('licInvLoading').classList.remove('hidden');
+  document.getElementById('licInvTable').classList.add('hidden');
+  try {
+    const r = await fetch(`${API}/tenant-info`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(creds),
+    });
+    if (!r.ok) { const d = await r.json(); toast(d.error || 'Failed to load licenses', 'error'); return; }
+    const data = await r.json();
+    const skus = data.subscribedSkus || [];
+    let totalEnabled = 0, totalConsumed = 0;
+    const rows = skus.map(s => {
+      const enabled = (s.prepaidUnits?.enabled || 0);
+      const consumed = s.consumedUnits || 0;
+      const available = Math.max(0, enabled - consumed);
+      const pct = enabled > 0 ? Math.round((consumed / enabled) * 100) : 0;
+      totalEnabled += enabled;
+      totalConsumed += consumed;
+      let statusIcon = '✅', barColor = 'var(--color-success)';
+      if (pct >= 95) { statusIcon = '🔴'; barColor = 'var(--color-error)'; }
+      else if (pct >= 80) { statusIcon = '🟡'; barColor = 'var(--color-warning)'; }
+      return `<tr>
+        <td><code>${esc(s.skuPartNumber)}</code></td>
+        <td style="text-align:right;">${enabled.toLocaleString()}</td>
+        <td style="text-align:right;">${consumed.toLocaleString()}</td>
+        <td style="text-align:right;">${available.toLocaleString()}</td>
+        <td>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <div style="flex:1;background:var(--bg-secondary);border-radius:4px;height:10px;overflow:hidden;">
+              <div style="width:${Math.min(pct,100)}%;height:100%;background:${barColor};border-radius:4px;transition:width .3s;"></div>
+            </div>
+            <span style="font-size:11px;min-width:34px;text-align:right;">${pct}%</span>
+          </div>
+        </td>
+        <td style="text-align:center;">${statusIcon}</td>
+      </tr>`;
+    });
+    document.getElementById('licInvBody').innerHTML = rows.join('');
+    document.getElementById('licInvTotalSkus').textContent = skus.length;
+    document.getElementById('licInvTotalEnabled').textContent = totalEnabled.toLocaleString();
+    document.getElementById('licInvTotalConsumed').textContent = totalConsumed.toLocaleString();
+    document.getElementById('licInvTotalAvailable').textContent = Math.max(0, totalEnabled - totalConsumed).toLocaleString();
+    document.getElementById('licInvTable').classList.remove('hidden');
+  } catch (e) { toast('Error: ' + e.message, 'error'); }
+  finally { document.getElementById('licInvLoading').classList.add('hidden'); }
+}
+
 function saveConnectionProfile() {
   const tid = document.getElementById('tenantId').value.trim();
   const cid = document.getElementById('clientId').value.trim();
@@ -10674,53 +10884,79 @@ function _renderProfiles() {
 _renderProfiles();
 
 // ══════════════════════════════════════════════════════════
-// FEATURE: Hack Templates (save/load wizard config)
+// FEATURE: Hack Templates (save/load wizard config — synced to backend)
 // ══════════════════════════════════════════════════════════
-function _getTemplates() { return JSON.parse(localStorage.getItem('spektra-hack-templates') || '[]'); }
-function _saveTemplates(t) { localStorage.setItem('spektra-hack-templates', JSON.stringify(t)); }
+let _cachedTemplates = null;
+function _getTemplates() { return _cachedTemplates || JSON.parse(localStorage.getItem('spektra-hack-templates') || '[]'); }
+function _saveTemplatesLocal(t) { _cachedTemplates = t; localStorage.setItem('spektra-hack-templates', JSON.stringify(t)); }
 
-function saveAsTemplate() {
+async function _syncTemplatesFromBackend() {
+  try {
+    const r = await fetch(`${API}/templates`);
+    if (r.ok) { const t = await r.json(); if (Array.isArray(t) && t.length) { _saveTemplatesLocal(t); _renderTemplates(); return; } }
+  } catch {}
+  // fallback to localStorage
+  _cachedTemplates = JSON.parse(localStorage.getItem('spektra-hack-templates') || '[]');
+}
+
+async function saveAsTemplate() {
   const name = prompt('Template name (e.g. "Standard 50-user hack"):');
   if (!name) return;
-  const config = {
-    teams: document.getElementById('teams')?.value,
-    usersPerTeam: document.getElementById('usersPerTeam')?.value,
-    adminUsers: document.getElementById('adminUsers')?.value,
-    mode: document.getElementById('userMode')?.value,
-    passwordPolicy: document.getElementById('passwordPolicy')?.value,
-    tapLifetime: document.getElementById('tapLifetime')?.value,
-    enableGitHub: document.getElementById('enableGitHub')?.checked,
-    enablePowerApps: document.getElementById('enablePowerApps')?.checked,
-    enableSharePoint: document.getElementById('enableSharePoint')?.checked,
-  };
+  const config = _epCfg();
+  // Try backend first
+  try {
+    const r = await fetch(`${API}/templates`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ name, config, createdBy: config.createdBy || '' }),
+    });
+    if (r.ok) {
+      const t = await r.json();
+      const templates = _getTemplates();
+      templates.push(t);
+      _saveTemplatesLocal(templates);
+      _renderTemplates();
+      toast(`Template "${name}" saved to cloud`, 'success');
+      addNotification(`Template "${name}" saved`, '📑');
+      return;
+    }
+  } catch {}
+  // Fallback to localStorage
   const templates = _getTemplates();
-  templates.push({ name, config, created: new Date().toISOString() });
-  _saveTemplates(templates);
+  templates.push({ id: String(Date.now()), name, config, created: new Date().toISOString() });
+  _saveTemplatesLocal(templates);
   _renderTemplates();
-  addNotification(`Template "${name}" saved`, '📑');
-  toast(`Template "${name}" saved`, 'success');
+  addNotification(`Template "${name}" saved locally`, '📑');
+  toast(`Template "${name}" saved locally`, 'success');
 }
-function loadTemplate(idx) {
-  const t = _getTemplates()[idx];
+function loadTemplate(idOrIdx) {
+  const templates = _getTemplates();
+  const t = templates.find(x => x.id === idOrIdx) || templates[idOrIdx];
   if (!t) return;
-  const c = t.config;
-  if (c.teams) { const el = document.getElementById('teams'); if (el) el.value = c.teams; }
-  if (c.usersPerTeam) { const el = document.getElementById('usersPerTeam'); if (el) el.value = c.usersPerTeam; }
-  if (c.adminUsers) { const el = document.getElementById('adminUsers'); if (el) el.value = c.adminUsers; }
-  if (c.mode) { const el = document.getElementById('userMode'); if (el) el.value = c.mode; }
-  if (c.passwordPolicy) { const el = document.getElementById('passwordPolicy'); if (el) el.value = c.passwordPolicy; }
-  if (c.tapLifetime) { const el = document.getElementById('tapLifetime'); if (el) el.value = c.tapLifetime; }
-  if (c.enableGitHub != null) { const el = document.getElementById('enableGitHub'); if (el) el.checked = c.enableGitHub; }
-  if (c.enablePowerApps != null) { const el = document.getElementById('enablePowerApps'); if (el) el.checked = c.enablePowerApps; }
-  if (c.enableSharePoint != null) { const el = document.getElementById('enableSharePoint'); if (el) el.checked = c.enableSharePoint; }
+  const c = t.config || {};
+  const _set = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.value = v; };
+  const _chk = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.checked = v; };
+  _set('ep-teams', c.teams); _set('ep-perTeam', c.usersPerTeam); _set('ep-admins', c.adminUsers);
+  _set('ep-mode', c.mode); _set('ep-tapLifetime', c.tapLifetime); _set('ep-concurrency', c.concurrency);
+  _set('ep-padWidth', c.padWidth); _set('ep-startIndex', c.startIndex);
+  _chk('ep-enableGithub', c.enableGithub); _chk('ep-enableGithubCopilot', c.enableGithubCopilot);
+  _chk('ep-enablePowerApps', c.enablePowerApps); _chk('ep-enableSharePoint', c.enableSharePoint);
+  _chk('ep-assignLicensesToAdmins', c.assignLicensesToAdmins);
+  _chk('ep-createTeamGroups', c.createTeamGroups); _chk('ep-createAdminGroup', c.createAdminGroup);
+  _chk('ep-isGcc', c.isGcc); _chk('ep-forceChangePwd', c.forceChangePassword);
   if (typeof updateProvisionPreview === 'function') updateProvisionPreview();
   toast(`Loaded template "${t.name}"`, 'success');
 }
-function deleteTemplate(idx) {
+async function deleteTemplate(idOrIdx) {
   const templates = _getTemplates();
-  if (!confirm(`Delete template "${templates[idx].name}"?`)) return;
-  templates.splice(idx, 1);
-  _saveTemplates(templates);
+  const t = templates.find(x => x.id === idOrIdx) || templates[idOrIdx];
+  if (!t || !confirm(`Delete template "${t.name}"?`)) return;
+  // Try backend
+  if (t.id) {
+    try { await fetch(`${API}/templates/${encodeURIComponent(t.id)}`, { method: 'DELETE' }); } catch {}
+  }
+  const updated = templates.filter(x => x !== t);
+  _saveTemplatesLocal(updated);
   _renderTemplates();
 }
 function _renderTemplates() {
@@ -10731,18 +10967,20 @@ function _renderTemplates() {
     container.innerHTML = '<div class="hint" style="grid-column:1/-1;text-align:center;padding:8px;">No saved templates. Configure the wizard below and click "Save as Template".</div>';
     return;
   }
-  container.innerHTML = templates.map((t, i) => {
-    const c = t.config;
+  container.innerHTML = templates.map((t) => {
+    const c = t.config || {};
     const users = (Number(c.teams)||0) * (Number(c.usersPerTeam)||0) + (Number(c.adminUsers)||0);
-    return `<div class="template-card" onclick="loadTemplate(${i})">
+    const id = t.id || '';
+    return `<div class="template-card" onclick="loadTemplate('${esc(id)}')">
       <div class="template-name">${esc(t.name)}</div>
       <div class="template-meta">${users} users • ${c.teams||0} teams</div>
       <div style="margin-top:6px;display:flex;justify-content:flex-end;">
-        <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();deleteTemplate(${i})" style="padding:4px 8px;font-size:11px;">🗑️</button>
+        <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();deleteTemplate('${esc(id)}')" style="padding:4px 8px;font-size:11px;">🗑️</button>
       </div>
     </div>`;
   }).join('');
 }
+_syncTemplatesFromBackend();
 _renderTemplates();
 
 // ══════════════════════════════════════════════════════════

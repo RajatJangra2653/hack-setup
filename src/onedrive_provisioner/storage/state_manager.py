@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import copy
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 
 from .blob_client import BlobStateClient
@@ -15,6 +15,9 @@ logger = logging.getLogger(__name__)
 
 # ── JSON Schema version for forward compatibility ──
 STATE_SCHEMA_VERSION = "1.0"
+
+# ── Password auto-shred: remove credentials N days after endDate ──
+CREDENTIAL_SHRED_DAYS = 30
 
 
 class HackStateManager:
@@ -48,11 +51,57 @@ class HackStateManager:
 
         Archived state is returned as a fallback so reports can still be
         generated after cleanup has moved the hack out of the active list.
+
+        Applies credential auto-shred: if endDate + CREDENTIAL_SHRED_DAYS
+        has passed, passwords and TAPs are removed and the state is persisted.
         """
-        return (
+        state = (
             self._blob.read_json(self._state_path(prefix))
             or self._blob.read_json(self._archive_state_path(prefix))
         )
+        if state:
+            state = self._apply_credential_shred(prefix, state)
+        return state
+
+    def _apply_credential_shred(self, prefix: str, state: Dict[str, Any]) -> Dict[str, Any]:
+        """Strip credentials if endDate + CREDENTIAL_SHRED_DAYS has passed."""
+        if state.get("credentialsShredded"):
+            return state
+
+        end_date_str = state.get("deleteDate") or state.get("endDate") or ""
+        if not end_date_str:
+            return state
+
+        try:
+            end_dt = datetime.fromisoformat(end_date_str.replace("Z", "+00:00"))
+        except (ValueError, AttributeError):
+            return state
+
+        shred_at = end_dt + timedelta(days=CREDENTIAL_SHRED_DAYS)
+        if datetime.now(timezone.utc) < shred_at:
+            return state
+
+        # Time to shred credentials
+        changed = False
+        for user in state.get("users", []) or []:
+            if user.pop("password", None) is not None:
+                changed = True
+            if user.pop("tap", None) is not None:
+                changed = True
+            user["credentialsArchived"] = True
+
+        if changed:
+            state["credentialsShredded"] = True
+            state["credentialsShreddedAt"] = datetime.now(timezone.utc).isoformat()
+            logger.info("Auto-shredded credentials for hack '%s' (endDate %s + %d days)",
+                        prefix, end_date_str, CREDENTIAL_SHRED_DAYS)
+            # Persist the shredded state
+            path = self._state_path(prefix)
+            if not self._blob.read_json(path):
+                path = self._archive_state_path(prefix)
+            self._blob.write_json(path, state)
+
+        return state
 
     def save_state(
         self,

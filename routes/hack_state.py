@@ -1453,3 +1453,64 @@ def delete_sharepoint_site(prefix):
         return jsonify(result)
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
+
+
+# ────────────────────── Template Library (Blob Storage) ──────────────────────
+
+_TEMPLATE_BLOB = "_templates/library.json"
+
+
+def _load_templates(mgr) -> list:
+    data = mgr._blob.read_json(_TEMPLATE_BLOB)
+    return data if isinstance(data, list) else []
+
+
+def _save_templates(mgr, templates: list):
+    mgr._blob.write_json(_TEMPLATE_BLOB, templates)
+
+
+@bp.route("/api/templates", methods=["GET"])
+def list_templates():
+    mgr = get_state_manager()
+    if not mgr:
+        return jsonify([])
+    return jsonify(_load_templates(mgr))
+
+
+@bp.route("/api/templates", methods=["POST"])
+def save_template():
+    mgr = get_state_manager()
+    if not mgr:
+        return jsonify({"error": "Storage not configured"}), 503
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()
+    config = data.get("config")
+    if not name or not config:
+        return jsonify({"error": "name and config are required"}), 400
+
+    import uuid
+    templates = _load_templates(mgr)
+    template = {
+        "id": str(uuid.uuid4()),
+        "name": name,
+        "config": config,
+        "created": datetime.now(timezone.utc).isoformat(),
+        "createdBy": data.get("createdBy", ""),
+    }
+    templates.append(template)
+    _save_templates(mgr, templates)
+    return jsonify(template), 201
+
+
+@bp.route("/api/templates/<template_id>", methods=["DELETE"])
+def delete_template(template_id):
+    mgr = get_state_manager()
+    if not mgr:
+        return jsonify({"error": "Storage not configured"}), 503
+    templates = _load_templates(mgr)
+    before = len(templates)
+    templates = [t for t in templates if t.get("id") != template_id]
+    if len(templates) == before:
+        return jsonify({"error": "Template not found"}), 404
+    _save_templates(mgr, templates)
+    return jsonify({"ok": True})

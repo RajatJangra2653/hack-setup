@@ -305,3 +305,23 @@ def run_scheduled_hack_now(job_id):
         return jsonify({"error": str(exc)}), 400
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
+
+
+@bp.route("/api/notifications/test-webhook", methods=["POST"])
+def test_webhook():
+    """Send a test message to a Teams Incoming Webhook URL."""
+    data = request.get_json(silent=True) or {}
+    url = data.get("webhook_url", "").strip()
+    if not url:
+        return jsonify({"error": "webhook_url is required"}), 400
+
+    from onedrive_provisioner.notifications import NotificationService
+    ns = NotificationService(teams_webhook_url=url)
+    ok = ns.send_teams_message(
+        "🧪 Test Notification",
+        "This is a test message from **Spektra HackOps**. If you see this, your webhook is configured correctly!",
+        facts=[{"name": "Status", "value": "✅ Working"}],
+    )
+    if ok:
+        return jsonify({"message": "Test message sent successfully"})
+    return jsonify({"error": "Failed to send — check your webhook URL"}), 502

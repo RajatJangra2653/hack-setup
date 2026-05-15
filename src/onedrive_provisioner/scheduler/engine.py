@@ -22,6 +22,9 @@ from onedrive_provisioner.security.scheduler_credentials import (
     redact_scheduler_config,
     resolve_scheduler_credentials,
 )
+from onedrive_provisioner.notifications import (
+    NotificationService, check_upcoming_reminders,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -79,11 +82,14 @@ class HackScheduler:
         run_provision: Callable,  # (cfg_dict, tenant_id, client_id, client_secret) -> None
         run_cleanup: Callable,    # (prefix, tenant_id, client_id, client_secret, subscription_ids) -> None
         run_readonly: Callable = None,  # (prefix, tenant_id, client_id, client_secret, subscription_ids, mode) -> None
+        notifier: Optional[NotificationService] = None,
     ) -> None:
         self._get_mgr = get_state_manager
         self._run_provision = run_provision
         self._run_cleanup = run_cleanup
         self._run_readonly = run_readonly
+        self._notifier = notifier or NotificationService()
+        self._sent_reminders: set = set()
         self._lock = threading.Lock()
         self._thread: Optional[threading.Thread] = None
         self._running = False
@@ -302,8 +308,20 @@ class HackScheduler:
             time.sleep(CHECK_INTERVAL)
 
     def _tick(self) -> None:
-        """Check for due jobs and execute them."""
+        """Check for due jobs and execute them. Also send upcoming reminders."""
         now = datetime.now(timezone.utc)
+
+        # ── Send 48-hour reminders ──
+        try:
+            jobs_snapshot = self._load_jobs()
+            mgr = self._get_mgr()
+            state_getter = mgr.get_state if mgr else None
+            self._sent_reminders = check_upcoming_reminders(
+                jobs_snapshot, self._notifier, state_getter, self._sent_reminders,
+            )
+        except Exception:
+            logger.exception("Reminder check error")
+
         with self._lock:
             jobs = self._load_jobs()
             changed = False
@@ -333,11 +351,14 @@ class HackScheduler:
                     job.completed_at = datetime.now(timezone.utc).isoformat()
                     logger.info("Scheduler job %s (%s) completed for '%s'",
                                 job.id, job.job_type, job.hack_prefix)
+                    # Send completion notification
+                    self._notify_job_complete(job)
                 except Exception as exc:
                     job.status = "failed"
                     job.error = str(exc)
                     job.completed_at = datetime.now(timezone.utc).isoformat()
                     logger.error("Scheduler job %s failed: %s", job.id, exc)
+                    self._notify_job_failed(job, str(exc))
 
             if changed:
                 self._save_jobs(jobs)
@@ -373,3 +394,31 @@ class HackScheduler:
         cfg.pop("client_secret_ref", None)
         cfg.pop("credentialRef", None)
         self._run_provision(cfg, t, c, s)
+
+    def _get_hack_name(self, prefix: str) -> str:
+        """Resolve hack name from state, fallback to prefix."""
+        mgr = self._get_mgr()
+        if mgr:
+            state = mgr.get_state(prefix)
+            if state:
+                return state.get("hackName") or prefix
+        return prefix
+
+    def _notify_job_complete(self, job: ScheduledJob) -> None:
+        hack_name = self._get_hack_name(job.hack_prefix)
+        if job.job_type == "cleanup":
+            self._notifier.notify_cleanup_complete(job.hack_prefix, hack_name)
+        elif job.job_type == "readonly":
+            self._notifier.notify_readonly_applied(job.hack_prefix, hack_name)
+        elif job.job_type == "provision":
+            result = job.result or {}
+            self._notifier.notify_batch_complete(
+                job.hack_prefix, hack_name,
+                result.get("created", 0), result.get("failed", 0),
+            )
+
+    def _notify_job_failed(self, job: ScheduledJob, error: str) -> None:
+        hack_name = self._get_hack_name(job.hack_prefix)
+        action_map = {"cleanup": "Cleanup", "readonly": "Read-Only", "provision": "Provisioning"}
+        self._notifier.notify_failure(job.hack_prefix, hack_name,
+                                      action_map.get(job.job_type, job.job_type), error)

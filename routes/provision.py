@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import threading
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List
 
 from flask import Blueprint, request, jsonify
@@ -18,6 +20,7 @@ from onedrive_provisioner.entra import (
 )
 from onedrive_provisioner.onedrive import sp_delegated
 from onedrive_provisioner.storage import HackStateManager
+from onedrive_provisioner.uploader import OneDriveUploader, build_source
 
 from ._state import (
     extract_creds, get_state_manager,
@@ -27,6 +30,29 @@ from ._state import (
 )
 
 bp = Blueprint("provision", __name__)
+
+WELCOME_FILE = Path(__file__).resolve().parent.parent / "samples" / "payload" / "Welcome.txt"
+
+
+async def _auto_seed_welcome(user_upns: List[str], tenant_id: str,
+                             client_id: str, client_secret: str):
+    """Upload Welcome.txt to each user's OneDrive root after provisioning."""
+    if not WELCOME_FILE.exists():
+        return {"skipped": True, "reason": "Welcome.txt not found"}
+    azure = AzureConfig(tenant_id=tenant_id, client_id=client_id, client_secret=client_secret)
+    tp = MsalTokenProvider(azure)
+    source = build_source(str(WELCOME_FILE.parent))
+    results = {"seeded": 0, "failed": 0, "errors": []}
+    async with GraphClient(tp) as g:
+        uploader = OneDriveUploader(g)
+        for upn in user_upns:
+            try:
+                await uploader.upload_tree(upn, source, destination="/")
+                results["seeded"] += 1
+            except Exception as exc:
+                results["failed"] += 1
+                results["errors"].append({"upn": upn, "error": str(exc)[:200]})
+    return results
 
 
 # ────────────────────── Background workers ──────────────────────
@@ -82,6 +108,22 @@ def _run_entra_provision(session_id: str, cfg_dict: dict,
                 mgr.save_state(cfg_dict.get("prefix", "unknown"), state)
         except Exception as blob_exc:
             print(f"[WARN] Failed to save state to blob: {blob_exc}")
+
+        # Auto-seed Welcome.txt if configured
+        if cfg_dict.get("autoSeedWelcome"):
+            try:
+                created_upns = [
+                    u.get("upn") or u.get("userPrincipalName", "")
+                    for u in (report.to_dict().get("users") or [])
+                    if u.get("status") == "success" and (u.get("upn") or u.get("userPrincipalName"))
+                ]
+                if created_upns:
+                    seed_result = asyncio.run(
+                        _auto_seed_welcome(created_upns, tenant_id, client_id, client_secret)
+                    )
+                    _set(auto_seed=seed_result)
+            except Exception as seed_exc:
+                print(f"[WARN] Auto-seed failed: {seed_exc}")
 
         op.complete(result={"totalUsers": report.total_users, "created": report.created})
         audit_logger.log("provision.completed", prefix, actor=cfg_dict.get("createdBy", ""),
