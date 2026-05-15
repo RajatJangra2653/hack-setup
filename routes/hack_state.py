@@ -1737,7 +1737,14 @@ def all_hacks_cost_report():
 
     # ── Phase 2: Single batched cost query for ALL unique subscriptions ──
     cost_by_sub: dict = {}  # subscriptionId → {totalCost, currency, displayName}
+    import time as _time
+    _t0 = _time.monotonic()
+    _phase1_ms = round((_t0 - _t0) * 1000)  # placeholder, real timing below
+
     if all_unique_subs and global_start and global_end:
+        logger.info("all-hacks-cost.fetching", subs=len(all_unique_subs),
+                    start=global_start, end=global_end)
+        _t1 = _time.monotonic()
         try:
             cost_rows = asyncio.run(_async_fetch_subscription_costs(
                 *creds,
@@ -1747,13 +1754,18 @@ def all_hacks_cost_report():
             ))
             for row in cost_rows:
                 sid = row.get("subscriptionId", "")
+                # cost_service returns "cost" not "totalCost"
                 cost_by_sub[sid] = {
-                    "totalCost": row.get("totalCost", 0) or 0,
+                    "totalCost": row.get("cost") or row.get("totalCost") or 0,
                     "currency": row.get("currency", "USD"),
                     "displayName": row.get("displayName") or name_map.get(sid, sid),
+                    "error": row.get("error", ""),
                 }
         except Exception as exc:
             logger.warning("all-hacks-cost.batch-fetch-failed", error=str(exc)[:200])
+        _cost_fetch_ms = round((_time.monotonic() - _t1) * 1000)
+    else:
+        _cost_fetch_ms = 0
 
     # ── Phase 3: Distribute costs to each hack ──
     results = []
@@ -1795,10 +1807,20 @@ def all_hacks_cost_report():
         "currency": "USD",
     }
 
+    _total_ms = round((_time.monotonic() - _t0) * 1000)
+    logger.info("all-hacks-cost.done", total_ms=_total_ms, cost_fetch_ms=_cost_fetch_ms,
+                hacks=len(results), subs=len(all_sub_ids), grand_total=round(grand_total, 2))
+
     return jsonify({
         "hacks": results,
         "totals": totals,
         "teamsCard": _build_cost_adaptive_card(results, totals),
+        "_debug": {
+            "totalMs": _total_ms,
+            "costFetchMs": _cost_fetch_ms,
+            "uniqueSubsQueried": len(all_unique_subs),
+            "globalDateRange": [global_start, global_end],
+        },
     })
 
 
