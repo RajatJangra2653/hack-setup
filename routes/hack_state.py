@@ -1520,12 +1520,146 @@ def delete_template(template_id):
 # Aggregate cost endpoint — callable from Power Automate / external
 # ══════════════════════════════════════════════════════════════════
 
+def _discover_hack_subscriptions(creds, state, prefix):
+    """Discover subscription IDs for a hack via RBAC lookups (always live)."""
+    # 1. Try group-RBAC discovery
+    hack_groups = state.get("groups") or []
+    group_ids = [
+        g.get("id") for g in hack_groups
+        if isinstance(g, dict) and g.get("id")
+    ]
+    if not group_ids:
+        try:
+            enriched = asyncio.run(
+                _async_resolve_group_ids_by_prefix(*creds, prefix=prefix)
+            )
+            group_ids = [g["id"] for g in enriched if g.get("id")]
+        except Exception:
+            group_ids = []
+
+    if group_ids:
+        try:
+            resolved, _ = asyncio.run(
+                _async_resolve_subs_from_groups(*creds, group_ids=group_ids)
+            )
+            if resolved:
+                return resolved
+        except Exception:
+            pass
+
+    # 2. Try user-RBAC discovery
+    hack_users = state.get("users") or []
+    user_ids = [
+        u.get("userId") or u.get("id")
+        for u in hack_users if isinstance(u, dict)
+    ]
+    user_ids = [str(u).strip() for u in user_ids if u and str(u).strip()]
+    if user_ids:
+        try:
+            resolved, _ = asyncio.run(
+                _async_resolve_subs_from_users(*creds, user_ids=user_ids)
+            )
+            if resolved:
+                return resolved
+        except Exception:
+            pass
+
+    # 3. Fallback: explicit IDs from state
+    sub_ids = (
+        state.get("subscriptionIds")
+        or (state.get("config") or {}).get("subscriptionIds")
+        or []
+    )
+    return [str(s).strip() for s in sub_ids if str(s or "").strip()]
+
+
+def _build_cost_adaptive_card(results, totals):
+    """Build a Teams Adaptive Card with a table of hack costs."""
+    rows = []
+    for h in results:
+        cost_str = f"${h['totalCost']:,.2f}" if h.get("totalCost") else "$0.00"
+        rows.append({
+            "type": "TableRow",
+            "cells": [
+                {"type": "TableCell", "items": [{"type": "TextBlock", "text": h.get("hackName", ""), "weight": "Bolder", "size": "Small"}]},
+                {"type": "TableCell", "items": [{"type": "TextBlock", "text": h.get("prefix", ""), "size": "Small", "color": "Accent"}]},
+                {"type": "TableCell", "items": [{"type": "TextBlock", "text": str(h.get("totalUsers", 0)), "horizontalAlignment": "Right", "size": "Small"}]},
+                {"type": "TableCell", "items": [{"type": "TextBlock", "text": str(len(h.get("subscriptions", []))), "horizontalAlignment": "Right", "size": "Small"}]},
+                {"type": "TableCell", "items": [{"type": "TextBlock", "text": cost_str, "horizontalAlignment": "Right", "weight": "Bolder", "size": "Small",
+                                                  "color": "Attention" if h.get("totalCost", 0) > 500 else "Good" if h.get("totalCost", 0) > 0 else "Default"}]},
+            ],
+        })
+
+    card = {
+        "type": "AdaptiveCard",
+        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+        "version": "1.5",
+        "body": [
+            {
+                "type": "ColumnSet",
+                "columns": [
+                    {"type": "Column", "width": "auto", "items": [{"type": "TextBlock", "text": "💰", "size": "Large"}]},
+                    {"type": "Column", "width": "stretch", "items": [
+                        {"type": "TextBlock", "text": "HackOps Daily Cost Report", "weight": "Bolder", "size": "Medium"},
+                        {"type": "TextBlock", "text": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"), "size": "Small", "isSubtle": True, "spacing": "None"},
+                    ]},
+                ],
+            },
+            {
+                "type": "ColumnSet",
+                "separator": True,
+                "spacing": "Medium",
+                "columns": [
+                    {"type": "Column", "width": "stretch", "items": [
+                        {"type": "TextBlock", "text": f"${totals['totalCost']:,.2f}", "weight": "Bolder", "size": "ExtraLarge", "color": "Attention"},
+                        {"type": "TextBlock", "text": "Grand Total", "size": "Small", "isSubtle": True, "spacing": "None"},
+                    ]},
+                    {"type": "Column", "width": "auto", "items": [
+                        {"type": "TextBlock", "text": str(totals.get("hackCount", 0)), "weight": "Bolder", "size": "Large", "horizontalAlignment": "Center"},
+                        {"type": "TextBlock", "text": "Hacks", "size": "Small", "isSubtle": True, "spacing": "None", "horizontalAlignment": "Center"},
+                    ]},
+                    {"type": "Column", "width": "auto", "items": [
+                        {"type": "TextBlock", "text": str(totals.get("subscriptionCount", 0)), "weight": "Bolder", "size": "Large", "horizontalAlignment": "Center"},
+                        {"type": "TextBlock", "text": "Subscriptions", "size": "Small", "isSubtle": True, "spacing": "None", "horizontalAlignment": "Center"},
+                    ]},
+                ],
+            },
+            {
+                "type": "Table",
+                "separator": True,
+                "spacing": "Medium",
+                "gridStyle": "accent",
+                "firstRowAsHeader": True,
+                "showGridLines": True,
+                "columns": [
+                    {"width": 2}, {"width": 1}, {"width": 1}, {"width": 1}, {"width": 1},
+                ],
+                "rows": [
+                    {
+                        "type": "TableRow",
+                        "style": "accent",
+                        "cells": [
+                            {"type": "TableCell", "items": [{"type": "TextBlock", "text": "Hack Name", "weight": "Bolder", "size": "Small"}]},
+                            {"type": "TableCell", "items": [{"type": "TextBlock", "text": "Prefix", "weight": "Bolder", "size": "Small"}]},
+                            {"type": "TableCell", "items": [{"type": "TextBlock", "text": "Users", "weight": "Bolder", "size": "Small", "horizontalAlignment": "Right"}]},
+                            {"type": "TableCell", "items": [{"type": "TextBlock", "text": "Subs", "weight": "Bolder", "size": "Small", "horizontalAlignment": "Right"}]},
+                            {"type": "TableCell", "items": [{"type": "TextBlock", "text": "Cost", "weight": "Bolder", "size": "Small", "horizontalAlignment": "Right"}]},
+                        ],
+                    },
+                    *rows,
+                ],
+            },
+        ],
+    }
+    return card
+
+
 @bp.route("/api/costs/all-hacks", methods=["POST"])
 def all_hacks_cost_report():
-    """Return cost data for all active hacks in one call.
+    """Return live cost data for all active hacks + Adaptive Card for Teams.
 
-    Expects SPN credentials in the body so Power Automate or any external
-    caller can authenticate without browser session state.
+    Always fetches fresh costs from Azure Cost Management API (never cached).
+    Auto-discovers subscriptions via group-RBAC → user-RBAC → state fallback.
 
     Body JSON:
         tenant_id, client_id, client_secret   — required
@@ -1533,8 +1667,7 @@ def all_hacks_cost_report():
         includeArchived                        — optional bool (default false)
 
     Returns:
-        { hacks: [ { prefix, hackName, totalCost, currency, subscriptions: [...] } ],
-          totals: { totalCost, hackCount, subscriptionCount } }
+        { hacks: [...], totals: {...}, teamsCard: {Adaptive Card JSON} }
     """
     data = request.get_json(silent=True) or {}
     creds = extract_creds(data)
@@ -1551,7 +1684,19 @@ def all_hacks_cost_report():
         hacks += mgr.list_archived_hacks()
 
     if not hacks:
-        return jsonify({"hacks": [], "totals": {"totalCost": 0, "hackCount": 0, "subscriptionCount": 0}})
+        return jsonify({"hacks": [], "totals": {"totalCost": 0, "hackCount": 0, "subscriptionCount": 0}, "teamsCard": {}})
+
+    # If no per-hack subs, do one-time SPN-wide sub discovery for cost lookup
+    spn_subs_cache = None
+
+    def _get_spn_subs():
+        nonlocal spn_subs_cache
+        if spn_subs_cache is None:
+            try:
+                spn_subs_cache = asyncio.run(_async_list_accessible_subscriptions(*creds))
+            except Exception:
+                spn_subs_cache = []
+        return spn_subs_cache
 
     results = []
     grand_total = 0.0
@@ -1573,13 +1718,13 @@ def all_hacks_cost_report():
         if data.get("endDate"):
             end_date = data["endDate"]
 
-        # Find subscription IDs for this hack
-        sub_ids = (
-            state.get("subscriptionIds")
-            or (state.get("config") or {}).get("subscriptionIds")
-            or []
-        )
-        sub_ids = [str(s).strip() for s in sub_ids if str(s or "").strip()]
+        # Always discover subscriptions live
+        sub_ids = _discover_hack_subscriptions(creds, state, prefix)
+
+        # If still no subs found, try SPN-wide discovery as last resort
+        if not sub_ids:
+            spn_subs = _get_spn_subs()
+            sub_ids = [s_["subscriptionId"] for s_ in spn_subs]
 
         hack_result = {
             "prefix": prefix,
@@ -1594,6 +1739,10 @@ def all_hacks_cost_report():
 
         if sub_ids:
             try:
+                # Enrich with display names
+                spn_subs = _get_spn_subs()
+                name_map = {s_["subscriptionId"]: s_.get("displayName", "") for s_ in spn_subs}
+
                 cost_rows = asyncio.run(_async_fetch_subscription_costs(
                     *creds,
                     subscription_ids=sub_ids,
@@ -1608,7 +1757,7 @@ def all_hacks_cost_report():
                     all_sub_ids.add(sid)
                     hack_result["subscriptions"].append({
                         "subscriptionId": sid,
-                        "displayName": row.get("displayName", sid),
+                        "displayName": row.get("displayName") or name_map.get(sid, sid),
                         "totalCost": round(cost, 2),
                         "currency": row.get("currency", "USD"),
                     })
@@ -1620,12 +1769,15 @@ def all_hacks_cost_report():
 
         results.append(hack_result)
 
+    totals = {
+        "totalCost": round(grand_total, 2),
+        "hackCount": len(results),
+        "subscriptionCount": len(all_sub_ids),
+        "currency": "USD",
+    }
+
     return jsonify({
         "hacks": results,
-        "totals": {
-            "totalCost": round(grand_total, 2),
-            "hackCount": len(results),
-            "subscriptionCount": len(all_sub_ids),
-            "currency": "USD",
-        },
+        "totals": totals,
+        "teamsCard": _build_cost_adaptive_card(results, totals),
     })
