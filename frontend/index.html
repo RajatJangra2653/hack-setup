@@ -2292,7 +2292,7 @@
         <div class="dash-kpi"><div class="dash-kpi-val" id="dash-kUsers">—</div><div class="dash-kpi-label">Total Users</div></div>
         <div class="dash-kpi"><div class="dash-kpi-val" id="dash-kTeams">—</div><div class="dash-kpi-label">Total Teams</div></div>
         <div class="dash-kpi"><div class="dash-kpi-val" id="dash-kAdmins">—</div><div class="dash-kpi-label">Total Admins</div></div>
-        <div class="dash-kpi"><div class="dash-kpi-val" id="dash-kCost">—</div><div class="dash-kpi-label">Total Est. Cost</div></div>
+        <div class="dash-kpi"><div class="dash-kpi-val" id="dash-kCost">—</div><div class="dash-kpi-label">Total Est. Cost</div><div id="dash-costUpdated" class="hint" style="font-size:10px;margin-top:2px;"></div></div>
       </div>
 
       <!-- Dashboard Charts -->
@@ -3929,8 +3929,44 @@ async function dashCalcAllCosts(triggerBtn) {
   _dashCostRunning = false;
   triggerBtn.disabled = false;
   triggerBtn.innerHTML = origText;
+  _dashCostLastUpdated = new Date();
+  _renderCostTimestamp();
   toast(`Costs calculated: ${done - failed}/${total} succeeded` + (failed ? `, ${failed} failed` : ''), failed ? 'warn' : 'success');
 }
+
+// ──────────── Dashboard: Cost auto-refresh (every 2 hours) ────────────
+let _dashCostLastUpdated = null;
+let _dashCostAutoTimer = null;
+let _dashCostTickTimer = null;
+
+function _renderCostTimestamp() {
+  const el = document.getElementById('dash-costUpdated');
+  if (!el) return;
+  if (!_dashCostLastUpdated) { el.textContent = ''; return; }
+  const ago = Math.round((Date.now() - _dashCostLastUpdated.getTime()) / 60000);
+  if (ago < 1) el.textContent = 'Updated just now';
+  else if (ago < 60) el.textContent = `Updated ${ago}m ago`;
+  else el.textContent = `Updated ${Math.floor(ago / 60)}h ${ago % 60}m ago`;
+}
+
+function _startDashCostAutoRefresh() {
+  _stopDashCostAutoRefresh();
+  // Run cost calc every 2 hours for active hacks
+  _dashCostAutoTimer = setInterval(() => {
+    if (document.visibilityState !== 'visible') return;
+    if (_dashCostRunning) return;
+    if (!getCreds()) return;
+    const btn = document.querySelector('[onclick*="dashCalcAllCosts"]');
+    if (btn) dashCalcAllCosts(btn);
+  }, 2 * 60 * 60 * 1000); // 2 hours
+  // Tick the "updated X ago" label every minute
+  _dashCostTickTimer = setInterval(_renderCostTimestamp, 60000);
+}
+function _stopDashCostAutoRefresh() {
+  if (_dashCostAutoTimer) { clearInterval(_dashCostAutoTimer); _dashCostAutoTimer = null; }
+  if (_dashCostTickTimer) { clearInterval(_dashCostTickTimer); _dashCostTickTimer = null; }
+}
+_startDashCostAutoRefresh();
 
 // ──────────── Dashboard: Sync with Entra ────────────
 function _syncProgressBar(done, total, label) {
