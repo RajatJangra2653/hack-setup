@@ -1687,45 +1687,75 @@ def all_hacks_cost_report():
         return jsonify({"hacks": [], "totals": {"totalCost": 0, "hackCount": 0, "subscriptionCount": 0}, "teamsCard": {}})
 
     # If no per-hack subs, do one-time SPN-wide sub discovery for cost lookup
-    spn_subs_cache = None
+    # ── Phase 1: Collect all hack states and discover subscriptions ──
+    # Do SPN-wide sub listing once (used for fallback + display names)
+    try:
+        spn_subs = asyncio.run(_async_list_accessible_subscriptions(*creds))
+    except Exception:
+        spn_subs = []
+    name_map = {s_["subscriptionId"]: s_.get("displayName", "") for s_ in spn_subs}
+    spn_sub_ids = [s_["subscriptionId"] for s_ in spn_subs]
 
-    def _get_spn_subs():
-        nonlocal spn_subs_cache
-        if spn_subs_cache is None:
-            try:
-                spn_subs_cache = asyncio.run(_async_list_accessible_subscriptions(*creds))
-            except Exception:
-                spn_subs_cache = []
-        return spn_subs_cache
+    hack_infos = []  # list of (prefix, state, sub_ids, start_date, end_date)
+    all_unique_subs: set = set()
 
-    results = []
-    grand_total = 0.0
-    all_sub_ids: set = set()
+    # Determine a global date range (earliest start, latest end across hacks)
+    global_start = None
+    global_end = None
 
     for hack_summary in hacks:
         prefix = hack_summary.get("prefix", "")
         if not prefix:
             continue
-
         state = mgr.get_state(prefix)
         if not state:
             continue
 
-        # Determine date range
         start_date, end_date = _state_report_date_range(state)
         if data.get("startDate"):
             start_date = data["startDate"]
         if data.get("endDate"):
             end_date = data["endDate"]
 
-        # Always discover subscriptions live
+        # Track global date range for the single batched cost query
+        if global_start is None or start_date < global_start:
+            global_start = start_date
+        if global_end is None or end_date > global_end:
+            global_end = end_date
+
         sub_ids = _discover_hack_subscriptions(creds, state, prefix)
-
-        # If still no subs found, try SPN-wide discovery as last resort
         if not sub_ids:
-            spn_subs = _get_spn_subs()
-            sub_ids = [s_["subscriptionId"] for s_ in spn_subs]
+            sub_ids = list(spn_sub_ids)
 
+        all_unique_subs.update(sub_ids)
+        hack_infos.append((prefix, state, sub_ids, start_date, end_date))
+
+    # ── Phase 2: Single batched cost query for ALL unique subscriptions ──
+    cost_by_sub: dict = {}  # subscriptionId → {totalCost, currency, displayName}
+    if all_unique_subs and global_start and global_end:
+        try:
+            cost_rows = asyncio.run(_async_fetch_subscription_costs(
+                *creds,
+                subscription_ids=list(all_unique_subs),
+                start_date=global_start,
+                end_date=global_end,
+            ))
+            for row in cost_rows:
+                sid = row.get("subscriptionId", "")
+                cost_by_sub[sid] = {
+                    "totalCost": row.get("totalCost", 0) or 0,
+                    "currency": row.get("currency", "USD"),
+                    "displayName": row.get("displayName") or name_map.get(sid, sid),
+                }
+        except Exception as exc:
+            logger.warning("all-hacks-cost.batch-fetch-failed", error=str(exc)[:200])
+
+    # ── Phase 3: Distribute costs to each hack ──
+    results = []
+    grand_total = 0.0
+    all_sub_ids: set = set()
+
+    for prefix, state, sub_ids, start_date, end_date in hack_infos:
         hack_result = {
             "prefix": prefix,
             "hackName": state.get("hackName") or prefix,
@@ -1737,36 +1767,20 @@ def all_hacks_cost_report():
             "currency": "USD",
         }
 
-        if sub_ids:
-            try:
-                # Enrich with display names
-                spn_subs = _get_spn_subs()
-                name_map = {s_["subscriptionId"]: s_.get("displayName", "") for s_ in spn_subs}
-
-                cost_rows = asyncio.run(_async_fetch_subscription_costs(
-                    *creds,
-                    subscription_ids=sub_ids,
-                    start_date=start_date,
-                    end_date=end_date,
-                ))
-                hack_cost = 0.0
-                for row in cost_rows:
-                    sid = row.get("subscriptionId", "")
-                    cost = row.get("totalCost", 0) or 0
-                    hack_cost += cost
-                    all_sub_ids.add(sid)
-                    hack_result["subscriptions"].append({
-                        "subscriptionId": sid,
-                        "displayName": row.get("displayName") or name_map.get(sid, sid),
-                        "totalCost": round(cost, 2),
-                        "currency": row.get("currency", "USD"),
-                    })
-                hack_result["totalCost"] = round(hack_cost, 2)
-                hack_result["currency"] = (cost_rows[0].get("currency", "USD") if cost_rows else "USD")
-                grand_total += hack_cost
-            except Exception as exc:
-                hack_result["error"] = str(exc)[:300]
-
+        hack_cost = 0.0
+        for sid in sub_ids:
+            cost_info = cost_by_sub.get(sid, {})
+            cost = cost_info.get("totalCost", 0)
+            hack_cost += cost
+            all_sub_ids.add(sid)
+            hack_result["subscriptions"].append({
+                "subscriptionId": sid,
+                "displayName": cost_info.get("displayName") or name_map.get(sid, sid),
+                "totalCost": round(cost, 2),
+                "currency": cost_info.get("currency", "USD"),
+            })
+        hack_result["totalCost"] = round(hack_cost, 2)
+        grand_total += hack_cost
         results.append(hack_result)
 
     totals = {
