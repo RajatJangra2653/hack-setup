@@ -1686,9 +1686,9 @@ def all_hacks_cost_report():
     if not hacks:
         return jsonify({"hacks": [], "totals": {"totalCost": 0, "hackCount": 0, "subscriptionCount": 0}, "teamsCard": {}})
 
-    # If no per-hack subs, do one-time SPN-wide sub discovery for cost lookup
-    # ── Phase 1: Collect all hack states and discover subscriptions ──
-    # Do SPN-wide sub listing once (used for fallback + display names)
+    # ── Phase 1: One-shot SPN-wide subscription discovery ──
+    # Instead of per-hack RBAC lookups (slow: 2-3 API calls each),
+    # list all SPN-accessible subs once and use for all hacks.
     try:
         spn_subs = asyncio.run(_async_list_accessible_subscriptions(*creds))
     except Exception:
@@ -1699,7 +1699,6 @@ def all_hacks_cost_report():
     hack_infos = []  # list of (prefix, state, sub_ids, start_date, end_date)
     all_unique_subs: set = set()
 
-    # Determine a global date range (earliest start, latest end across hacks)
     global_start = None
     global_end = None
 
@@ -1717,13 +1716,19 @@ def all_hacks_cost_report():
         if data.get("endDate"):
             end_date = data["endDate"]
 
-        # Track global date range for the single batched cost query
         if global_start is None or start_date < global_start:
             global_start = start_date
         if global_end is None or end_date > global_end:
             global_end = end_date
 
-        sub_ids = _discover_hack_subscriptions(creds, state, prefix)
+        # Fast sub lookup: state-stored IDs first, then SPN-wide fallback
+        # (skip per-hack RBAC discovery to avoid N×3 API calls)
+        sub_ids = (
+            state.get("subscriptionIds")
+            or (state.get("config") or {}).get("subscriptionIds")
+            or []
+        )
+        sub_ids = [str(s).strip() for s in sub_ids if str(s or "").strip()]
         if not sub_ids:
             sub_ids = list(spn_sub_ids)
 
