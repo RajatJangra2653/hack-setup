@@ -309,19 +309,27 @@ def run_scheduled_hack_now(job_id):
 
 @bp.route("/api/notifications/test-webhook", methods=["POST"])
 def test_webhook():
-    """Send a test message to a Teams Incoming Webhook URL."""
+    """Send a test message to a Teams Incoming Webhook or Power Automate HTTP trigger."""
     data = request.get_json(silent=True) or {}
     url = data.get("webhook_url", "").strip()
+    msg_type = data.get("type", "webhook")  # "webhook" or "power_automate"
     if not url:
         return jsonify({"error": "webhook_url is required"}), 400
 
     from onedrive_provisioner.notifications import NotificationService
     ns = NotificationService(teams_webhook_url=url)
-    ok = ns.send_teams_message(
-        "🧪 Test Notification",
-        "This is a test message from **Spektra HackOps**. If you see this, your webhook is configured correctly!",
-        facts=[{"name": "Status", "value": "✅ Working"}],
-    )
+
+    if msg_type == "power_automate":
+        ok = ns.send_power_automate_event(url, "test", {
+            "message": "Test notification from Spektra HackOps",
+            "status": "ok",
+        })
+    else:
+        ok = ns.send_teams_message(
+            "🧪 Test Notification",
+            "This is a test message from **Spektra HackOps**. If you see this, your webhook is configured correctly!",
+            facts=[{"name": "Status", "value": "✅ Working"}],
+        )
     if ok:
         return jsonify({"message": "Test message sent successfully"})
-    return jsonify({"error": "Failed to send — check your webhook URL"}), 502
+    return jsonify({"error": "Failed to send — check your URL"}), 502

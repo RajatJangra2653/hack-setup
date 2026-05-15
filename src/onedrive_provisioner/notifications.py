@@ -19,10 +19,12 @@ class NotificationService:
     def __init__(
         self,
         teams_webhook_url: str = "",
+        power_automate_url: str = "",
         graph_token_provider=None,  # MsalTokenProvider for Graph sendMail
         sender_upn: str = "",       # UPN to send email from (must have Mail.Send)
     ):
         self._webhook_url = teams_webhook_url
+        self._pa_url = power_automate_url
         self._token_provider = graph_token_provider
         self._sender_upn = sender_upn
 
@@ -55,6 +57,30 @@ class NotificationService:
             return True
         except Exception as exc:
             logger.warning("Failed to send Teams webhook: %s", exc)
+            return False
+
+    # ────────────────── Power Automate HTTP Trigger ──────────────────
+
+    def send_power_automate_event(self, flow_url: str, event_type: str,
+                                   payload: Dict[str, Any] = None):
+        """POST a structured JSON event to a Power Automate HTTP trigger."""
+        if not flow_url:
+            return False
+
+        body = {
+            "source": "spektra-hackops",
+            "eventType": event_type,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "data": payload or {},
+        }
+
+        try:
+            resp = httpx.post(flow_url, json=body, timeout=30)
+            resp.raise_for_status()
+            logger.info("Power Automate event sent: %s", event_type)
+            return True
+        except Exception as exc:
+            logger.warning("Failed to send Power Automate event: %s", exc)
             return False
 
     # ────────────────── Graph Email ──────────────────
@@ -95,6 +121,11 @@ class NotificationService:
 
     # ────────────────── Lifecycle Notifications ──────────────────
 
+    def _also_pa(self, event_type: str, data: Dict[str, Any]):
+        """Also send to Power Automate if configured."""
+        if self._pa_url:
+            self.send_power_automate_event(self._pa_url, event_type, data)
+
     def notify_batch_complete(self, prefix: str, hack_name: str, user_count: int, failed: int = 0):
         color = "28A745" if failed == 0 else "FFC107"
         status = "completed successfully" if failed == 0 else f"completed with {failed} failure(s)"
@@ -107,6 +138,10 @@ class NotificationService:
             ],
             color=color,
         )
+        self._also_pa("provision_complete", {
+            "prefix": prefix, "hackName": hack_name,
+            "usersCreated": user_count, "failed": failed,
+        })
 
     def notify_readonly_applied(self, prefix: str, hack_name: str):
         self.send_teams_message(
@@ -114,6 +149,7 @@ class NotificationService:
             f"Hack **{hack_name}** (`{prefix}`) is now in read-only mode.",
             color="6C757D",
         )
+        self._also_pa("readonly_applied", {"prefix": prefix, "hackName": hack_name})
 
     def notify_cleanup_complete(self, prefix: str, hack_name: str):
         self.send_teams_message(
@@ -121,6 +157,7 @@ class NotificationService:
             f"Hack **{hack_name}** (`{prefix}`) has been cleaned up and archived.",
             color="DC3545",
         )
+        self._also_pa("cleanup_complete", {"prefix": prefix, "hackName": hack_name})
 
     def notify_failure(self, prefix: str, hack_name: str, action: str, error: str):
         self.send_teams_message(
@@ -128,6 +165,10 @@ class NotificationService:
             f"Hack **{hack_name}** (`{prefix}`) encountered an error during {action.lower()}.\n\n`{error[:500]}`",
             color="DC3545",
         )
+        self._also_pa("action_failed", {
+            "prefix": prefix, "hackName": hack_name,
+            "action": action, "error": error[:500],
+        })
 
     def send_reminder(self, prefix: str, hack_name: str, action: str,
                       scheduled_at: str, owner_emails: List[str]):

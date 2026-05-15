@@ -403,14 +403,21 @@
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
           <h3 style="margin:0;">� Notifications</h3>
         </div>
-        <p class="hint" style="margin-bottom:8px;">Configure Teams Incoming Webhook to receive lifecycle notifications (batch complete, failures, read-only transitions, cleanup).</p>
+        <p class="hint" style="margin-bottom:8px;">Receive lifecycle notifications (batch complete, failures, read-only transitions, cleanup) via Teams webhook or Power Automate.</p>
         <div class="form-group">
-          <label for="teamsWebhookUrl" title="Paste an Incoming Webhook URL from your Teams channel">Teams Webhook URL</label>
+          <label for="teamsWebhookUrl" title="Paste an Incoming Webhook URL from your Teams channel">Teams Incoming Webhook URL</label>
           <input type="url" id="teamsWebhookUrl" placeholder="https://outlook.office.com/webhook/..." title="Paste the Incoming Webhook URL from your Teams channel" />
+          <div class="hint" style="font-size:11px;">Channel → ⋯ → Connectors → Incoming Webhook → Create → Copy URL</div>
         </div>
-        <div style="display:flex;gap:8px;align-items:center;margin-top:8px;">
-          <button class="btn btn-secondary btn-sm" onclick="saveWebhookUrl()" title="Save webhook URL in browser storage">💾 Save</button>
-          <button class="btn btn-secondary btn-sm" onclick="testWebhook()" title="Send a test message to verify the webhook">📡 Test</button>
+        <div class="form-group" style="margin-top:8px;">
+          <label for="powerAutomateUrl" title="Paste the HTTP POST URL from a Power Automate 'When an HTTP request is received' trigger">Power Automate HTTP Trigger URL <span style="font-size:11px;color:var(--text-secondary);">(optional)</span></label>
+          <input type="url" id="powerAutomateUrl" placeholder="https://prod-xx.westus.logic.azure.com:443/workflows/..." title="Power Automate flow HTTP trigger URL" />
+          <div class="hint" style="font-size:11px;">Create a flow with "When an HTTP request is received" trigger → "Post message in a chat or channel" action</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:10px;">
+          <button class="btn btn-secondary btn-sm" onclick="saveWebhookUrl()" title="Save both URLs in browser storage">💾 Save</button>
+          <button class="btn btn-secondary btn-sm" onclick="testWebhook()" title="Send a test message to Teams webhook">📡 Test Webhook</button>
+          <button class="btn btn-secondary btn-sm" onclick="testPowerAutomate()" title="Send a test payload to Power Automate flow">⚡ Test Flow</button>
           <span id="webhookTestResult" style="font-size:13px;font-weight:600;"></span>
         </div>
       </div>
@@ -10746,19 +10753,22 @@ function _saveProfiles(profiles) { localStorage.setItem('spektra-conn-profiles',
 // FEATURE: Teams Webhook Notifications
 // ══════════════════════════════════════════════════════════
 function saveWebhookUrl() {
-  const url = document.getElementById('teamsWebhookUrl').value.trim();
-  localStorage.setItem('spektra-teams-webhook', url);
-  toast(url ? 'Webhook URL saved' : 'Webhook URL cleared', 'success');
+  const whUrl = document.getElementById('teamsWebhookUrl').value.trim();
+  const paUrl = document.getElementById('powerAutomateUrl').value.trim();
+  localStorage.setItem('spektra-teams-webhook', whUrl);
+  localStorage.setItem('spektra-power-automate-url', paUrl);
+  toast('Notification URLs saved', 'success');
 }
 function _loadWebhookUrl() {
-  const url = localStorage.getItem('spektra-teams-webhook') || '';
-  const el = document.getElementById('teamsWebhookUrl');
-  if (el) el.value = url;
+  const wh = document.getElementById('teamsWebhookUrl');
+  const pa = document.getElementById('powerAutomateUrl');
+  if (wh) wh.value = localStorage.getItem('spektra-teams-webhook') || '';
+  if (pa) pa.value = localStorage.getItem('spektra-power-automate-url') || '';
 }
 async function testWebhook() {
   const url = document.getElementById('teamsWebhookUrl').value.trim();
   const span = document.getElementById('webhookTestResult');
-  if (!url) { toast('Enter a webhook URL first', 'danger'); return; }
+  if (!url) { toast('Enter a Teams webhook URL first', 'danger'); return; }
   span.textContent = '⏳ Sending…';
   span.style.color = 'var(--text-secondary)';
   try {
@@ -10767,7 +10777,23 @@ async function testWebhook() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ webhook_url: url }),
     });
-    if (r.ok) { span.textContent = '✅ Sent!'; span.style.color = 'var(--color-success)'; }
+    if (r.ok) { span.textContent = '✅ Webhook OK!'; span.style.color = 'var(--color-success)'; }
+    else { const d = await r.json(); span.textContent = '❌ ' + (d.error || 'Failed'); span.style.color = 'var(--color-error)'; }
+  } catch (e) { span.textContent = '❌ ' + e.message; span.style.color = 'var(--color-error)'; }
+}
+async function testPowerAutomate() {
+  const url = document.getElementById('powerAutomateUrl').value.trim();
+  const span = document.getElementById('webhookTestResult');
+  if (!url) { toast('Enter a Power Automate HTTP trigger URL first', 'danger'); return; }
+  span.textContent = '⏳ Sending…';
+  span.style.color = 'var(--text-secondary)';
+  try {
+    const r = await fetch(`${API}/notifications/test-webhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ webhook_url: url, type: 'power_automate' }),
+    });
+    if (r.ok) { span.textContent = '✅ Flow triggered!'; span.style.color = 'var(--color-success)'; }
     else { const d = await r.json(); span.textContent = '❌ ' + (d.error || 'Failed'); span.style.color = 'var(--color-error)'; }
   } catch (e) { span.textContent = '❌ ' + e.message; span.style.color = 'var(--color-error)'; }
 }

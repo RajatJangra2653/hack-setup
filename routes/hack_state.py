@@ -1514,3 +1514,118 @@ def delete_template(template_id):
         return jsonify({"error": "Template not found"}), 404
     _save_templates(mgr, templates)
     return jsonify({"ok": True})
+
+
+# ══════════════════════════════════════════════════════════════════
+# Aggregate cost endpoint — callable from Power Automate / external
+# ══════════════════════════════════════════════════════════════════
+
+@bp.route("/api/costs/all-hacks", methods=["POST"])
+def all_hacks_cost_report():
+    """Return cost data for all active hacks in one call.
+
+    Expects SPN credentials in the body so Power Automate or any external
+    caller can authenticate without browser session state.
+
+    Body JSON:
+        tenant_id, client_id, client_secret   — required
+        startDate, endDate                     — optional date range override
+        includeArchived                        — optional bool (default false)
+
+    Returns:
+        { hacks: [ { prefix, hackName, totalCost, currency, subscriptions: [...] } ],
+          totals: { totalCost, hackCount, subscriptionCount } }
+    """
+    data = request.get_json(silent=True) or {}
+    creds = extract_creds(data)
+    if not creds:
+        return jsonify({"error": "SPN credentials required (tenant_id, client_id, client_secret)"}), 400
+
+    mgr = get_state_manager()
+    if not mgr:
+        return jsonify({"error": "Storage not configured"}), 503
+
+    # Collect all hacks
+    hacks = mgr.list_hacks()
+    if data.get("includeArchived"):
+        hacks += mgr.list_archived_hacks()
+
+    if not hacks:
+        return jsonify({"hacks": [], "totals": {"totalCost": 0, "hackCount": 0, "subscriptionCount": 0}})
+
+    results = []
+    grand_total = 0.0
+    all_sub_ids: set = set()
+
+    for hack_summary in hacks:
+        prefix = hack_summary.get("prefix", "")
+        if not prefix:
+            continue
+
+        state = mgr.get_state(prefix)
+        if not state:
+            continue
+
+        # Determine date range
+        start_date, end_date = _state_report_date_range(state)
+        if data.get("startDate"):
+            start_date = data["startDate"]
+        if data.get("endDate"):
+            end_date = data["endDate"]
+
+        # Find subscription IDs for this hack
+        sub_ids = (
+            state.get("subscriptionIds")
+            or (state.get("config") or {}).get("subscriptionIds")
+            or []
+        )
+        sub_ids = [str(s).strip() for s in sub_ids if str(s or "").strip()]
+
+        hack_result = {
+            "prefix": prefix,
+            "hackName": state.get("hackName") or prefix,
+            "totalUsers": state.get("totalUsers", 0),
+            "startDate": start_date,
+            "endDate": end_date,
+            "subscriptions": [],
+            "totalCost": 0,
+            "currency": "USD",
+        }
+
+        if sub_ids:
+            try:
+                cost_rows = asyncio.run(_async_fetch_subscription_costs(
+                    *creds,
+                    subscription_ids=sub_ids,
+                    start_date=start_date,
+                    end_date=end_date,
+                ))
+                hack_cost = 0.0
+                for row in cost_rows:
+                    sid = row.get("subscriptionId", "")
+                    cost = row.get("totalCost", 0) or 0
+                    hack_cost += cost
+                    all_sub_ids.add(sid)
+                    hack_result["subscriptions"].append({
+                        "subscriptionId": sid,
+                        "displayName": row.get("displayName", sid),
+                        "totalCost": round(cost, 2),
+                        "currency": row.get("currency", "USD"),
+                    })
+                hack_result["totalCost"] = round(hack_cost, 2)
+                hack_result["currency"] = (cost_rows[0].get("currency", "USD") if cost_rows else "USD")
+                grand_total += hack_cost
+            except Exception as exc:
+                hack_result["error"] = str(exc)[:300]
+
+        results.append(hack_result)
+
+    return jsonify({
+        "hacks": results,
+        "totals": {
+            "totalCost": round(grand_total, 2),
+            "hackCount": len(results),
+            "subscriptionCount": len(all_sub_ids),
+            "currency": "USD",
+        },
+    })
