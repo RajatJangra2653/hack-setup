@@ -2278,6 +2278,7 @@
         <button class="btn btn-secondary btn-sm" onclick="withBusy(this, loadDashboard)" title="Reload all hacks from storage and refresh the dashboard table">↻ Refresh</button>
         <button class="btn btn-sm" onclick="withBusy(this, dashSyncAllDrift)" id="dash-syncBtn" title="Sync state with Azure Entra ID for all active hacks">☁️ Sync with Entra</button>
         <button class="btn btn-secondary btn-sm" onclick="exportDashboardPDF()" title="Export dashboard summary as printable page">🖨️ Export PDF</button>
+        <button class="btn btn-sm" onclick="dashCalcAllCosts(this)" title="Calculate costs for all active hacks sequentially (avoids rate limits)">💰 Calc All Costs</button>
         <span id="dash-syncSpinner" class="hidden"><span class="spinner"></span></span>
         <span id="dash-syncStatus" class="hint" style="font-size:12px;"></span>
       </div>
@@ -3807,7 +3808,10 @@ function dashOpenHack(prefix) {
 }
 
 // ──────────── Dashboard: Get Cost per hack ────────────
+let _dashCostRunning = false;
+
 async function dashGetCost(prefix, btn) {
+  if (_dashCostRunning) { toast('Cost calculation already in progress — please wait', 'warn'); return; }
   const creds = getCreds();
   btn.disabled = true;
   btn.textContent = '⏳';
@@ -3834,35 +3838,98 @@ async function dashGetCost(prefix, btn) {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-    const total = (data.costs || {}).totalEstimated || 0;
-    const cur = data.currency || (data.costs || {}).currency || 'USD';
-    // Update the cost cell inline
-    const valSpan = btn.parentElement.querySelector('.dash-cost-val');
-    if (valSpan) {
-      valSpan.innerHTML = total
-        ? `<span style="font-weight:600;">${cur === 'USD' ? '$' : cur + ' '}${total.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>`
-        : '<span class="hint">—</span>';
-    }
-    // Update _dashData so KPI refreshes
-    const hack = _dashData.find(h => h.prefix === prefix);
-    if (hack) {
-      hack.lastReportCosts = { totalEstimated: total, currency: cur, ...(data.budget || {}), generatedAt: new Date().toISOString() };
-      // Refresh KPI totals
-      const totalCost = _dashData.reduce((s, h) => s + ((h.lastReportCosts || {}).totalEstimated || 0), 0);
-      const anyCur = _dashData.find(h => (h.lastReportCosts || {}).currency);
-      const c = (anyCur && anyCur.lastReportCosts.currency) || 'USD';
-      document.getElementById('dash-kCost').textContent = totalCost > 0
-        ? `${c === 'USD' ? '$' : c + ' '}${totalCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
-        : '—';
-    }
-    btn.textContent = '💰';
-    toast(`Cost for ${prefix}: ${cur === 'USD' ? '$' : cur + ' '}${total.toLocaleString()}`, 'success');
+    _updateHackCostUI(prefix, data, btn);
+    toast(`Cost for ${prefix}: ${(data.currency || 'USD') === 'USD' ? '$' : (data.currency || 'USD') + ' '}${((data.costs || {}).totalEstimated || 0).toLocaleString()}`, 'success');
   } catch (e) {
     btn.textContent = '⚠️';
     toast('Cost failed: ' + e.message, 'danger');
     setTimeout(() => { btn.textContent = '💰'; }, 3000);
   }
   btn.disabled = false;
+}
+
+function _updateHackCostUI(prefix, data, btn) {
+  const total = (data.costs || {}).totalEstimated || 0;
+  const cur = data.currency || (data.costs || {}).currency || 'USD';
+  const valSpan = btn ? btn.parentElement.querySelector('.dash-cost-val') : document.querySelector(`#dash-cost-${CSS.escape(prefix)}`)?.parentElement?.querySelector('.dash-cost-val');
+  if (valSpan) {
+    valSpan.innerHTML = total
+      ? `<span style="font-weight:600;">${cur === 'USD' ? '$' : cur + ' '}${total.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>`
+      : '<span class="hint">—</span>';
+  }
+  const hack = _dashData.find(h => h.prefix === prefix);
+  if (hack) {
+    hack.lastReportCosts = { totalEstimated: total, currency: cur, ...(data.budget || {}), generatedAt: new Date().toISOString() };
+    const totalCost = _dashData.reduce((s, h) => s + ((h.lastReportCosts || {}).totalEstimated || 0), 0);
+    const anyCur = _dashData.find(h => (h.lastReportCosts || {}).currency);
+    const c = (anyCur && anyCur.lastReportCosts.currency) || 'USD';
+    document.getElementById('dash-kCost').textContent = totalCost > 0
+      ? `${c === 'USD' ? '$' : c + ' '}${totalCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+      : '—';
+  }
+  if (btn) btn.textContent = '💰';
+}
+
+async function dashCalcAllCosts(triggerBtn) {
+  if (_dashCostRunning) { toast('Already calculating costs', 'warn'); return; }
+  const creds = getCreds();
+  if (!creds) { toast('Connect to Azure first', 'danger'); return; }
+  const activeHacks = (_dashData || []).filter(h => h.status !== 'archived');
+  if (activeHacks.length === 0) { toast('No active hacks to calculate', 'info'); return; }
+
+  _dashCostRunning = true;
+  triggerBtn.disabled = true;
+  const origText = triggerBtn.innerHTML;
+  let done = 0;
+  const total = activeHacks.length;
+  triggerBtn.innerHTML = `⏳ 0/${total}`;
+
+  // Disable all individual cost buttons
+  document.querySelectorAll('[id^="dash-cost-"]').forEach(b => b.disabled = true);
+
+  let failed = 0;
+  for (const hack of activeHacks) {
+    const btn = document.getElementById(`dash-cost-${hack.prefix}`);
+    if (btn) { btn.textContent = '⏳'; }
+    try {
+      const stRes = await fetch(`${API}/hack-state/${encodeURIComponent(hack.prefix)}`);
+      if (!stRes.ok) throw new Error('state fetch failed');
+      const st = await stRes.json();
+      const cfg = st.config || {};
+      const body = {
+        ...creds,
+        fetchSubscriptionCosts: true,
+        startDate: cfg.hackDate || new Date().toISOString().substring(0, 10),
+        endDate: cfg.deleteDate || cfg.endDate || cfg.readonlyDate || '',
+        budget: cfg.budget || null,
+        githubEnabled: !!cfg.enableGithub,
+        githubCopilot: !!cfg.enableGithubCopilot,
+        persistInputs: true,
+      };
+      const res = await fetch(`${API}/hack-state/${encodeURIComponent(hack.prefix)}/report`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      _updateHackCostUI(hack.prefix, data, btn);
+    } catch (e) {
+      failed++;
+      if (btn) { btn.textContent = '⚠️'; setTimeout(() => { btn.textContent = '💰'; }, 5000); }
+    }
+    done++;
+    triggerBtn.innerHTML = `⏳ ${done}/${total}`;
+    // Rate-limit delay: 1.5s between each call
+    if (done < total) await new Promise(r => setTimeout(r, 1500));
+  }
+
+  // Re-enable buttons
+  document.querySelectorAll('[id^="dash-cost-"]').forEach(b => b.disabled = false);
+  _dashCostRunning = false;
+  triggerBtn.disabled = false;
+  triggerBtn.innerHTML = origText;
+  toast(`Costs calculated: ${done - failed}/${total} succeeded` + (failed ? `, ${failed} failed` : ''), failed ? 'warn' : 'success');
 }
 
 // ──────────── Dashboard: Sync with Entra ────────────
