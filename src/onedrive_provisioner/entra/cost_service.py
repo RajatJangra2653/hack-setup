@@ -27,6 +27,7 @@ _MAX_RETRIES = 5
 # hours is perfectly safe and eliminates redundant API calls.
 _CACHE_TTL_SECS = 4 * 3600  # 4 hours
 _cost_cache: Dict[str, Tuple[float, dict]] = {}  # key → (expire_ts, result)
+_MG_THROTTLED = "__mg_throttled__"  # sentinel
 
 
 def _normalise_date(value: str, *, end: bool = False) -> str:
@@ -268,8 +269,13 @@ class CostManagementService:
             logger.info("cost.mg_query.no_access", status=resp.status_code)
             return None
         if resp.status_code == 429:
-            logger.info("cost.mg_query.throttled")
-            return None
+            retry_after = resp.headers.get("Retry-After") or resp.headers.get("x-ms-ratelimit-microsoft.costmanagement-entity-retry-after")
+            try:
+                wait = max(float(retry_after), 10) if retry_after else 20
+            except ValueError:
+                wait = 20
+            logger.info("cost.mg_query.throttled", retry_after=round(wait, 1))
+            return (_MG_THROTTLED, wait)  # type: ignore[return-value]
         if resp.status_code != 200:
             logger.warning("cost.mg_query.failed", status=resp.status_code, body=resp.text[:300])
             return None
@@ -355,31 +361,46 @@ class CostManagementService:
             return [results[sid] for sid in subscription_ids]
 
         # ── Step 2: try Management Group bulk query ─────────────────────
+        throttle_wait = 0.0
         if tenant_id and len(uncached) > 1:
             mg_results = await self._query_via_management_group(
                 tenant_id, uncached, start_date=start_date, end_date=end_date,
             )
-            if mg_results is not None:
+            if isinstance(mg_results, tuple) and mg_results[0] == _MG_THROTTLED:
+                # MG was throttled — wait for the rate-limit window to reset
+                # before hammering per-sub endpoints.
+                throttle_wait = mg_results[1]
+                logger.info("cost.mg_throttled_cooldown", wait=round(throttle_wait, 1))
+                await asyncio.sleep(throttle_wait)
+            elif mg_results is not None:
                 for r in mg_results:
                     results[r["subscriptionId"]] = r
                 return [results[sid] for sid in subscription_ids]
 
-        # ── Step 3: serial per-sub queries with delay ───────────────────
+        # ── Step 3: serial per-sub queries with adaptive delay ──────────
+        # Start with base delay; increase if we see 429s mid-flight.
+        delay = _INTER_QUERY_DELAY
         for i, sid in enumerate(uncached):
             if i > 0:
-                await asyncio.sleep(_INTER_QUERY_DELAY)
-            results[sid] = await self.query_subscription_cost(
+                await asyncio.sleep(delay)
+            result = await self.query_subscription_cost(
                 sid, start_date=start_date, end_date=end_date,
             )
+            results[sid] = result
+            # If this sub was throttled, increase delay for remaining subs
+            if result.get("error") and "429" in str(result.get("error", "")):
+                delay = min(delay * 2, 10.0)
+                logger.info("cost.adaptive_delay", new_delay=round(delay, 1))
 
         # ── Step 4: retry any that failed ───────────────────────────────
         failed = [sid for sid, r in results.items() if r.get("error")]
         if failed:
             logger.info("cost.retry_pass", failed_count=len(failed), total=len(subscription_ids))
-            await asyncio.sleep(5.0)
+            # Long cooldown before retries so rate-limit fully resets
+            await asyncio.sleep(max(15.0, throttle_wait))
             for i, sid in enumerate(failed):
                 if i > 0:
-                    await asyncio.sleep(_INTER_QUERY_DELAY * 2)
+                    await asyncio.sleep(3.0)
                 retry_result = await self.query_subscription_cost(
                     sid, start_date=start_date, end_date=end_date,
                 )
