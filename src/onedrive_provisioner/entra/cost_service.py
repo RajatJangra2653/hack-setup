@@ -32,6 +32,11 @@ def _normalise_date(value: str, *, end: bool = False) -> str:
     return f"{value}Z"
 
 
+# Delay (seconds) between successive cost queries to stay well under
+# Azure Cost Management's per-tenant throttle (~10-15 req / 10 s).
+_INTER_QUERY_DELAY = 1.5
+
+
 class CostManagementService:
     """Query Azure Cost Management for actual subscription costs.
 
@@ -100,7 +105,7 @@ class CostManagementService:
                 resp = await self._client.post(url, headers=self._headers(), json=body)
             except httpx.TimeoutException as exc:
                 logger.warning("cost.query.timeout", subscription=subscription_id, error=str(exc), attempt=attempt)
-                last_err = f"Cost query timed out after 25s for subscription {subscription_id}"
+                last_err = f"Cost query timed out for subscription {subscription_id}"
                 # Retry timeouts a couple of times with backoff.
                 if attempt < _MAX_RETRIES - 1:
                     await asyncio.sleep(2 ** attempt)
@@ -194,22 +199,43 @@ class CostManagementService:
         start_date: str,
         end_date: str,
     ) -> List[dict]:
-        """Return total actual costs for multiple subscriptions (bounded parallel).
+        """Return total actual costs for multiple subscriptions.
 
-        Uses a small concurrency cap to stay under Azure Cost Management's
-        per-tenant throttle limit and reduce 429 churn.
+        Queries are run serially with a mandatory inter-request delay to stay
+        well under Azure Cost Management's per-tenant rate limit.  Any subs
+        that still fail with 429 are retried once more in a second pass with
+        a longer delay.
         """
         if not subscription_ids:
             return []
-        sem = asyncio.Semaphore(_COST_QUERY_CONCURRENCY)
 
-        async def _bounded(sid: str) -> dict:
-            async with sem:
-                return await self.query_subscription_cost(
+        results: dict[str, dict] = {}
+
+        # --- Pass 1: serial with inter-query delay --------------------------
+        for i, sid in enumerate(subscription_ids):
+            if i > 0:
+                await asyncio.sleep(_INTER_QUERY_DELAY)
+            results[sid] = await self.query_subscription_cost(
+                sid, start_date=start_date, end_date=end_date,
+            )
+
+        # --- Pass 2: retry any that failed (429 / timeout) ------------------
+        failed = [sid for sid, r in results.items() if r.get("error")]
+        if failed:
+            logger.info("cost.retry_pass", failed_count=len(failed), total=len(subscription_ids))
+            # Wait a bit before retrying so throttle window resets
+            await asyncio.sleep(3.0)
+            for i, sid in enumerate(failed):
+                if i > 0:
+                    await asyncio.sleep(_INTER_QUERY_DELAY * 2)
+                retry_result = await self.query_subscription_cost(
                     sid, start_date=start_date, end_date=end_date,
                 )
+                # Only replace if retry succeeded
+                if not retry_result.get("error"):
+                    results[sid] = retry_result
 
-        return list(await asyncio.gather(*[_bounded(sid) for sid in subscription_ids]))
+        return [results[sid] for sid in subscription_ids]
 
     async def list_accessible_subscriptions(self) -> List[dict]:
         """Return subscriptions the current SPN can read.
