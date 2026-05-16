@@ -1655,6 +1655,16 @@ def _build_single_hack_card(hack):
         "spacing": "Medium",
     })
 
+    # Show warning if some subs failed
+    if hack.get("costWarning"):
+        body.append({
+            "type": "TextBlock",
+            "text": f"⚠️ {hack['costWarning']}",
+            "size": "Small",
+            "color": "Warning",
+            "spacing": "Small",
+        })
+
     return {
         "type": "AdaptiveCard",
         "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
@@ -2081,17 +2091,24 @@ def cost_single_hack(prefix):
                 end_date=end_date,
             ))
             hack_cost = 0.0
+            errors = 0
             for row in cost_rows:
                 sid = row.get("subscriptionId", "")
                 cost = row.get("cost") or row.get("totalCost") or 0
+                if row.get("error"):
+                    errors += 1
                 hack_cost += cost
                 hack_result["subscriptions"].append({
                     "subscriptionId": sid,
                     "displayName": row.get("displayName") or name_map.get(sid, sid),
                     "totalCost": round(cost, 2),
                     "currency": row.get("currency", "USD"),
+                    "error": row.get("error", ""),
                 })
             hack_result["totalCost"] = round(hack_cost, 2)
+            if errors:
+                hack_result["costErrors"] = errors
+                hack_result["costWarning"] = f"{errors}/{len(cost_rows)} subs failed — cost may be incomplete"
         except Exception as exc:
             hack_result["error"] = str(exc)[:300]
 

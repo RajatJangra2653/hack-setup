@@ -15,10 +15,10 @@ logger = get_logger(__name__)
 
 COST_API_VERSION = "2023-11-01"
 # Cost Management is rate-limited per scope; cap concurrent requests to stay
-# under throttle ceiling. 6 is a safe sweet spot — fast for most tenants,
-# rare 429s handled by retry/backoff in query_subscription_cost.
-_COST_QUERY_CONCURRENCY = 6
-_MAX_RETRIES = 4
+# under throttle ceiling.  3 is conservative — avoids 429s that cause
+# inconsistent totals when some subs silently fail.
+_COST_QUERY_CONCURRENCY = 3
+_MAX_RETRIES = 5
 
 
 def _normalise_date(value: str, *, end: bool = False) -> str:
@@ -42,10 +42,11 @@ class CostManagementService:
 
     def __init__(self, token_provider: MsalTokenProvider) -> None:
         self._tp = token_provider
-        # Per-request timeout: connect=10s, read=25s. We'd rather report a
-        # timeout error for one subscription than hang the whole report.
+        # Per-request timeout: connect=10s, read=60s.  Cost Management can
+        # be slow for large date ranges; a generous read timeout avoids
+        # silently dropping subs as $0 and producing inconsistent totals.
         self._client = httpx.AsyncClient(
-            timeout=httpx.Timeout(connect=10.0, read=25.0, write=10.0, pool=10.0)
+            timeout=httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0)
         )
         self._token: Optional[str] = None
 
