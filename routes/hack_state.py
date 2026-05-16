@@ -486,6 +486,7 @@ async def _async_fetch_subscription_costs(t, c, s, *, subscription_ids, start_da
             subscription_ids,
             start_date=start_date,
             end_date=end_date,
+            tenant_id=t,
         )
 
 
