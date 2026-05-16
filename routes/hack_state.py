@@ -1573,6 +1573,96 @@ def _discover_hack_subscriptions(creds, state, prefix):
     return [str(s).strip() for s in sub_ids if str(s or "").strip()]
 
 
+def _build_single_hack_card(hack):
+    """Build an Adaptive Card for a single hack's cost data."""
+    cost_str = f"${hack.get('totalCost', 0):,.2f}"
+    subs = hack.get("subscriptions") or []
+    sub_rows = []
+    for s in subs:
+        s_cost = f"${s.get('totalCost', 0):,.2f}"
+        sub_rows.append({
+            "type": "TableRow",
+            "cells": [
+                {"type": "TableCell", "items": [{"type": "TextBlock", "text": s.get("displayName") or s.get("subscriptionId", "")[:12], "size": "Small"}]},
+                {"type": "TableCell", "items": [{"type": "TextBlock", "text": s.get("subscriptionId", "")[:8] + "...", "size": "Small", "isSubtle": True}]},
+                {"type": "TableCell", "items": [{"type": "TextBlock", "text": s_cost, "horizontalAlignment": "Right", "weight": "Bolder", "size": "Small",
+                                                  "color": "Attention" if s.get("totalCost", 0) > 200 else "Good" if s.get("totalCost", 0) > 0 else "Default"}]},
+            ],
+        })
+
+    body = [
+        {
+            "type": "ColumnSet",
+            "columns": [
+                {"type": "Column", "width": "auto", "items": [{"type": "TextBlock", "text": "💰", "size": "Large"}]},
+                {"type": "Column", "width": "stretch", "items": [
+                    {"type": "TextBlock", "text": hack.get("hackName", ""), "weight": "Bolder", "size": "Medium"},
+                    {"type": "TextBlock", "text": f"Prefix: {hack.get('prefix', '')}  •  {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}", "size": "Small", "isSubtle": True, "spacing": "None"},
+                ]},
+            ],
+        },
+        {
+            "type": "ColumnSet",
+            "separator": True,
+            "spacing": "Medium",
+            "columns": [
+                {"type": "Column", "width": "stretch", "items": [
+                    {"type": "TextBlock", "text": cost_str, "weight": "Bolder", "size": "ExtraLarge", "color": "Attention" if hack.get("totalCost", 0) > 500 else "Good" if hack.get("totalCost", 0) > 0 else "Default"},
+                    {"type": "TextBlock", "text": "Total Cost", "size": "Small", "isSubtle": True, "spacing": "None"},
+                ]},
+                {"type": "Column", "width": "auto", "items": [
+                    {"type": "TextBlock", "text": str(hack.get("totalUsers", 0)), "weight": "Bolder", "size": "Large", "horizontalAlignment": "Center"},
+                    {"type": "TextBlock", "text": "Users", "size": "Small", "isSubtle": True, "spacing": "None", "horizontalAlignment": "Center"},
+                ]},
+                {"type": "Column", "width": "auto", "items": [
+                    {"type": "TextBlock", "text": str(len(subs)), "weight": "Bolder", "size": "Large", "horizontalAlignment": "Center"},
+                    {"type": "TextBlock", "text": "Subs", "size": "Small", "isSubtle": True, "spacing": "None", "horizontalAlignment": "Center"},
+                ]},
+            ],
+        },
+    ]
+
+    if sub_rows:
+        body.append({
+            "type": "Table",
+            "separator": True,
+            "spacing": "Medium",
+            "gridStyle": "accent",
+            "firstRowAsHeader": True,
+            "showGridLines": True,
+            "columns": [{"width": 2}, {"width": 1}, {"width": 1}],
+            "rows": [
+                {
+                    "type": "TableRow",
+                    "style": "accent",
+                    "cells": [
+                        {"type": "TableCell", "items": [{"type": "TextBlock", "text": "Subscription", "weight": "Bolder", "size": "Small"}]},
+                        {"type": "TableCell", "items": [{"type": "TextBlock", "text": "ID", "weight": "Bolder", "size": "Small"}]},
+                        {"type": "TableCell", "items": [{"type": "TextBlock", "text": "Cost", "weight": "Bolder", "size": "Small", "horizontalAlignment": "Right"}]},
+                    ],
+                },
+                *sub_rows,
+            ],
+        })
+
+    # Add date range footer
+    body.append({
+        "type": "TextBlock",
+        "text": f"Period: {hack.get('startDate', '?')} → {hack.get('endDate', '?')}",
+        "size": "Small",
+        "isSubtle": True,
+        "separator": True,
+        "spacing": "Medium",
+    })
+
+    return {
+        "type": "AdaptiveCard",
+        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+        "version": "1.5",
+        "body": body,
+    }
+
+
 def _build_cost_adaptive_card(results, totals):
     """Build a Teams Adaptive Card with a table of hack costs."""
     rows = []
@@ -1696,8 +1786,8 @@ def all_hacks_cost_report():
     name_map = {s_["subscriptionId"]: s_.get("displayName", "") for s_ in spn_subs}
     spn_sub_ids = [s_["subscriptionId"] for s_ in spn_subs]
 
-    hack_infos = []  # list of (prefix, state, sub_ids, start_date, end_date)
-    all_unique_subs: set = set()
+    hack_infos_raw = []  # list of (prefix, state, start_date, end_date, group_ids, state_sub_ids)
+    all_group_ids: set = set()
 
     global_start = None
     global_end = None
@@ -1721,16 +1811,51 @@ def all_hacks_cost_report():
         if global_end is None or end_date > global_end:
             global_end = end_date
 
-        # Fast sub lookup: state-stored IDs first, then SPN-wide fallback
-        # (skip per-hack RBAC discovery to avoid N×3 API calls)
-        sub_ids = (
+        # Check state-stored sub IDs first
+        state_sub_ids = (
             state.get("subscriptionIds")
             or (state.get("config") or {}).get("subscriptionIds")
             or []
         )
-        sub_ids = [str(s).strip() for s in sub_ids if str(s or "").strip()]
-        if not sub_ids:
-            sub_ids = list(spn_sub_ids)
+        state_sub_ids = [str(s).strip() for s in state_sub_ids if str(s or "").strip()]
+
+        # Collect group IDs for batched RBAC discovery (only if no stored subs)
+        hack_group_ids = []
+        if not state_sub_ids:
+            for g in (state.get("groups") or []):
+                gid = g.get("id") if isinstance(g, dict) else None
+                if gid:
+                    hack_group_ids.append(gid)
+                    all_group_ids.add(gid)
+
+        hack_infos_raw.append((prefix, state, start_date, end_date, hack_group_ids, state_sub_ids))
+
+    # ── Phase 1b: Single batched group-RBAC discovery for all hacks ──
+    # One API call per unique group (parallel), instead of per-hack discovery.
+    group_to_subs: dict = {}
+    if all_group_ids:
+        try:
+            _, group_to_subs = asyncio.run(
+                _async_resolve_subs_from_groups(*creds, group_ids=list(all_group_ids))
+            )
+        except Exception as exc:
+            logger.warning("all-hacks-cost.group-rbac-failed", error=str(exc)[:200])
+
+    # ── Phase 1c: Assign subs to each hack ──
+    hack_infos = []
+    all_unique_subs: set = set()
+
+    for prefix, state, start_date, end_date, hack_group_ids, state_sub_ids in hack_infos_raw:
+        if state_sub_ids:
+            sub_ids = state_sub_ids
+        elif hack_group_ids:
+            # Union subs from this hack's groups
+            sub_ids = list({
+                sid for gid in hack_group_ids
+                for sid in (group_to_subs.get(gid) or [])
+            })
+        else:
+            sub_ids = []
 
         all_unique_subs.update(sub_ids)
         hack_infos.append((prefix, state, sub_ids, start_date, end_date))
@@ -1836,3 +1961,165 @@ def all_hacks_cost_teams_card():
     if "error" in data:
         return jsonify(data), resp.status_code if hasattr(resp, "status_code") else 400
     return jsonify(data.get("teamsCard", {}))
+
+
+# ── Chunked cost endpoints (for Power Automate loop pattern) ─────────────
+
+@bp.route("/api/costs/hack-list", methods=["POST"])
+def cost_hack_list():
+    """Return lightweight list of all hacks — no cost queries.
+
+    Body JSON: tenant_id, client_id, client_secret
+    Returns: { hacks: [ { prefix, hackName, totalUsers, startDate, endDate } ] }
+    """
+    data = request.get_json(silent=True) or {}
+    creds = extract_creds(data)
+    if not creds:
+        return jsonify({"error": "SPN credentials required"}), 400
+
+    mgr = get_state_manager()
+    if not mgr:
+        return jsonify({"error": "Storage not configured"}), 503
+
+    # Only active hacks — exclude archived
+    hacks = mgr.list_hacks()
+    result = []
+    for h in hacks:
+        prefix = h.get("prefix", "")
+        if not prefix:
+            continue
+        state = mgr.get_state(prefix)
+        if not state:
+            continue
+        # Skip archived / deleted hacks
+        status = (state.get("status") or "").lower()
+        if status in ("archived", "deleted"):
+            continue
+        start_date, end_date = _state_report_date_range(state)
+        result.append({
+            "prefix": prefix,
+            "hackName": state.get("hackName") or prefix,
+            "totalUsers": state.get("totalUsers", 0),
+            "startDate": start_date,
+            "endDate": end_date,
+        })
+    return jsonify({"hacks": result})
+
+
+@bp.route("/api/costs/hack/<prefix>", methods=["POST"])
+def cost_single_hack(prefix):
+    """Fetch live cost for ONE hack — auto-discovers subs via group RBAC.
+
+    Body JSON: tenant_id, client_id, client_secret, startDate?, endDate?
+    Returns: { prefix, hackName, totalUsers, totalCost, currency, subscriptions: [...] }
+    """
+    data = request.get_json(silent=True) or {}
+    creds = extract_creds(data)
+    if not creds:
+        return jsonify({"error": "SPN credentials required"}), 400
+
+    mgr = get_state_manager()
+    if not mgr:
+        return jsonify({"error": "Storage not configured"}), 503
+
+    state = mgr.get_state(prefix)
+    if not state:
+        return jsonify({"error": f"No state for prefix '{prefix}'"}), 404
+
+    start_date, end_date = _state_report_date_range(state)
+    if data.get("startDate"):
+        start_date = data["startDate"]
+    if data.get("endDate"):
+        end_date = data["endDate"]
+
+    # Discover subscriptions: state → group-RBAC → empty
+    sub_ids = (
+        state.get("subscriptionIds")
+        or (state.get("config") or {}).get("subscriptionIds")
+        or []
+    )
+    sub_ids = [str(s).strip() for s in sub_ids if str(s or "").strip()]
+
+    if not sub_ids:
+        group_ids = [
+            g.get("id") for g in (state.get("groups") or [])
+            if isinstance(g, dict) and g.get("id")
+        ]
+        if group_ids:
+            try:
+                resolved, _ = asyncio.run(
+                    _async_resolve_subs_from_groups(*creds, group_ids=group_ids)
+                )
+                sub_ids = resolved
+            except Exception:
+                pass
+
+    hack_result = {
+        "prefix": prefix,
+        "hackName": state.get("hackName") or prefix,
+        "totalUsers": state.get("totalUsers", 0),
+        "startDate": start_date,
+        "endDate": end_date,
+        "subscriptions": [],
+        "totalCost": 0,
+        "currency": "USD",
+    }
+
+    if sub_ids:
+        try:
+            # Get display names
+            try:
+                spn_subs = asyncio.run(_async_list_accessible_subscriptions(*creds))
+                name_map = {s_["subscriptionId"]: s_.get("displayName", "") for s_ in spn_subs}
+            except Exception:
+                name_map = {}
+
+            cost_rows = asyncio.run(_async_fetch_subscription_costs(
+                *creds,
+                subscription_ids=sub_ids,
+                start_date=start_date,
+                end_date=end_date,
+            ))
+            hack_cost = 0.0
+            for row in cost_rows:
+                sid = row.get("subscriptionId", "")
+                cost = row.get("cost") or row.get("totalCost") or 0
+                hack_cost += cost
+                hack_result["subscriptions"].append({
+                    "subscriptionId": sid,
+                    "displayName": row.get("displayName") or name_map.get(sid, sid),
+                    "totalCost": round(cost, 2),
+                    "currency": row.get("currency", "USD"),
+                })
+            hack_result["totalCost"] = round(hack_cost, 2)
+        except Exception as exc:
+            hack_result["error"] = str(exc)[:300]
+
+    # Build a per-hack Adaptive Card so PA can post one card per hack
+    hack_result["teamsCard"] = _build_single_hack_card(hack_result)
+    return jsonify(hack_result)
+
+
+@bp.route("/api/costs/build-card", methods=["POST"])
+def cost_build_card():
+    """Build an Adaptive Card from collected hack cost results.
+
+    Body JSON: { hacks: [ { prefix, hackName, totalUsers, totalCost, subscriptions } ] }
+    Returns: The Adaptive Card JSON (body IS the card).
+    """
+    data = request.get_json(silent=True) or {}
+    hacks = data.get("hacks") or []
+
+    grand_total = sum(h.get("totalCost", 0) for h in hacks)
+    all_subs = set()
+    for h in hacks:
+        for s in (h.get("subscriptions") or []):
+            all_subs.add(s.get("subscriptionId", ""))
+
+    totals = {
+        "totalCost": round(grand_total, 2),
+        "hackCount": len(hacks),
+        "subscriptionCount": len(all_subs),
+        "currency": "USD",
+    }
+    return jsonify(_build_cost_adaptive_card(hacks, totals))
