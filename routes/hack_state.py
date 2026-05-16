@@ -2100,6 +2100,19 @@ def cost_single_hack(prefix):
     return jsonify(hack_result)
 
 
+@bp.route("/api/costs/hack/<prefix>/card", methods=["POST"])
+def cost_single_hack_card(prefix):
+    """Return ONLY the Adaptive Card for one hack — body IS the card.
+
+    In Power Automate, just use the Body dynamic content token directly.
+    """
+    resp = cost_single_hack(prefix)
+    data = resp.get_json() if hasattr(resp, "get_json") else {}
+    if "error" in data and "teamsCard" not in data:
+        return jsonify(data), 400
+    return jsonify(data.get("teamsCard", {}))
+
+
 @bp.route("/api/costs/build-card", methods=["POST"])
 def cost_build_card():
     """Build an Adaptive Card from collected hack cost results.
