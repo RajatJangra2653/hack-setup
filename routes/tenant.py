@@ -723,7 +723,21 @@ def discover_hack():
     if not prefix:
         return jsonify({"error": "prefix required"}), 400
     try:
-        return jsonify(asyncio.run(_async_discover(*creds, prefix)))
+        result = asyncio.run(_async_discover(*creds, prefix))
+        # Attach subscription IDs from hack state so cleanup can auto-populate
+        mgr = get_state_manager()
+        if mgr:
+            state = mgr.get_state(prefix.rstrip("-"))
+            if state:
+                state_subs = (
+                    state.get("subscriptionIds")
+                    or (state.get("config") or {}).get("subscriptionIds")
+                    or []
+                )
+                result["subscriptionIds"] = [
+                    str(s).strip() for s in state_subs if str(s or "").strip()
+                ]
+        return jsonify(result)
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 

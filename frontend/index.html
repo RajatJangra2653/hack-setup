@@ -6153,6 +6153,29 @@ async function discoverForCleanup() {
 
   document.getElementById('cu-discoveryCard').classList.remove('hidden');
 
+  // Auto-populate subscription IDs from hack state if the text area is empty
+  const cuSubsEl = document.getElementById('cu-subs');
+  if (!cuSubsEl.value.trim()) {
+    // First try subscriptionIds from the discover response (enriched by backend)
+    const discoverSubs = data.subscriptionIds || [];
+    if (discoverSubs.length) {
+      cuSubsEl.value = discoverSubs.join('\n');
+    } else {
+      // Fallback: fetch from hack state directly
+      try {
+        const cleanPfx = prefix.replace(/-$/, '');
+        const stRes = await fetch(`${API}/hack-state/${encodeURIComponent(cleanPfx)}`);
+        if (stRes.ok) {
+          const st = await stRes.json();
+          const stateSubs = st.subscriptionIds || (st.config || {}).subscriptionIds || [];
+          if (stateSubs.length) {
+            cuSubsEl.value = stateSubs.join('\n');
+          }
+        }
+      } catch (_) { /* best-effort */ }
+    }
+  }
+
   // Update preview table and confirmation prefix
   updateCleanupPreview();
   const confirmTarget = _hackConfirmName(prefix);
