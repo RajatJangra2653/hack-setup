@@ -8949,7 +8949,7 @@ function _renderScheduledJobsTable(jobs) {
       <td>${esc((j.scheduled_at||'').substring(0,19))}</td>
       <td style="color:${statusColor};font-weight:600;">${esc(j.status)}</td>
       <td>${esc((j.created_at||'').substring(0,19))}</td>
-      <td>${j.status === 'pending' ? `<button class=\"btn btn-primary btn-sm\" onclick=\"event.stopPropagation();runJobNow('${esc(j.id)}')\" style=\"margin-right:4px;\">▶ Run Now</button><button class=\"btn btn-secondary btn-sm\" onclick=\"event.stopPropagation();cancelScheduledJob('${esc(j.id)}')\">Cancel</button>` : (j.error ? `<span title=\"${esc(j.error)}\" style=\"cursor:help;\">⚠️</span>` : '')}</td>
+      <td>${j.status === 'pending' ? `<button class=\"btn btn-primary btn-sm\" onclick=\"event.stopPropagation();runJobNow('${esc(j.id)}')\" style=\"margin-right:4px;\">▶ Run Now</button><button class=\"btn btn-secondary btn-sm\" onclick=\"event.stopPropagation();cancelScheduledJob('${esc(j.id)}')\">Cancel</button>` : j.status === 'failed' ? `<button class=\"btn btn-primary btn-sm\" onclick=\"event.stopPropagation();runJobNow('${esc(j.id)}')\" style=\"margin-right:4px;border-color:var(--danger);color:var(--danger);\">⟳ Retry</button><span title=\"${esc(j.error)}\" style=\"cursor:help;\">⚠️</span>` : (j.error ? `<span title=\"${esc(j.error)}\" style=\"cursor:help;\">⚠️</span>` : '')}</td>
     </tr>`;
   }
   html += '</tbody></table>';
@@ -8994,6 +8994,7 @@ function viewJobDetail(jobId) {
       <div><strong>Duration</strong><br>${job.created_at && job.completed_at ? _formatDuration(job.created_at, job.completed_at) : '—'}</div>
     </div>
     ${job.error ? `<div style="background:#fff3f3;border:1px solid var(--danger);border-radius:6px;padding:10px;margin-bottom:12px;"><strong style="color:var(--danger);">❌ Error</strong><pre style="margin:6px 0 0;white-space:pre-wrap;font-size:12px;">${esc(job.error)}</pre></div>` : ''}
+    ${job.status === 'failed' ? `<div style="margin-bottom:12px;"><button class="btn btn-primary" onclick="runJobNow('${esc(job.id)}')" style="border-color:var(--danger);color:var(--danger);">⟳ Retry Job</button></div>` : ''}
     ${resultsHtml}
     <details style="margin-top:12px;"><summary style="cursor:pointer;font-weight:600;font-size:13px;">⚙️ Configuration</summary>
     ${configHtml}

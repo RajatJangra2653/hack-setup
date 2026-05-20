@@ -21,6 +21,7 @@ from onedrive_provisioner.security.scheduler_credentials import (
     make_scheduler_credential_config,
     redact_scheduler_config,
     resolve_scheduler_credentials,
+    delete_secret_blob,
 )
 from onedrive_provisioner.notifications import (
     NotificationService, check_upcoming_reminders,
@@ -152,7 +153,7 @@ class HackScheduler:
         return None
 
     def run_job_now(self, job_id: str) -> ScheduledJob:
-        """Immediately execute a pending job. Returns the updated job."""
+        """Immediately execute a pending or failed job. Returns the updated job."""
         with self._lock:
             jobs = self._load_jobs()
             job = None
@@ -162,8 +163,8 @@ class HackScheduler:
                     break
             if not job:
                 raise ValueError(f"Job {job_id} not found")
-            if job.status != "pending":
-                raise ValueError(f"Job {job_id} is {job.status}, not pending")
+            if job.status not in ("pending", "failed"):
+                raise ValueError(f"Job {job_id} is {job.status}, only pending/failed jobs can be run")
 
             job.status = "running"
             self._save_jobs(jobs)
@@ -179,6 +180,7 @@ class HackScheduler:
             job.completed_at = datetime.now(timezone.utc).isoformat()
             logger.info("Manual run: job %s (%s) completed for '%s'",
                         job.id, job.job_type, job.hack_prefix)
+            self._cleanup_secret_blob(job)
         except Exception as exc:
             job.status = "failed"
             job.error = str(exc)
@@ -210,7 +212,7 @@ class HackScheduler:
         subscription_ids: Azure subscription IDs for RBAC changes.
         Returns list of created jobs.
         """
-        credential_cfg = make_scheduler_credential_config(creds)
+        credential_cfg = make_scheduler_credential_config(creds, blob_client=self._get_blob_client())
 
         # Update hack state
         mgr = self._get_mgr()
@@ -282,7 +284,7 @@ class HackScheduler:
             job_type="provision",
             hack_prefix=prefix,
             scheduled_at=scheduled_at,
-            config={**config, **make_scheduler_credential_config(creds)},
+            config={**config, **make_scheduler_credential_config(creds, blob_client=self._get_blob_client())},
         )
         return self.add_job(job)
 
@@ -351,6 +353,8 @@ class HackScheduler:
                     job.completed_at = datetime.now(timezone.utc).isoformat()
                     logger.info("Scheduler job %s (%s) completed for '%s'",
                                 job.id, job.job_type, job.hack_prefix)
+                    # Clean up secret blob now that the job succeeded
+                    self._cleanup_secret_blob(job)
                     # Send completion notification
                     self._notify_job_complete(job)
                 except Exception as exc:
@@ -363,10 +367,23 @@ class HackScheduler:
             if changed:
                 self._save_jobs(jobs)
 
+    def _get_blob_client(self):
+        """Get blob client from the state manager for secret blob operations."""
+        mgr = self._get_mgr()
+        return mgr._blob if mgr else None
+
+    def _cleanup_secret_blob(self, job: ScheduledJob) -> None:
+        """Delete the secret blob after a job completes successfully."""
+        ref = (job.config or {}).get("client_secret_ref") or {}
+        if ref.get("type") == "blob_secret" and ref.get("id"):
+            blob = self._get_blob_client()
+            if blob:
+                delete_secret_blob(blob, ref["id"])
+
     def _execute_cleanup(self, job: ScheduledJob) -> None:
         """Run cleanup for an expired hack."""
         cfg = job.config
-        t, c, s = resolve_scheduler_credentials(cfg)
+        t, c, s = resolve_scheduler_credentials(cfg, blob_client=self._get_blob_client())
         sub_ids = cfg.get("subscription_ids", [])
         result = self._run_cleanup(job.hack_prefix, t, c, s, subscription_ids=sub_ids)
         if isinstance(result, dict):
@@ -375,7 +392,7 @@ class HackScheduler:
     def _execute_readonly(self, job: ScheduledJob) -> None:
         """Switch a hack to read-only mode."""
         cfg = job.config
-        t, c, s = resolve_scheduler_credentials(cfg)
+        t, c, s = resolve_scheduler_credentials(cfg, blob_client=self._get_blob_client())
         if not self._run_readonly:
             raise ValueError("No readonly handler configured")
         sub_ids = cfg.get("subscription_ids", [])
@@ -388,7 +405,7 @@ class HackScheduler:
     def _execute_provision(self, job: ScheduledJob) -> None:
         """Run provisioning for a scheduled hack."""
         cfg = dict(job.config)
-        t, c, s = resolve_scheduler_credentials(cfg)
+        t, c, s = resolve_scheduler_credentials(cfg, blob_client=self._get_blob_client())
         cfg.pop("tenant_id", None)
         cfg.pop("client_id", None)
         cfg.pop("client_secret_ref", None)

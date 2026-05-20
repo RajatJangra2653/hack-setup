@@ -47,6 +47,18 @@ def _scheduler_provision(cfg_dict: dict, tenant_id: str, client_id: str, client_
 def _scheduler_readonly(prefix: str, tenant_id: str, client_id: str, client_secret: str,
                         subscription_ids: list = None, mode: str = "team"):
     sub_ids = subscription_ids or []
+    # Recover subscription IDs from hack state if not persisted with the job.
+    if not sub_ids:
+        mgr = get_state_manager()
+        if mgr:
+            state = mgr.get_state(prefix)
+            if state:
+                hack_subs = (
+                    state.get("subscriptionIds")
+                    or (state.get("config") or {}).get("subscriptionIds")
+                    or []
+                )
+                sub_ids = [str(s).strip() for s in hack_subs if str(s or "").strip()]
 
     async def _do():
         tp = make_token_provider(tenant_id, client_id, client_secret)
@@ -73,6 +85,19 @@ def _scheduler_readonly(prefix: str, tenant_id: str, client_id: str, client_secr
 def _scheduler_cleanup(prefix: str, tenant_id: str, client_id: str, client_secret: str,
                        subscription_ids: list = None):
     sub_ids = subscription_ids or []
+    # If no subscription IDs were persisted with the job, try to recover them
+    # from the hack state (they are saved during report generation).
+    if not sub_ids:
+        mgr = get_state_manager()
+        if mgr:
+            state = mgr.get_state(prefix)
+            if state:
+                hack_subs = (
+                    state.get("subscriptionIds")
+                    or (state.get("config") or {}).get("subscriptionIds")
+                    or []
+                )
+                sub_ids = [str(s).strip() for s in hack_subs if str(s or "").strip()]
     audit_logger.log("cleanup.started", prefix, actor="scheduler",
                      details={"subscriptions": len(sub_ids)})
     op = operation_tracker.start("cleanup", prefix, actor="scheduler")
@@ -229,8 +254,10 @@ def create_job():
             config["prefix"] = hack_prefix
             job = scheduler.schedule_provision(scheduled_at, config, scheduler_creds_dict(creds, data))
         else:
+            mgr = get_state_manager()
+            blob = mgr._blob if mgr else None
             cfg = {
-                **make_scheduler_credential_config(scheduler_creds_dict(creds, data)),
+                **make_scheduler_credential_config(scheduler_creds_dict(creds, data), blob_client=blob),
                 "subscription_ids": sub_ids,
             }
             if job_type == "readonly":
