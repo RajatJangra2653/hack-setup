@@ -706,20 +706,15 @@
               </label>
               <div class="hint" style="margin:4px 0 8px 22px;">Adds each provisioned user to a GitHub-EMU-backed Entra group and triggers an on-demand sync.</div>
               <div id="ep-githubSubs" style="margin-left:22px;display:none;flex-direction:column;gap:8px;">
-                <div style="display:flex;flex-wrap:wrap;gap:14px;">
-                  <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;font-size:13px;"><input type="checkbox" id="ep-enableGithubCopilot"> Include GitHub Copilot</label>
-                  <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;font-size:13px;"><input type="checkbox" id="ep-enableGithubGhas"> Include GHAS</label>
-                  <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;font-size:13px;"><input type="checkbox" id="ep-enableGithubForAdmins"> Include admin users</label>
+                <div style="font-weight:600;font-size:13px;margin-bottom:4px;">Target Entra Group</div>
+                <div style="display:flex;flex-direction:column;gap:5px;padding:8px 10px;background:#f7f9fc;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+                  <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;"><input type="radio" name="ep-ghGroup" value="default" checked> Public Sector — GitHub Access <span class="hint">(<code>3c92ccf9…</code>)</span></label>
+                  <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:600;"><input type="radio" name="ep-ghGroup" value="copilot"> Public Sector — GitHub Access + Copilot <span class="hint">(<code>8e075647…</code>)</span></label>
+                  <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;"><input type="radio" name="ep-ghGroup" value="ghas"> GHAS <span class="hint">(<code>5bd562c2…</code>)</span></label>
+                  <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;"><input type="radio" name="ep-ghGroup" value="legacy"> CloudLabs — without Copilot <span class="hint">(<code>83311b9f…</code>)</span></label>
+                  <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;"><input type="radio" name="ep-ghGroup" value="legacy-copilot"> CloudLabs — with Copilot <span class="hint">(<code>bb0215fb…</code>)</span></label>
                 </div>
-                <details class="advanced-group">
-                  <summary>Advanced: target group</summary>
-                  <div class="advanced-body" style="padding:8px 10px;background:#fff;border:1px solid var(--border);border-radius:4px;">
-                    <label style="display:flex;align-items:flex-start;gap:6px;margin:0;font-weight:400;font-size:13px;">
-                      <input type="checkbox" id="ep-githubUseLegacyGroups" style="margin-top:3px;">
-                      <span>Use the original <code>83311b9f…</code> groups instead of <code>public-sector-hacks</code> groups.</span>
-                    </label>
-                  </div>
-                </details>
+                <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;font-size:13px;"><input type="checkbox" id="ep-enableGithubForAdmins"> Include admin users</label>
               </div>
             </div>
           </div>
@@ -1518,24 +1513,20 @@
                 <label for="mh-ghEmails">User emails <span class="hint" style="font-weight:400;">(blank = all users from loaded hack)</span></label>
                 <textarea id="mh-ghEmails" rows="3" placeholder="alice@contoso.com, bob@contoso.com (one per line or comma-separated)"></textarea>
               </div>
+              <div class="form-group">
+                <div style="font-weight:600;font-size:13px;margin-bottom:6px;">Target Entra Group</div>
+                <div style="display:flex;flex-direction:column;gap:6px;padding:8px 10px;background:#f7f9fc;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+                  <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;"><input type="radio" name="mh-ghGroup" value="default"> Public Sector — GitHub Access <span class="hint">(<code>3c92ccf9…</code>)</span></label>
+                  <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:600;"><input type="radio" name="mh-ghGroup" value="copilot" checked> Public Sector — GitHub Access + Copilot <span class="hint">(<code>8e075647…</code>)</span></label>
+                  <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;"><input type="radio" name="mh-ghGroup" value="ghas"> GHAS <span class="hint">(<code>5bd562c2…</code>)</span></label>
+                  <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;"><input type="radio" name="mh-ghGroup" value="legacy"> CloudLabs — without Copilot <span class="hint">(<code>83311b9f…</code>)</span></label>
+                  <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;"><input type="radio" name="mh-ghGroup" value="legacy-copilot"> CloudLabs — with Copilot <span class="hint">(<code>bb0215fb…</code>)</span></label>
+                </div>
+              </div>
               <div class="form-group" style="display:flex;flex-wrap:wrap;gap:14px;">
                 <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;font-size:13px;"><input type="checkbox" id="mh-ghIncludeAdmins"> Include admin users</label>
-                <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;font-size:13px;"><input type="checkbox" id="mh-ghCopilot" checked> Include GitHub Copilot</label>
-                <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;font-size:13px;"><input type="checkbox" id="mh-ghGhas"> Include GHAS <span class="hint">(optional — overrides Copilot)</span></label>
                 <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;font-size:13px;"><input type="checkbox" id="mh-ghTriggerSync" checked> Trigger sync after add</label>
               </div>
-              <details style="font-size:12px;color:var(--muted);margin-bottom:10px;">
-                <summary style="cursor:pointer;user-select:none;">Advanced: target group</summary>
-                <div style="margin-top:6px;padding:8px 10px;background:#fff;border:1px solid var(--border);border-radius:4px;">
-                  <label style="display:flex;align-items:flex-start;gap:6px;margin:0;font-weight:400;font-size:13px;">
-                    <input type="checkbox" id="mh-ghLegacy" style="margin-top:3px;">
-                    <span>
-                      Use the original <code>83311b9f…</code> / <code>bb0215fb…</code> Entra groups instead of the current <code>public-sector-hacks</code> groups (<code>3c92ccf9…</code> / <code>8e075647…</code>).
-                      <br><span class="hint">Leave unchecked unless you've been told to use the older groups for backwards compatibility.</span>
-                    </span>
-                  </label>
-                </div>
-              </details>
               <button class="btn btn-primary" data-archived-disabled="true" onclick="withBusy(this, enableGithubForHack)" title="Add all hack users to GitHub-EMU-backed Entra groups and trigger SCIM sync">🐙 Enable GitHub</button>
               <span id="mh-ghSpinner" class="hidden"><span class="spinner"></span></span>
               <div id="mh-gh-progress" class="op-progress"><div class="op-progress-track"><div class="op-progress-fill"></div></div><div class="op-progress-text"></div></div>
@@ -2072,24 +2063,20 @@
         <!-- ── Shared options ── -->
         <hr class="section-divider">
         <div class="section-label">Options</div>
+        <div class="form-group">
+          <div style="font-weight:600;font-size:13px;margin-bottom:6px;">Target Entra Group</div>
+          <div style="display:flex;flex-direction:column;gap:6px;padding:8px 10px;background:#f7f9fc;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+            <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;"><input type="radio" name="gh-group" value="default" checked> Public Sector — GitHub Access <span class="hint">(<code>3c92ccf9…</code>)</span></label>
+            <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:600;"><input type="radio" name="gh-group" value="copilot"> Public Sector — GitHub Access + Copilot <span class="hint">(<code>8e075647…</code>)</span></label>
+            <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;"><input type="radio" name="gh-group" value="ghas"> GHAS <span class="hint">(<code>5bd562c2…</code>)</span></label>
+            <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;"><input type="radio" name="gh-group" value="legacy"> CloudLabs — without Copilot <span class="hint">(<code>83311b9f…</code>)</span></label>
+            <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;"><input type="radio" name="gh-group" value="legacy-copilot"> CloudLabs — with Copilot <span class="hint">(<code>bb0215fb…</code>)</span></label>
+          </div>
+        </div>
         <div class="form-group" style="display:flex;flex-wrap:wrap;gap:14px;">
-          <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;font-size:13px;"><input type="checkbox" id="gh-optCopilot" checked> Include GitHub Copilot</label>
-          <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;font-size:13px;"><input type="checkbox" id="gh-optGhas"> Include GHAS <span class="hint">(optional — overrides Copilot)</span></label>
           <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;font-size:13px;" data-mode="existing"><input type="checkbox" id="gh-optIncludeAdmins"> Include admin users <span class="hint">(existing-hack mode)</span></label>
           <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:400;font-size:13px;"><input type="checkbox" id="gh-optTriggerSync" checked> Trigger sync after add</label>
         </div>
-        <details style="font-size:12px;color:var(--muted);margin-bottom:10px;">
-          <summary style="cursor:pointer;user-select:none;">Advanced: target group</summary>
-          <div style="margin-top:6px;padding:8px 10px;background:#fff;border:1px solid var(--border);border-radius:4px;">
-            <label style="display:flex;align-items:flex-start;gap:6px;margin:0;font-weight:400;font-size:13px;">
-              <input type="checkbox" id="gh-optLegacy" style="margin-top:3px;">
-              <span>
-                Use the original <code>83311b9f…</code> / <code>bb0215fb…</code> Entra groups instead of the current <code>public-sector-hacks</code> groups (<code>3c92ccf9…</code> / <code>8e075647…</code>).
-                <br><span class="hint">Leave unchecked unless you've been told to use the older groups for backwards compatibility.</span>
-              </span>
-            </label>
-          </div>
-        </details>
 
         <button class="btn btn-primary" onclick="withBusy(this, runGithubEnable)">🐙 Enable GitHub</button>
         <span id="gh-spinner" class="hidden" style="margin-left:8px;"><span class="spinner"></span></span>
@@ -4448,10 +4435,8 @@ function _epCfg() {
     isGcc: document.getElementById('ep-isGcc').checked,
     budgetPerTeam: parseFloat(document.getElementById('ep-budgetPerTeam').value) || undefined,
     enableGithub: document.getElementById('ep-enableGithub').checked,
-    enableGithubCopilot: document.getElementById('ep-enableGithubCopilot').checked,
-    enableGithubGhas: document.getElementById('ep-enableGithubGhas').checked,
+    ...(() => { const g = _readGhGroupRadio('ep-ghGroup'); return { enableGithubCopilot: g.withCopilot, enableGithubGhas: g.withGhas, githubUseLegacyGroups: g.useLegacyGroups }; })(),
     enableGithubForAdmins: document.getElementById('ep-enableGithubForAdmins').checked,
-    githubUseLegacyGroups: document.getElementById('ep-githubUseLegacyGroups').checked,
     enablePowerApps: document.getElementById('ep-enablePowerApps').checked,
     powerAppsLocation: (document.getElementById('ep-powerAppsLocation') || {}).value || 'unitedstates',
     enableSharePoint: document.getElementById('ep-enableSharePoint').checked,
@@ -6303,8 +6288,10 @@ async function executeCleanup() {
       rows += `<tr><td>Group</td><td>${esc(g.displayName || g.id)}</td><td style="color:${color};font-weight:600">${esc(g.status)}</td><td style="font-size:12px;color:var(--muted)">${esc(g.error || '')}</td></tr>`;
     }
     for (const r of (data.rbac || [])) {
-      const color = r.status === 'removed' ? 'var(--success)' : 'var(--danger)';
-      rows += `<tr><td>RBAC</td><td>${esc(r.subscription || r.principalId || '')}</td><td style="color:${color};font-weight:600">${esc(r.status)}</td><td style="font-size:12px;color:var(--muted)">${esc(r.error || '')}</td></tr>`;
+      const st = r.status || (r.removed && r.removed.length ? 'removed' : 'error');
+      const color = st === 'removed' ? 'var(--success)' : 'var(--danger)';
+      const detail = r.error || (r.removed ? `${r.removed.filter(x=>x.ok).length}/${r.removed.length} assignments` : '');
+      rows += `<tr><td>RBAC</td><td>${esc(r.subscription || r.principalId || '')}</td><td style="color:${color};font-weight:600">${esc(st)}</td><td style="font-size:12px;color:var(--muted)">${esc(detail)}</td></tr>`;
     }
     document.getElementById('cu-resultBody').innerHTML = rows || '<tr><td colspan="4"><em>No results</em></td></tr>';
     document.getElementById('cu-resultCard').classList.remove('hidden');
@@ -7045,6 +7032,16 @@ function _toggleGithubSubOptions(prefix) {
   if (subs) subs.style.display = cb && cb.checked ? '' : 'none';
 }
 
+/** Read a radio-button group picker and return {withCopilot, withGhas, useLegacyGroups}. */
+function _readGhGroupRadio(radioName) {
+  const v = (document.querySelector(`input[name="${radioName}"]:checked`) || {}).value || 'default';
+  return {
+    withCopilot: v === 'copilot' || v === 'legacy-copilot',
+    withGhas: v === 'ghas',
+    useLegacyGroups: v === 'legacy' || v === 'legacy-copilot',
+  };
+}
+
 function _togglePowerAppsSub(prefix) {
   const cb = document.getElementById(prefix + '-enablePowerApps');
   const subs = document.getElementById(prefix + '-powerAppsSubs');
@@ -7074,9 +7071,7 @@ async function enableGithubForHack() {
 
   const body = {
     emails: emailList,
-    withCopilot: document.getElementById('mh-ghCopilot').checked,
-    withGhas: document.getElementById('mh-ghGhas').checked,
-    useLegacyGroups: document.getElementById('mh-ghLegacy').checked,
+    ..._readGhGroupRadio('mh-ghGroup'),
     triggerSync: document.getElementById('mh-ghTriggerSync').checked,
   };
 
@@ -7128,7 +7123,7 @@ async function enableGithubForHack() {
     // Persist enableGithub flag in hack state so cost & cleanup can detect it
     if (_managedHackState && _managedHackState.prefix) {
       const pfx = _getHackPrefix();
-      const ghCopilot = document.getElementById('mh-ghCopilot').checked;
+      const ghCopilot = _readGhGroupRadio('mh-ghGroup').withCopilot;
       try {
         const patchRes = await fetch(`${API}/hack-state/${encodeURIComponent(pfx)}/config`, {
           method: 'PATCH',
@@ -7495,9 +7490,7 @@ async function runGithubEnable() {
 
   const body = {
     emails,
-    withCopilot: document.getElementById('gh-optCopilot').checked,
-    withGhas: document.getElementById('gh-optGhas').checked,
-    useLegacyGroups: document.getElementById('gh-optLegacy').checked,
+    ..._readGhGroupRadio('gh-group'),
     triggerSync: document.getElementById('gh-optTriggerSync').checked,
   };
 
@@ -7551,7 +7544,7 @@ async function runGithubEnable() {
     // Persist enableGithub flag in hack state so cost & cleanup can detect it
     if (mode === 'existing' && _ghLoadedHack && _ghLoadedHack.prefix) {
       const pfx = _ghLoadedHack.prefix.replace(/-$/, '');
-      const ghCopilot = document.getElementById('gh-optCopilot').checked;
+      const ghCopilot = _readGhGroupRadio('gh-group').withCopilot;
       try {
         await fetch(`${API}/hack-state/${encodeURIComponent(pfx)}/config`, {
           method: 'PATCH',
@@ -10215,7 +10208,7 @@ function buildReviewSummary() {
     ['Mode', mode === 'flat' ? 'Flat' : `${teams} teams × ${perTeam} users/team`],
     ['Total Users', totalUsers + (admins ? ` (incl. ${admins} admins)` : '')],
     ['Licenses', selectedLicenses.length ? selectedLicenses.join(', ') : 'None selected'],
-    ['GitHub', c('ep-enableGithub') ? 'Enabled' + (c('ep-enableGithubCopilot') ? ' + Copilot' : '') : 'No'],
+    ['GitHub', c('ep-enableGithub') ? 'Enabled' + (() => { const g = _readGhGroupRadio('ep-ghGroup'); return g.withCopilot ? ' + Copilot' : g.withGhas ? ' + GHAS' : ''; })() : 'No'],
     ['Dry Run', c('ep-dryRun') ? 'Yes — no changes will be made' : 'No — real provisioning'],
   ];
   el.innerHTML = '<div class="field-group-title">Review your setup</div>' +
@@ -10989,7 +10982,17 @@ function loadTemplate(idOrIdx) {
   _set('ep-teams', c.teams); _set('ep-perTeam', c.usersPerTeam); _set('ep-admins', c.adminUsers);
   _set('ep-mode', c.mode); _set('ep-tapLifetime', c.tapLifetime); _set('ep-concurrency', c.concurrency);
   _set('ep-padWidth', c.padWidth); _set('ep-startIndex', c.startIndex);
-  _chk('ep-enableGithub', c.enableGithub); _chk('ep-enableGithubCopilot', c.enableGithubCopilot);
+  _chk('ep-enableGithub', c.enableGithub);
+  // Restore GitHub group radio from template config
+  (() => {
+    let val = 'default';
+    if (c.enableGithubGhas) val = 'ghas';
+    else if (c.githubUseLegacyGroups && c.enableGithubCopilot) val = 'legacy-copilot';
+    else if (c.githubUseLegacyGroups) val = 'legacy';
+    else if (c.enableGithubCopilot) val = 'copilot';
+    const r = document.querySelector(`input[name="ep-ghGroup"][value="${val}"]`);
+    if (r) r.checked = true;
+  })();
   _chk('ep-enablePowerApps', c.enablePowerApps); _chk('ep-enableSharePoint', c.enableSharePoint);
   _chk('ep-assignLicensesToAdmins', c.assignLicensesToAdmins);
   _chk('ep-createTeamGroups', c.createTeamGroups); _chk('ep-createAdminGroup', c.createAdminGroup);
