@@ -53,14 +53,32 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     environment: production
+    env:
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      AZURE_APP_NAME: ${{ vars.AZURE_APP_NAME }}
     steps:
       - uses: actions/checkout@v4
+      - name: Check deploy configuration
+        id: deploy_config
+        run: |
+          if [[ -n "$AZURE_CLIENT_ID" && -n "$AZURE_TENANT_ID" && -n "$AZURE_SUBSCRIPTION_ID" && -n "$AZURE_APP_NAME" ]]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Skip deploy when Azure configuration is missing
+        if: steps.deploy_config.outputs.ready != 'true'
+        run: echo "Azure deployment is skipped because required secrets/variables are not configured."
       - uses: azure/login@v2
+        if: steps.deploy_config.outputs.ready == 'true'
         with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
       - uses: azure/webapps-deploy@v3
+        if: steps.deploy_config.outputs.ready == 'true'
         with:
-          app-name: ${{ vars.AZURE_APP_NAME }}
+          app-name: ${{ env.AZURE_APP_NAME }}
           startup-command: "gunicorn app:app -c gunicorn.conf.py"
