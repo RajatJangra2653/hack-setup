@@ -58,20 +58,20 @@ jobs:
       AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
       AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       AZURE_APP_NAME: ${{ vars.AZURE_APP_NAME }}
-      HAS_AZURE_DEPLOY_CONFIG: ${{ secrets.AZURE_CLIENT_ID && secrets.AZURE_TENANT_ID && secrets.AZURE_SUBSCRIPTION_ID && vars.AZURE_APP_NAME }}
+      HAS_AZURE_DEPLOY_CONFIG: ${{ secrets.AZURE_CLIENT_ID != '' && secrets.AZURE_TENANT_ID != '' && secrets.AZURE_SUBSCRIPTION_ID != '' && vars.AZURE_APP_NAME != '' }}
     steps:
       - uses: actions/checkout@v4
       - name: Skip deploy when Azure configuration is missing
-        if: env.HAS_AZURE_DEPLOY_CONFIG == ''
+        if: env.HAS_AZURE_DEPLOY_CONFIG != 'true'
         run: echo "Azure deployment is skipped because required secrets/variables are not configured."
       - uses: azure/login@v2
-        if: env.HAS_AZURE_DEPLOY_CONFIG != ''
+        if: env.HAS_AZURE_DEPLOY_CONFIG == 'true'
         with:
           client-id: ${{ env.AZURE_CLIENT_ID }}
           tenant-id: ${{ env.AZURE_TENANT_ID }}
           subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
       - uses: azure/webapps-deploy@v3
-        if: env.HAS_AZURE_DEPLOY_CONFIG != ''
+        if: env.HAS_AZURE_DEPLOY_CONFIG == 'true'
         with:
           app-name: ${{ env.AZURE_APP_NAME }}
           startup-command: "gunicorn app:app -c gunicorn.conf.py"
