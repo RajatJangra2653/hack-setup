@@ -16,7 +16,7 @@ from typing import Any
 
 import httpx
 
-from platform_core.core.errors import GraphApiError, ThrottledError
+from platform_core.core.errors import GraphApiError
 
 logger = logging.getLogger(__name__)
 

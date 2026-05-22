@@ -1,4 +1,3 @@
-import os
 
 from onedrive_provisioner.scheduler import HackScheduler
 from onedrive_provisioner.chatbot.tool_executor import ToolExecutor

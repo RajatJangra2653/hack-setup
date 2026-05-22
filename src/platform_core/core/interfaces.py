@@ -7,10 +7,12 @@ inherit — duck-typing with static-checker support.
 
 from __future__ import annotations
 
-from typing import Any, Protocol, Sequence, runtime_checkable
+from typing import Any, Protocol, Sequence, TypeVar, runtime_checkable
 from uuid import UUID
 
 from platform_core.core import HackPrefix, JsonDict
+
+T = TypeVar("T")
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -52,7 +54,7 @@ class Provider(Protocol):
 # ═══════════════════════════════════════════════════════════════════
 
 @runtime_checkable
-class Repository[T](Protocol):
+class Repository(Protocol[T]):
     """Generic CRUD repository."""
 
     async def get(self, id: str | UUID) -> T | None: ...

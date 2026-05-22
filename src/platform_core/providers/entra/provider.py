@@ -15,7 +15,6 @@ from platform_core.core import HackPrefix, JsonDict
 from platform_core.events import (
     EventBus,
     ProvisionCompletedEvent,
-    ProvisionFailedEvent,
     ProvisionStartedEvent,
     UserCreatedEvent,
     CleanupCompletedEvent,

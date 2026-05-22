@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
-from datetime import datetime, date, timezone
+from datetime import datetime, timezone
 import re
 from typing import Any, Dict, Iterable, List, Optional
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from platform_core.core import HackPrefix, JsonDict
+from platform_core.core import JsonDict
 from platform_core.events import EventBus
 from platform_core.providers.base import ProviderBase
 from platform_core.providers.graph.client import GraphClient

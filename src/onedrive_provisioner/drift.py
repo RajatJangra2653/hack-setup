@@ -8,9 +8,8 @@ the user/group lists stored in blob state. Reports:
 """
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List
 
 from .entra.discovery_service import DiscoveryService
 from .graph import GraphClient

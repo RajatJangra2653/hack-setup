@@ -7,7 +7,7 @@ async support via aiosqlite (SQLite) or asyncpg (PostgreSQL).
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Optional
 from uuid import UUID, uuid4
 
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine

@@ -24,7 +24,6 @@ from platform_core.telemetry import new_correlation_id, set_context
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Startup / shutdown lifecycle hooks."""
     # Startup
-    from platform_core.events import get_event_bus
     from platform_core.workers import get_worker_registry
 
     await get_worker_registry().start_all()

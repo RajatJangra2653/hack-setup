@@ -11,11 +11,9 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Any
 
 from platform_core.core import HackPrefix, JsonDict
 from platform_core.events import (
-    DomainEvent,
     DriftCleanEvent,
     DriftDetectedEvent,
     EventBus,

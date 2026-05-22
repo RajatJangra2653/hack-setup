@@ -1,6 +1,5 @@
 """Tests for platform_core event bus."""
 
-import asyncio
 import pytest
 from platform_core.events import EventBus, DomainEvent
 
