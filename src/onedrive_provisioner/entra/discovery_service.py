@@ -45,7 +45,6 @@ class DiscoveryService:
 
         # Belt-and-braces: also include any users whose UPN starts with prefix
         # but whose mailNickname doesn't (covers manual creations).
-        upn_prefix = prefix.lower()
         for u in users:
             u["_match"] = "mailNickname"
         return users

@@ -13,7 +13,7 @@ import re
 from typing import Callable, Dict, List, Tuple
 
 from docx import Document
-from docx.shared import Inches, Pt, RGBColor
+from docx.shared import Inches
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 

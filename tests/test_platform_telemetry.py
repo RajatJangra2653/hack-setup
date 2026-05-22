@@ -29,7 +29,7 @@ def test_histogram():
 def test_timer():
     m = MetricsCollector()
     with m.timer("operation.duration", op="provision"):
-        total = sum(range(1000))
+        sum(range(1000))
     vals = m.get_histogram("operation.duration")
     assert len(vals) == 1
     assert vals[0] > 0

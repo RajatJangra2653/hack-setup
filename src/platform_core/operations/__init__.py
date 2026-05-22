@@ -11,7 +11,7 @@ from typing import Any
 from uuid import UUID
 
 from platform_core.events import EventBus, OperationCompletedEvent, OperationStartedEvent
-from platform_core.models.operation import Operation, OperationStatus, OperationType
+from platform_core.models.operation import Operation, OperationType
 
 logger = logging.getLogger(__name__)
 

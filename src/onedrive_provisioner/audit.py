@@ -5,7 +5,6 @@ Events are append-only and queryable by hack prefix, actor, or event type.
 """
 from __future__ import annotations
 
-import json
 import logging
 import threading
 import uuid

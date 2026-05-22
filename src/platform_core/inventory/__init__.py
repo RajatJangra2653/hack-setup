@@ -5,7 +5,6 @@ resources across hacks, providers, and resource types.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 from typing import Any
 
 from platform_core.events import DomainEvent, EventBus

@@ -10,7 +10,6 @@ from .rbac_service import (
     ELEVATED_ROLE_IDS,
     ROLE_IDS,
     RbacService,
-    role_definition_id,
     subscription_from_assignment,
 )
 

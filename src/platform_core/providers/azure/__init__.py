@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from platform_core.core import HackPrefix, JsonDict
+from platform_core.core import JsonDict
 from platform_core.events import EventBus
 from platform_core.providers.base import ProviderBase
 from platform_core.providers.entra.rbac_ops import RbacOps
@@ -30,7 +30,6 @@ class AzureProvider(ProviderBase):
 
     async def provision(self, desired: JsonDict, *, dry_run: bool = False, on_progress: Any = None) -> JsonDict:
         """Assign RBAC roles for hack teams."""
-        prefix = desired.get("prefix", "")
         subscriptions = desired.get("subscriptions", [])
         role = desired.get("rbac_role", "Contributor")
         principal_id = desired.get("principal_id", "")
