@@ -23,6 +23,7 @@ dependencies = [
     "mcp>=1.2.0",
     "azure-identity>=1.15",
     "azure-storage-blob>=12.19",
+    "openai>=1.0",
     # platform_core dependencies
     "fastapi>=0.111",
     "uvicorn[standard]>=0.29",
