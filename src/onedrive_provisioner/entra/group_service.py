@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional
 
 from ..graph import GraphClient, GraphError
 from ..logging_setup import get_logger
@@ -64,7 +64,6 @@ class GroupService:
 
         Returns True if the user is confirmed as a member, False on error.
         """
-        last_exc: Optional[GraphError] = None
         for attempt in range(1, retries + 1):
             body = {
                 "@odata.id": f"https://graph.microsoft.com/v1.0/directoryObjects/{user_id}"
@@ -77,7 +76,6 @@ class GroupService:
                 if exc.status == 400 and ("already exist" in msg
                                           or "added object references already exist" in msg):
                     return True  # already a member — no verification needed
-                last_exc = exc
                 if attempt < retries:
                     import asyncio as _aio
                     delay = 1.0 * attempt

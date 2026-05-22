@@ -37,6 +37,7 @@ MUTATION_TOOLS = {
     "modify_hack_dates",
     "repair_groups",
     "repair_licenses",
+    "expand_hack",
 }
 
 SECRET_KEYS = {
@@ -138,27 +139,198 @@ class ToolExecutor:
             "upns": [u.get("userPrincipalName", "") for u in users],
         }
 
+    def _tool_expand_hack(
+        self,
+        prefix: str,
+        addTeams: int = 0,
+        addParticipantsPerTeam: int = 0,
+        addAdmins: int = 0,
+        dryRun: bool = False,
+        password: str = "",
+        randomPasswords: bool = False,
+    ) -> Any:
+        """Expand an existing hack by adding more teams, more participants per
+        team, and/or more admins. Indices continue from the current max — no
+        existing user is touched (orchestrator runs with skip_existing=True).
+        Returns a session_id; caller polls get_session_status to monitor.
+        """
+        from flask import current_app
+        try:
+            app = current_app._get_current_object()  # noqa: SLF001
+        except Exception:
+            return {"error": "No Flask app context — cannot invoke expand endpoint."}
+
+        payload = {
+            "tenant_id": self._creds[0],
+            "client_id": self._creds[1],
+            "client_secret": self._creds[2],
+            "addTeams": int(addTeams or 0),
+            "addParticipantsPerTeam": int(addParticipantsPerTeam or 0),
+            "addAdmins": int(addAdmins or 0),
+            "dryRun": bool(dryRun),
+        }
+        if password:
+            payload["password"] = password
+        elif randomPasswords:
+            payload["randomPasswords"] = True
+        with app.test_client() as client:
+            resp = client.post(f"/api/hack-state/{prefix}/expand", json=payload)
+            try:
+                body = resp.get_json()
+            except Exception:
+                body = {"error": "Invalid JSON from expand endpoint", "status": resp.status_code}
+            if resp.status_code >= 400:
+                if not isinstance(body, dict):
+                    body = {"error": str(body), "status": resp.status_code}
+                body.setdefault("status", resp.status_code)
+                return body
+            return body
+
+    def _tool_get_subscription_cost(
+        self,
+        subscription: str,
+        startDate: Optional[str] = None,
+        endDate: Optional[str] = None,
+    ) -> Any:
+        """Fetch actual Azure cost for a single subscription, identified by GUID
+        OR display name (case-insensitive contains match).
+
+        - ``subscription`` may be a subscription GUID or a (partial) display name.
+        - ``startDate`` / ``endDate`` are ISO ``YYYY-MM-DD``. Defaults: last 30 days.
+        Requires the SPN to have Reader + Cost Management Reader on the sub.
+        """
+        from datetime import datetime, timedelta, timezone
+        from onedrive_provisioner.entra.cost_service import CostManagementService
+
+        if not subscription or not isinstance(subscription, str):
+            return {"error": "subscription is required (GUID or display name)"}
+        if not endDate:
+            endDate = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        if not startDate:
+            startDate = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d")
+
+        tp = _make_tp(self._creds)
+
+        async def _run() -> dict:
+            async with CostManagementService(tp) as cost_svc:
+                # Resolve the subscription: if it looks like a GUID, use it
+                # directly; otherwise list accessible subs and substring-match
+                # the display name.
+                sub_id = subscription.strip()
+                display_name = None
+                is_guid = (
+                    len(sub_id) == 36 and sub_id.count("-") == 4
+                )
+                if not is_guid:
+                    accessible = await cost_svc.list_accessible_subscriptions()
+                    needle = sub_id.lower()
+                    matches = [
+                        s for s in accessible
+                        if needle in (s.get("displayName") or "").lower()
+                    ]
+                    if not matches:
+                        return {
+                            "error": f"No accessible subscription matched '{subscription}'.",
+                            "accessibleCount": len(accessible),
+                        }
+                    if len(matches) > 1:
+                        return {
+                            "error": f"Ambiguous: '{subscription}' matched {len(matches)} subscriptions.",
+                            "candidates": [
+                                {"subscriptionId": m.get("subscriptionId"), "displayName": m.get("displayName")}
+                                for m in matches[:10]
+                            ],
+                        }
+                    sub_id = matches[0].get("subscriptionId")
+                    display_name = matches[0].get("displayName")
+                else:
+                    # Look up display name (best-effort; ignore failures)
+                    try:
+                        accessible = await cost_svc.list_accessible_subscriptions()
+                        for s in accessible:
+                            if s.get("subscriptionId") == sub_id:
+                                display_name = s.get("displayName")
+                                break
+                    except Exception:
+                        pass
+                row = await cost_svc.query_subscription_cost(
+                    sub_id, start_date=startDate, end_date=endDate,
+                )
+                if display_name and not row.get("displayName"):
+                    row["displayName"] = display_name
+                return row
+
+        try:
+            return asyncio.run(_run())
+        except Exception as exc:
+            return {"error": f"Cost query failed: {exc}"}
+
     def _tool_generate_hack_report(
         self,
         prefix: str,
         currency: str = "USD",
         licenseUnitCosts: Optional[dict] = None,
         subscriptionCosts: Optional[list] = None,
+        fetchSubscriptionCosts: bool = True,
+        startDate: Optional[str] = None,
+        endDate: Optional[str] = None,
+        budget: Optional[float] = None,
+        forceRefresh: bool = False,
     ) -> Any:
-        from onedrive_provisioner.hack_report import build_hack_report
+        """Delegate to the production /api/hack-state/<prefix>/report endpoint
+        so the chatbot uses the SAME pipeline as the UI: group-RBAC + user-RBAC
+        sub discovery, displayName + team-map enrichment, cost cache, state
+        persistence, and budget tracking. Any feature added to that route is
+        automatically available here.
+        """
+        from datetime import datetime, timezone
+        from flask import current_app
 
-        mgr = self._get_mgr()
-        if not mgr:
-            return {"error": "Storage not configured"}
-        state = mgr.get_state(prefix)
-        if not state:
-            return {"error": f"No state found for prefix '{prefix}'"}
-        return build_hack_report(
-            state,
-            subscription_costs=subscriptionCosts or [],
-            license_unit_costs=licenseUnitCosts or {},
-            currency=currency or "USD",
-        )
+        try:
+            app = current_app._get_current_object()  # noqa: SLF001
+        except Exception:
+            return {"error": "No Flask app context — cannot invoke report endpoint."}
+
+        if not endDate:
+            endDate = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+        payload = {
+            "tenant_id": self._creds[0],
+            "client_id": self._creds[1],
+            "client_secret": self._creds[2],
+            "currency": (currency or "USD"),
+            "fetchSubscriptionCosts": bool(fetchSubscriptionCosts),
+            "forceRefresh": bool(forceRefresh),
+            "endDate": endDate,
+        }
+        if startDate:
+            payload["startDate"] = startDate
+        if budget is not None:
+            payload["budget"] = budget
+        if subscriptionCosts:
+            payload["subscriptionCosts"] = subscriptionCosts
+            payload["subscriptionIds"] = [
+                c.get("subscriptionId") for c in subscriptionCosts
+                if c.get("subscriptionId")
+            ]
+        if licenseUnitCosts:
+            payload["licenseUnitCosts"] = licenseUnitCosts
+
+        with app.test_client() as client:
+            resp = client.post(
+                f"/api/hack-state/{prefix}/report",
+                json=payload,
+            )
+            try:
+                body = resp.get_json()
+            except Exception:
+                body = {"error": "Invalid JSON from report endpoint", "status": resp.status_code}
+            if resp.status_code >= 400:
+                if not isinstance(body, dict):
+                    body = {"error": str(body), "status": resp.status_code}
+                body.setdefault("status", resp.status_code)
+                return body
+            return body
 
     def _tool_get_provisioning_sessions(self) -> Any:
         with self._entra_lock:

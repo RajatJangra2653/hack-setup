@@ -5,7 +5,7 @@ Uses https://management.azure.com to create roleAssignments at subscription scop
 from __future__ import annotations
 
 import uuid
-from typing import Iterable, List, Optional
+from typing import List, Optional
 
 import httpx
 

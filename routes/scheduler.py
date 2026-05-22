@@ -21,6 +21,7 @@ from onedrive_provisioner.security.scheduler_credentials import make_scheduler_c
 from ._state import (
     extract_creds, get_state_manager, make_token_provider,
     scheduler_creds_dict, is_archived_state,
+    audit_logger, operation_tracker,
 )
 
 bp = Blueprint("scheduler", __name__)
@@ -46,6 +47,18 @@ def _scheduler_provision(cfg_dict: dict, tenant_id: str, client_id: str, client_
 def _scheduler_readonly(prefix: str, tenant_id: str, client_id: str, client_secret: str,
                         subscription_ids: list = None, mode: str = "team"):
     sub_ids = subscription_ids or []
+    # Recover subscription IDs from hack state if not persisted with the job.
+    if not sub_ids:
+        mgr = get_state_manager()
+        if mgr:
+            state = mgr.get_state(prefix)
+            if state:
+                hack_subs = (
+                    state.get("subscriptionIds")
+                    or (state.get("config") or {}).get("subscriptionIds")
+                    or []
+                )
+                sub_ids = [str(s).strip() for s in hack_subs if str(s or "").strip()]
 
     async def _do():
         tp = make_token_provider(tenant_id, client_id, client_secret)
@@ -72,6 +85,22 @@ def _scheduler_readonly(prefix: str, tenant_id: str, client_id: str, client_secr
 def _scheduler_cleanup(prefix: str, tenant_id: str, client_id: str, client_secret: str,
                        subscription_ids: list = None):
     sub_ids = subscription_ids or []
+    # If no subscription IDs were persisted with the job, try to recover them
+    # from the hack state (they are saved during report generation).
+    if not sub_ids:
+        mgr = get_state_manager()
+        if mgr:
+            state = mgr.get_state(prefix)
+            if state:
+                hack_subs = (
+                    state.get("subscriptionIds")
+                    or (state.get("config") or {}).get("subscriptionIds")
+                    or []
+                )
+                sub_ids = [str(s).strip() for s in hack_subs if str(s or "").strip()]
+    audit_logger.log("cleanup.started", prefix, actor="scheduler",
+                     details={"subscriptions": len(sub_ids)})
+    op = operation_tracker.start("cleanup", prefix, actor="scheduler")
 
     async def _do():
         tp = make_token_provider(tenant_id, client_id, client_secret)
@@ -119,6 +148,12 @@ def _scheduler_cleanup(prefix: str, tenant_id: str, client_id: str, client_secre
         result["state_archived"] = mgr.archive_state(prefix, reason="scheduled_cleanup", cleanup_result=result)
     else:
         result["state_archived"] = False
+    op.complete(result={"users": len(result.get("users_deleted", [])),
+                        "groups": len(result.get("groups_deleted", []))})
+    operation_tracker.finish(op)
+    audit_logger.log("cleanup.completed", prefix, actor="scheduler",
+                     details={"users_deleted": len(result.get("users_deleted", [])),
+                              "groups_deleted": len(result.get("groups_deleted", []))})
     return result
 
 
@@ -219,8 +254,10 @@ def create_job():
             config["prefix"] = hack_prefix
             job = scheduler.schedule_provision(scheduled_at, config, scheduler_creds_dict(creds, data))
         else:
+            mgr = get_state_manager()
+            blob = mgr._blob if mgr else None
             cfg = {
-                **make_scheduler_credential_config(scheduler_creds_dict(creds, data)),
+                **make_scheduler_credential_config(scheduler_creds_dict(creds, data), blob_client=blob),
                 "subscription_ids": sub_ids,
             }
             if job_type == "readonly":
@@ -295,3 +332,31 @@ def run_scheduled_hack_now(job_id):
         return jsonify({"error": str(exc)}), 400
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
+
+
+@bp.route("/api/notifications/test-webhook", methods=["POST"])
+def test_webhook():
+    """Send a test message to a Teams Incoming Webhook or Power Automate HTTP trigger."""
+    data = request.get_json(silent=True) or {}
+    url = data.get("webhook_url", "").strip()
+    msg_type = data.get("type", "webhook")  # "webhook" or "power_automate"
+    if not url:
+        return jsonify({"error": "webhook_url is required"}), 400
+
+    from onedrive_provisioner.notifications import NotificationService
+    ns = NotificationService(teams_webhook_url=url)
+
+    if msg_type == "power_automate":
+        ok = ns.send_power_automate_event(url, "test", {
+            "message": "Test notification from Spektra HackOps",
+            "status": "ok",
+        })
+    else:
+        ok = ns.send_teams_message(
+            "🧪 Test Notification",
+            "This is a test message from **Spektra HackOps**. If you see this, your webhook is configured correctly!",
+            facts=[{"name": "Status", "value": "✅ Working"}],
+        )
+    if ok:
+        return jsonify({"message": "Test message sent successfully"})
+    return jsonify({"error": "Failed to send — check your URL"}), 502

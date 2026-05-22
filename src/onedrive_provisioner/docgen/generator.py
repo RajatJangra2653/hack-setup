@@ -11,15 +11,11 @@ from __future__ import annotations
 
 import io
 import os
-from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from docx import Document
-from docx.shared import Inches, Pt, RGBColor, Cm, Emu
+from docx.shared import Inches, Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.enum.table import WD_TABLE_ALIGNMENT
-from docx.oxml.ns import qn
-from docx.oxml import OxmlElement
 
 from onedrive_provisioner.entra.models import license_display_name
 
@@ -118,7 +114,6 @@ class DocGenerator:
 
     @staticmethod
     def _add_intro(doc: Document, state: Dict[str, Any]) -> None:
-        domain = state.get("domain", state.get("config", {}).get("domain", ""))
         doc.add_paragraph(
             "This document provides a comprehensive overview of the hackathon "
             "environment, including instructions on how to use the provisioned "
@@ -147,7 +142,6 @@ class DocGenerator:
         users = state.get("users", [])
         total = len(users)
         admins = sum(1 for u in users if u.get("isAdmin"))
-        regular = total - admins
         groups = state.get("groups", [])
         config = state.get("config", {})
         teams = config.get("teams", len(groups))
@@ -165,7 +159,7 @@ class DocGenerator:
                 sub_ids = [s.strip() for s in sub_ids.split(",") if s.strip()]
             if sub_ids:
                 doc.add_paragraph(
-                    f"Each team has access to one dedicated Azure subscription.",
+                    "Each team has access to one dedicated Azure subscription.",
                     style="List Bullet",
                 )
         else:

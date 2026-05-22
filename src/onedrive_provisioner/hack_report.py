@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
-from datetime import datetime, date, timezone
+from datetime import datetime, timezone
 import re
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -132,6 +132,17 @@ def _compute_billing_months(start_date: str, end_date: str) -> int:
     return max(1, math.ceil(days / 30))
 
 
+def _compute_days(start_date: str, end_date: str) -> int:
+    try:
+        s = datetime.fromisoformat(start_date[:10]).date() if start_date else None
+        e = datetime.fromisoformat(end_date[:10]).date() if end_date else None
+    except (ValueError, TypeError):
+        return 0
+    if not s or not e or e < s:
+        return 0
+    return max(1, (e - s).days)
+
+
 def build_hack_report(
     state: Dict[str, Any],
     *,
@@ -143,6 +154,7 @@ def build_hack_report(
     github_enabled: bool = False,
     github_copilot: bool = False,
     github_users: Optional[int] = None,
+    budget: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Return a report for a persisted hack state.
 
@@ -176,14 +188,33 @@ def build_hack_report(
     license_counts: Dict[str, int] = defaultdict(int)
     license_users: Dict[str, List[str]] = defaultdict(list)
     user_license_costs: Dict[str, float] = defaultdict(float)
+    user_breakdown: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
 
     for user in users:
         upn = user["userPrincipalName"]
         for license_name in user["licenses"]:
             license_counts[license_name] += 1
             license_users[license_name].append(upn)
-            if license_name in license_cost_map:
-                user_license_costs[upn] += license_cost_map[license_name]
+            unit = license_cost_map.get(license_name)
+            if unit is not None:
+                user_license_costs[upn] += unit
+                user_breakdown[upn].append({
+                    "category": "license",
+                    "label": license_name,
+                    "unit": _round_money(unit),
+                    "qty": 1,
+                    "monthly": _round_money(unit),
+                    "confidence": "estimated",
+                })
+            else:
+                user_breakdown[upn].append({
+                    "category": "license",
+                    "label": license_name,
+                    "unit": None,
+                    "qty": 1,
+                    "monthly": None,
+                    "confidence": "missing",
+                })
 
     license_entries = []
     unknown_license_costs = []
@@ -226,11 +257,21 @@ def build_hack_report(
         cost = sub.get("cost")
         known = cost is not None and not sub.get("error")
         cost_per_user = (cost / len(target_users)) if known and target_users else None
+        sub_confidence = "actual" if (known and (sub.get("source") or "").lower().startswith("azure")) else ("estimated" if known else "missing")
         if known:
             known_subscription_costs += 1
             total_subscription_cost += cost
             for user in target_users:
                 user_subscription_costs[user["userPrincipalName"]] += cost_per_user or 0.0
+                user_breakdown[user["userPrincipalName"]].append({
+                    "category": "azure",
+                    "label": sub.get("displayName") or sub["subscriptionId"],
+                    "subscriptionId": sub["subscriptionId"],
+                    "team": team,
+                    "shareOf": len(target_users),
+                    "period": _round_money(cost_per_user),
+                    "confidence": sub_confidence,
+                })
         else:
             unknown_subscription_costs += 1
 
@@ -244,6 +285,7 @@ def build_hack_report(
             "costPerUser": _round_money(cost_per_user),
             "currency": (sub.get("currency") or currency).upper(),
             "source": sub.get("source") or "manual",
+            "confidence": sub_confidence,
             "periodStart": sub.get("periodStart") or "",
             "periodEnd": sub.get("periodEnd") or "",
             "error": sub.get("error") or "",
@@ -254,11 +296,26 @@ def build_hack_report(
         upn = user["userPrincipalName"]
         license_cost = user_license_costs.get(upn, 0.0)
         subscription_cost = user_subscription_costs.get(upn, 0.0)
+        breakdown = list(user_breakdown.get(upn, []))
+        # GitHub seat is added later (need gh_unit_cost); placeholder here
+        confidences = {b["confidence"] for b in breakdown if b.get("confidence")}
+        if not breakdown:
+            row_conf = "none"
+        elif "missing" in confidences and "actual" not in confidences and "estimated" not in confidences:
+            row_conf = "missing"
+        elif "missing" in confidences:
+            row_conf = "partial"
+        elif "actual" in confidences:
+            row_conf = "actual"
+        else:
+            row_conf = "estimated"
         user_rows.append({
             **user,
             "licenseCost": _round_money(license_cost),
             "subscriptionCost": _round_money(subscription_cost),
             "totalEstimatedCost": _round_money(license_cost + subscription_cost),
+            "breakdown": breakdown,
+            "confidence": row_conf,
         })
 
     team_rows = []
@@ -289,8 +346,24 @@ def build_hack_report(
 
     # ── Billing months ────────────────────────────────────────────────
     billing_months = _compute_billing_months(start_date, end_date)
+    days = _compute_days(start_date, end_date)
     license_period_cost = total_license_cost * billing_months
     gh_period_cost = gh_monthly_cost * billing_months
+
+    # Append GitHub seat to per-user breakdown (only for participants)
+    if gh_enabled and gh_unit_cost:
+        gh_user_set = {u["userPrincipalName"] for u in users if not u["isAdmin"]}
+        for row in user_rows:
+            if row["userPrincipalName"] in gh_user_set:
+                row["breakdown"].append({
+                    "category": "github",
+                    "label": "GitHub Enterprise" + (" + Copilot" if gh_copilot else ""),
+                    "unit": _round_money(gh_unit_cost),
+                    "qty": 1,
+                    "monthly": _round_money(gh_unit_cost),
+                    "period": _round_money(gh_unit_cost * billing_months),
+                    "confidence": "estimated",
+                })
 
     notes = []
     if unknown_license_costs:
@@ -307,6 +380,43 @@ def build_hack_report(
         notes.append(f"Hack spans {billing_months} billing months — license and GitHub costs are multiplied accordingly.")
 
     total_estimated = license_period_cost + total_subscription_cost + gh_period_cost
+
+    # Confidence rollup
+    overall_confidence = (
+        "missing" if (unknown_license_costs and not license_entries and not sub_entries)
+        else "partial" if (unknown_license_costs or unknown_subscription_costs)
+        else ("actual" if any(s.get("confidence") == "actual" for s in sub_entries) else "estimated")
+    )
+
+    # Cost breakdown by category
+    breakdown_by_category = [
+        {"category": "Licenses", "amount": _round_money(license_period_cost), "share": (license_period_cost / total_estimated * 100) if total_estimated else 0},
+        {"category": "Azure", "amount": _round_money(total_subscription_cost), "share": (total_subscription_cost / total_estimated * 100) if total_estimated else 0},
+        {"category": "GitHub", "amount": _round_money(gh_period_cost), "share": (gh_period_cost / total_estimated * 100) if total_estimated else 0},
+    ]
+    for entry in breakdown_by_category:
+        entry["share"] = round(entry["share"], 1)
+
+    n_participants = max(1, len(participant_users))
+    cost_per_user = total_estimated / n_participants
+    cost_per_user_per_day = (cost_per_user / days) if days else None
+    cost_per_day = (total_estimated / days) if days else None
+
+    budget_info = None
+    if budget is not None and budget > 0:
+        # Budget is tracked against Azure subscription spend only — M365
+        # license costs and GitHub seat costs are excluded because hack
+        # budgets are typically Azure-only (separate cost centre).
+        azure_used = total_subscription_cost
+        used_pct = (azure_used / budget) * 100
+        budget_info = {
+            "amount": _round_money(budget),
+            "scope": "azure",
+            "used": _round_money(azure_used),
+            "remaining": _round_money(budget - azure_used),
+            "usedPercent": round(used_pct, 1),
+            "status": "over" if azure_used > budget else ("warning" if used_pct > 90 else "ok"),
+        }
 
     return {
         "generatedAt": _now_iso(),
@@ -342,8 +452,18 @@ def build_hack_report(
             "periodCost": _round_money(gh_period_cost),
         },
         "billingMonths": billing_months,
+        "days": days,
+        "period": {
+            "startDate": start_date,
+            "endDate": end_date,
+            "days": days,
+            "billingMonths": billing_months,
+        },
         "teams": team_rows,
         "users": user_rows,
+        "breakdownByCategory": breakdown_by_category,
+        "budget": budget_info,
+        "confidence": overall_confidence,
         "costs": {
             "licenseMonthly": _round_money(total_license_cost),
             "licensePeriod": _round_money(license_period_cost),
@@ -351,7 +471,11 @@ def build_hack_report(
             "githubPeriod": _round_money(gh_period_cost),
             "subscriptionPeriod": _round_money(total_subscription_cost),
             "totalEstimated": _round_money(total_estimated),
+            "costPerDay": _round_money(cost_per_day),
+            "costPerUser": _round_money(cost_per_user),
+            "costPerUserPerDay": _round_money(cost_per_user_per_day),
             "billingMonths": billing_months,
+            "days": days,
             "currency": currency,
         },
         "notes": notes,

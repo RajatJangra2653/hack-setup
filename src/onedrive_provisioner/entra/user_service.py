@@ -1,9 +1,9 @@
 """User creation / lookup against Microsoft Graph."""
+
 from __future__ import annotations
 
 import secrets
 import string
-from datetime import datetime, timezone
 from typing import Optional
 
 from ..graph import GraphClient, GraphError
@@ -18,17 +18,25 @@ def generate_password(length: int = 20) -> str:
     alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
     while True:
         pw = "".join(secrets.choice(alphabet) for _ in range(length))
-        if (any(c.islower() for c in pw)
-                and any(c.isupper() for c in pw)
-                and any(c.isdigit() for c in pw)
-                and any(c in "!@#$%^&*" for c in pw)):
+        if (
+            any(c.islower() for c in pw)
+            and any(c.isupper() for c in pw)
+            and any(c.isdigit() for c in pw)
+            and any(c in "!@#$%^&*" for c in pw)
+        ):
             return pw
 
 
 class UserService:
-    def __init__(self, graph: GraphClient, *, default_password: Optional[str] = None,
-                 hack_name: str = "", created_by: str = "",
-                 force_change_password: bool = False) -> None:
+    def __init__(
+        self,
+        graph: GraphClient,
+        *,
+        default_password: Optional[str] = None,
+        hack_name: str = "",
+        created_by: str = "",
+        force_change_password: bool = False,
+    ) -> None:
         self._g = graph
         self._default_password = default_password
         self._hack_name = hack_name
@@ -73,7 +81,9 @@ class UserService:
         logger.info("entra.user.created", upn=plan.upn, user_id=user.get("id"))
         return user, password
 
-    async def ensure(self, plan: UserPlan, *, skip_existing: bool = True) -> tuple[dict, bool, Optional[str]]:
+    async def ensure(
+        self, plan: UserPlan, *, skip_existing: bool = True
+    ) -> tuple[dict, bool, Optional[str]]:
         """Returns (user, created_now, password). password is None for existing users."""
         existing = await self.get_by_upn(plan.upn)
         if existing:
@@ -84,7 +94,10 @@ class UserService:
         return user, True, password
 
     async def reset_password(
-        self, user_id: str, *, password: Optional[str] = None,
+        self,
+        user_id: str,
+        *,
+        password: Optional[str] = None,
         force_change: bool = False,
     ) -> Optional[str]:
         """Reset password for an existing user. Returns new password or None on failure."""
@@ -100,6 +113,11 @@ class UserService:
             logger.info("entra.user.password_reset", user_id=user_id)
             return new_pw
         except GraphError as exc:
-            logger.warning("entra.user.password_reset_failed", user_id=user_id,
-                           status=exc.status, code=exc.code, msg=str(exc))
+            logger.warning(
+                "entra.user.password_reset_failed",
+                user_id=user_id,
+                status=exc.status,
+                code=exc.code,
+                msg=str(exc),
+            )
             return None

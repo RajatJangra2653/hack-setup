@@ -45,12 +45,32 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "generate_hack_report",
-            "description": "Generate a saved hack report with user/admin counts, licenses assigned, and optional cost allocation by subscription/team/user.",
+            "description": "Generate a saved hack report with user/admin counts, licenses assigned, and cost allocation by subscription/team/user. By default it auto-fetches actual Azure costs for every subscription on the hack (or every accessible sub if none recorded). Pass fetchSubscriptionCosts=false to skip the Azure call and only use manual subscriptionCosts.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "prefix": {"type": "string", "description": "The hack prefix"},
-                    "currency": {"type": "string", "description": "Currency code for manual cost inputs, default USD"},
+                    "currency": {"type": "string", "description": "Currency code, default USD"},
+                    "fetchSubscriptionCosts": {
+                        "type": "boolean",
+                        "description": "When true (default), call Azure Cost Management to get actual costs for the hack's subscriptions. Set false only if the user explicitly wants manual-input-only mode.",
+                    },
+                    "forceRefresh": {
+                        "type": "boolean",
+                        "description": "When true, bypass the 15-minute cost cache and re-query Azure. Use only if the user explicitly asks for fresh data.",
+                    },
+                    "startDate": {
+                        "type": "string",
+                        "description": "ISO YYYY-MM-DD start of the cost window. Defaults to the hack's creation date.",
+                    },
+                    "endDate": {
+                        "type": "string",
+                        "description": "ISO YYYY-MM-DD end of the cost window. Defaults to today (UTC).",
+                    },
+                    "budget": {
+                        "type": "number",
+                        "description": "Optional Azure-only budget to compare actual Azure spend against.",
+                    },
                     "licenseUnitCosts": {
                         "type": "object",
                         "description": "Optional map of license/SKU name to monthly unit cost",
@@ -58,7 +78,7 @@ TOOLS = [
                     },
                     "subscriptionCosts": {
                         "type": "array",
-                        "description": "Optional subscription costs to allocate. Each item may include subscriptionId, cost, and team.",
+                        "description": "Optional manual subscription cost overrides. Each item may include subscriptionId, cost, and team.",
                         "items": {
                             "type": "object",
                             "properties": {
@@ -437,6 +457,66 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_subscription_cost",
+            "description": (
+                "Fetch the actual Azure cost for ONE subscription, identified "
+                "by GUID or display name (case-insensitive substring). "
+                "Returns total cost, currency, and date range. Defaults to "
+                "the last 30 days. Requires Reader + Cost Management Reader "
+                "on the subscription."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "subscription": {
+                        "type": "string",
+                        "description": "Subscription GUID (e.g. 77086d22-...) OR display name / partial name (e.g. 'CopilotLabs DS - 1015').",
+                    },
+                    "startDate": {
+                        "type": "string",
+                        "description": "ISO start date YYYY-MM-DD (inclusive). Defaults to 30 days ago.",
+                    },
+                    "endDate": {
+                        "type": "string",
+                        "description": "ISO end date YYYY-MM-DD (inclusive). Defaults to today (UTC).",
+                    },
+                },
+                "required": ["subscription"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "expand_hack",
+            "description": (
+                "Expand an EXISTING hack by adding more teams, more participants per team, "
+                "and/or more admins. Indices continue from the current max — existing users, "
+                "passwords, TAPs, licenses, and group memberships are NEVER touched. "
+                "Example: a hack with 5 teams × 4 participants and 5 admins, called with "
+                "addTeams=1, addParticipantsPerTeam=1, addAdmins=2 will create team t06 (with "
+                "u01..u05), add u05 to t01..t05, and create admin06 + admin07. "
+                "This is a MUTATION tool — only available when CHATBOT_ENABLE_MUTATION_TOOLS is set. "
+                "Returns a session_id; poll get_session_status to monitor progress."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prefix": {"type": "string", "description": "Hack prefix (e.g. 'fbi-cjis-')"},
+                    "addTeams": {"type": "integer", "description": "Number of new teams to add (>=0). Default 0.", "minimum": 0},
+                    "addParticipantsPerTeam": {"type": "integer", "description": "Extra participants to add to EVERY team (existing + new). Default 0.", "minimum": 0},
+                    "addAdmins": {"type": "integer", "description": "Number of new admin users to add. Default 0.", "minimum": 0},
+                    "dryRun": {"type": "boolean", "description": "When true, simulate without creating users."},
+                    "password": {"type": "string", "description": "Set a specific password for the new users. Omit to reuse the original hack password."},
+                    "randomPasswords": {"type": "boolean", "description": "When true, generate a unique random password for each new user instead of reusing the original."},
+                },
+                "required": ["prefix"],
+            },
+        },
+    },
 ]
 
 READ_ONLY_TOOL_NAMES = {
@@ -444,6 +524,7 @@ READ_ONLY_TOOL_NAMES = {
     "get_hack_state",
     "get_hack_users_summary",
     "generate_hack_report",
+    "get_subscription_cost",
     "get_provisioning_sessions",
     "get_session_status",
     "detect_tenant_info",

@@ -1,4 +1,3 @@
-import os
 
 from onedrive_provisioner.scheduler import HackScheduler
 from onedrive_provisioner.chatbot.tool_executor import ToolExecutor
@@ -50,9 +49,9 @@ def test_scheduler_persists_secret_reference_not_client_secret():
 
     persisted = manager._blob.data["_scheduler/jobs.json"]["jobs"][0]
     assert "client_secret" not in persisted["config"]
-    assert persisted["config"]["client_secret_ref"]["type"] == "connection_id"
-    assert job.to_dict()["config"]["client_secret_ref"]["id"].startswith("ephemeral-")
-    tenant_id, client_id, secret = resolve_scheduler_credentials(persisted["config"])
+    assert persisted["config"]["client_secret_ref"]["type"] == "blob_secret"
+    assert job.to_dict()["config"]["client_secret_ref"]["type"] == "blob_secret"
+    tenant_id, client_id, secret = resolve_scheduler_credentials(persisted["config"], blob_client=manager._blob)
     assert (tenant_id, client_id, secret) == ("tenant", "client", "super-secret")
 
 

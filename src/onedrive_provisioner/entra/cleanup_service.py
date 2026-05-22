@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from ..graph import GraphClient, GraphError
 from ..logging_setup import get_logger
@@ -53,7 +53,8 @@ async def remove_rbac_for_principals(
         try:
             all_assigns = await rbac.list_all_assignments_for_principal(pid)
         except Exception as exc:
-            out.append({"subscription": "*", "principal": pid,
+            out.append({"subscription": "*", "principalId": pid,
+                        "status": "error",
                         "error": f"bulk list failed: {exc}"})
             continue
 
@@ -76,5 +77,11 @@ async def remove_rbac_for_principals(
                     continue
                 ok = await rbac.delete_assignment(arm_id)
                 removed.append({"id": arm_id, "ok": ok})
-            out.append({"subscription": sub, "principal": pid, "removed": removed})
+            all_ok = all(r["ok"] for r in removed) if removed else False
+            out.append({
+                "subscription": sub,
+                "principalId": pid,
+                "removed": removed,
+                "status": "removed" if all_ok else "partial" if removed else "skipped",
+            })
     return out

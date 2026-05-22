@@ -1,0 +1,45 @@
+services:
+  # Legacy Flask app
+  flask:
+    build:
+      context: .
+      target: production
+    ports:
+      - "4280:8000"
+    env_file: .env
+    volumes:
+      - ./frontend:/app/frontend:ro
+    restart: unless-stopped
+
+  # New FastAPI platform
+  platform:
+    build:
+      context: .
+      target: platform
+    ports:
+      - "8000:8000"
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # PostgreSQL database
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: hackplatform
+      POSTGRES_USER: platform
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-devpassword}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U platform -d hackplatform"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  pgdata:

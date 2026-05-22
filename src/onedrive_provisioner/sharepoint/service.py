@@ -138,8 +138,7 @@ class SharePointService:
                     await gc.patch(f"/groups/{group_id}", json=members_payload)
                     for uid in batch:
                         results.append({"userId": uid, "status": "added"})
-                except Exception as exc:
-                    error_msg = str(exc)
+                except Exception:
                     # If batch fails, try individually
                     for uid in batch:
                         try:

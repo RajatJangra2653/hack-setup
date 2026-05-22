@@ -2,16 +2,21 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 
 from flask import Blueprint, request, jsonify
+import structlog
 
 from onedrive_provisioner.graph import GraphClient
+
+logger = structlog.get_logger(__name__)
 
 from ._state import (
     extract_creds, get_state_manager, make_token_provider,
     require_confirmation, is_archived_state,
+    audit_logger,
 )
 
 bp = Blueprint("hack_state", __name__)
@@ -80,6 +85,7 @@ def patch_hack_config(prefix):
     cfg.update(updates)
     state["config"] = cfg
     mgr.save_state(prefix, state)
+    audit_logger.log("config.patched", prefix, details={"updatedKeys": list(updates.keys())})
     return jsonify({"ok": True, "updatedKeys": list(updates.keys()), "config": cfg})
 
 
@@ -480,7 +486,130 @@ async def _async_fetch_subscription_costs(t, c, s, *, subscription_ids, start_da
             subscription_ids,
             start_date=start_date,
             end_date=end_date,
+            tenant_id=t,
         )
+
+
+async def _async_list_accessible_subscriptions(t, c, s):
+    """List subscriptions the SPN can read (one ARM call)."""
+    from onedrive_provisioner.entra.cost_service import CostManagementService
+    tp = make_token_provider(t, c, s)
+    async with CostManagementService(tp) as cost_svc:
+        return await cost_svc.list_accessible_subscriptions()
+
+
+async def _async_resolve_group_ids_by_prefix(t, c, s, *, prefix):
+    """Look up Entra group IDs for a hack prefix via Graph.
+
+    Used when state.groups contains only display-names (no IDs) — typical for
+    hacks created before group ID persistence or absorbed via drift cleanup.
+    Returns ``[{id, displayName}, ...]``.
+    """
+    from onedrive_provisioner.entra.discovery_service import DiscoveryService
+    tp = make_token_provider(t, c, s)
+    async with GraphClient(tp) as g:
+        disco = DiscoveryService(g)
+        groups = await disco.find_groups_by_prefix(prefix)
+        return [{"id": gr.get("id"), "displayName": gr.get("displayName")}
+                for gr in groups if gr.get("id")]
+
+
+async def _async_resolve_subs_from_groups(t, c, s, *, group_ids):
+    """Resolve subscriptions a list of Entra groups have ANY role on.
+
+    Uses ARM root-scope role assignment listing (one call per group, parallel).
+    Returns ``(sorted_unique_sub_ids, group_to_subs_map)`` where
+    ``group_to_subs_map`` is ``{groupId: [subId, ...]}``.
+    """
+    import asyncio as _asyncio
+    from onedrive_provisioner.entra.rbac_service import RbacService, subscription_from_assignment
+    if not group_ids:
+        return [], {}
+    tp = make_token_provider(t, c, s)
+    async with RbacService(tp) as rbac:
+        sem = _asyncio.Semaphore(8)
+
+        async def _one(gid: str):
+            async with sem:
+                return gid, await rbac.list_all_assignments_for_principal(gid)
+
+        results = await _asyncio.gather(*[_one(g) for g in group_ids])
+    group_to_subs: dict[str, list[str]] = {}
+    union: set[str] = set()
+    for gid, assignments in results:
+        sids = []
+        for a in assignments or []:
+            sid = subscription_from_assignment(a)
+            if sid:
+                sids.append(sid)
+                union.add(sid)
+        # de-dupe per group
+        group_to_subs[gid] = sorted(set(sids))
+    return sorted(union), group_to_subs
+
+
+async def _async_resolve_subs_from_users(t, c, s, *, user_ids, max_users=200):
+    """Fallback: resolve subscriptions a list of users have ANY role on.
+
+    Used when group-RBAC discovery returns 0 subs (groups assigned at
+    management-group scope, or no Azure RBAC at all). Same root-scope ARM
+    query per user, parallel with semaphore=8. Capped at ``max_users`` to
+    avoid pounding ARM for huge hacks; first N users are typically enough
+    since hack users share the same subs.
+    Returns ``(sorted_unique_sub_ids, user_to_subs_map)``.
+    """
+    import asyncio as _asyncio
+    from onedrive_provisioner.entra.rbac_service import RbacService, subscription_from_assignment
+    if not user_ids:
+        return [], {}
+    user_ids = list(user_ids)[:max_users]
+    tp = make_token_provider(t, c, s)
+    async with RbacService(tp) as rbac:
+        sem = _asyncio.Semaphore(8)
+
+        async def _one(uid: str):
+            async with sem:
+                return uid, await rbac.list_all_assignments_for_principal(uid)
+
+        results = await _asyncio.gather(*[_one(u) for u in user_ids])
+    user_to_subs: dict[str, list[str]] = {}
+    union: set[str] = set()
+    for uid, assignments in results:
+        sids = []
+        for a in assignments or []:
+            sid = subscription_from_assignment(a)
+            if sid:
+                sids.append(sid)
+                union.add(sid)
+        user_to_subs[uid] = sorted(set(sids))
+    return sorted(union), user_to_subs
+
+
+async def _async_discover_and_fetch_subscription_costs(t, c, s, *, start_date, end_date, only_ids=None):
+    """List SPN-accessible subs, then fetch cost for each.
+
+    If ``only_ids`` is provided, restrict the discovery to that allow-list
+    (still using discovery to enrich displayName / state).
+    Returns a tuple of (cost_results, accessible_subs_metadata).
+    """
+    from onedrive_provisioner.entra.cost_service import CostManagementService
+    tp = make_token_provider(t, c, s)
+    async with CostManagementService(tp) as cost_svc:
+        accessible = await cost_svc.list_accessible_subscriptions()
+        if only_ids:
+            allow = {str(x).strip() for x in only_ids if str(x or "").strip()}
+            accessible = [s_ for s_ in accessible if s_["subscriptionId"] in allow]
+        ids = [s_["subscriptionId"] for s_ in accessible]
+        results = await cost_svc.query_subscription_costs(
+            ids, start_date=start_date, end_date=end_date,
+        )
+        # Enrich each result with the displayName from discovery.
+        meta_by_id = {s_["subscriptionId"]: s_ for s_ in accessible}
+        for r in results:
+            meta = meta_by_id.get(r.get("subscriptionId") or "")
+            if meta:
+                r["displayName"] = meta.get("displayName") or r.get("subscriptionId")
+        return results, accessible
 
 
 def _merge_subscription_cost_inputs(manual_costs, fetched_costs):
@@ -505,6 +634,10 @@ def _merge_subscription_cost_inputs(manual_costs, fetched_costs):
             "periodEnd": item.get("periodEnd", ""),
             "error": item.get("error", ""),
         })
+        if item.get("displayName"):
+            existing["displayName"] = item["displayName"]
+        if item.get("team") and not existing.get("team"):
+            existing["team"] = item["team"]
         merged[sub_id] = existing
     return list(merged.values())
 
@@ -530,6 +663,15 @@ def _state_report_date_range(state: dict) -> tuple[str, str]:
 
 @bp.route("/api/hack-state/<prefix>/report", methods=["POST"])
 def build_hack_report_api(prefix):
+    try:
+        return _build_hack_report_api_impl(prefix)
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Report generation failed: {exc}"}), 500
+
+
+def _build_hack_report_api_impl(prefix):
     from onedrive_provisioner.hack_report import build_hack_report
 
     data = request.get_json(silent=True) or {}
@@ -542,26 +684,389 @@ def build_hack_report_api(prefix):
 
     subscription_costs = data.get("subscriptionCosts") or []
     fetched_costs = []
+    discovered_subs = []
+    auto_discovered = False
+    sub_source = "explicit"  # explicit | hack_state | group_rbac | user_rbac | auto_discover
+    cache_stats = {"hits": 0, "fetched": 0, "ttlSeconds": 0}
+    group_sub_map: dict[str, list[str]] = {}
+    user_sub_map: dict[str, list[str]] = {}
     if data.get("fetchSubscriptionCosts"):
         creds = extract_creds(data)
         if not creds:
             return jsonify({"error": "SPN credentials required to fetch Azure costs"}), 400
+        # Resolve subscription IDs in priority order:
+        #   1. Explicit list from request (frontend textarea / API caller)
+        #   2. subscriptionCosts entries from the request
+        #   3. Hack state's recorded subs (state.subscriptionIds / config.subscriptionIds)
+        #      → these are the subs THIS hack targets, never unrelated tenant subs
+        #   4. Auto-discover everything the SPN can read (last resort, with note)
         subscription_ids = data.get("subscriptionIds") or [
             sc.get("subscriptionId") or sc.get("subscription") or sc.get("id")
             for sc in subscription_costs if isinstance(sc, dict)
         ]
         subscription_ids = [str(s).strip() for s in subscription_ids if str(s or "").strip()]
         if not subscription_ids:
-            return jsonify({"error": "subscriptionIds[] required to fetch Azure costs"}), 400
+            hack_subs = (
+                state.get("subscriptionIds")
+                or (state.get("config") or {}).get("subscriptionIds")
+                or []
+            )
+            subscription_ids = [str(s).strip() for s in hack_subs if str(s or "").strip()]
+            if subscription_ids:
+                sub_source = "hack_state"
+
+        # ── Group-RBAC discovery: if still no subs, look up which subscriptions
+        # the hack's groups have role assignments on. This is much narrower
+        # than auto-discovering all SPN-accessible subs.
+        logger.warning(
+            "report.sub_resolution.checkpoint",
+            prefix=prefix,
+            sub_source=sub_source,
+            sub_count_before_group_rbac=len(subscription_ids),
+            state_groups_type=type(state.get("groups")).__name__,
+            state_groups_len=len(state.get("groups") or []),
+        )
+        if not subscription_ids:
+            hack_groups = state.get("groups") or []
+            # state.groups can be a mixed list of {"id":..., ...} dicts (from
+            # discovery) or bare display-name strings (from drift absorption).
+            # Pull IDs from dicts; if any string entries exist OR no IDs were
+            # found, do a Graph prefix lookup to enrich.
+            group_ids = [
+                g.get("id") for g in hack_groups
+                if isinstance(g, dict) and g.get("id")
+            ]
+            has_string_entries = any(isinstance(g, str) for g in hack_groups)
+            if (not group_ids) or has_string_entries:
+                try:
+                    enriched = asyncio.run(
+                        _async_resolve_group_ids_by_prefix(*creds, prefix=prefix)
+                    )
+                    found = [g["id"] for g in enriched if g.get("id")]
+                    # union with whatever we already had
+                    group_ids = sorted(set(group_ids) | set(found))
+                    logger.warning(
+                        "report.group_rbac.id_lookup",
+                        prefix=prefix,
+                        from_state=len([g for g in hack_groups if isinstance(g, dict) and g.get("id")]),
+                        from_graph=len(found),
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "report.group_rbac.id_lookup_failed",
+                        prefix=prefix, error=str(exc),
+                    )
+            group_ids = [str(g).strip() for g in group_ids if g and str(g).strip()]
+            if group_ids:
+                resolved_ids, group_sub_map = asyncio.run(
+                    _async_resolve_subs_from_groups(*creds, group_ids=group_ids)
+                )
+                logger.warning(
+                    "report.group_rbac.resolved",
+                    prefix=prefix,
+                    group_count=len(group_ids),
+                    sub_count=len(resolved_ids),
+                    per_group={gid: len(v) for gid, v in (group_sub_map or {}).items()},
+                )
+                if resolved_ids:
+                    subscription_ids = resolved_ids
+                    sub_source = "group_rbac"
+
+        # ── User-RBAC fallback: if groups had no subscription-scope role
+        # assignments (common when roles are assigned at MG scope, or only at
+        # user level), look up each hack user's role assignments and union the
+        # subs they have access to.
+        if not subscription_ids:
+            hack_users = state.get("users") or []
+            user_ids = [
+                u.get("userId") or u.get("id")
+                for u in hack_users if isinstance(u, dict)
+            ]
+            user_ids = [str(u).strip() for u in user_ids if u and str(u).strip()]
+            if user_ids:
+                resolved_ids, user_sub_map = asyncio.run(
+                    _async_resolve_subs_from_users(*creds, user_ids=user_ids)
+                )
+                logger.warning(
+                    "report.user_rbac.resolved",
+                    prefix=prefix,
+                    user_count=len(user_ids),
+                    queried=min(len(user_ids), 200),
+                    sub_count=len(resolved_ids),
+                    users_with_subs=sum(1 for v in (user_sub_map or {}).values() if v),
+                )
+                if resolved_ids:
+                    subscription_ids = resolved_ids
+                    sub_source = "user_rbac"
         default_start_date, default_end_date = _state_report_date_range(state)
         start_date = data.get("startDate") or default_start_date
         end_date = data.get("endDate") or default_end_date
-        fetched_costs = asyncio.run(_async_fetch_subscription_costs(
-            *creds,
-            subscription_ids=subscription_ids,
-            start_date=start_date,
-            end_date=end_date,
-        ))
+
+        # ── Cost cache: {subId|start|end → row, fetchedAt} in state["costCache"]
+        force_refresh = bool(data.get("forceRefresh"))
+        ttl_seconds = int(data.get("cacheTtlSeconds") or 900)  # 15 min default
+        cache_stats["ttlSeconds"] = ttl_seconds
+        cost_cache = state.get("costCache") or {}
+        now_ts = datetime.now(timezone.utc).timestamp()
+
+        def _cache_key(sid: str) -> str:
+            return f"{sid}|{start_date}|{end_date}"
+
+        def _cache_get(sid: str):
+            if force_refresh:
+                return None
+            entry = cost_cache.get(_cache_key(sid))
+            if not entry:
+                return None
+            try:
+                fetched_at = datetime.fromisoformat(entry.get("fetchedAt", "").replace("Z", "+00:00")).timestamp()
+            except Exception:
+                return None
+            if (now_ts - fetched_at) > ttl_seconds:
+                return None
+            return entry.get("row")
+
+        def _cache_put(rows: list[dict]) -> None:
+            for row in rows:
+                sid = row.get("subscriptionId") or ""
+                if not sid or row.get("error"):  # don't cache errors
+                    continue
+                cost_cache[_cache_key(sid)] = {
+                    "row": row,
+                    "fetchedAt": datetime.now(timezone.utc).isoformat(),
+                }
+
+        if subscription_ids:
+            # Explicit IDs path: skip ARM discovery entirely (saves a round-trip).
+            # Use cache for hits, fetch only the misses.
+            cached_rows = []
+            misses = []
+            for sid in subscription_ids:
+                hit = _cache_get(sid)
+                if hit is not None:
+                    cached_rows.append(hit)
+                else:
+                    misses.append(sid)
+            cache_stats["hits"] = len(cached_rows)
+            cache_stats["fetched"] = len(misses)
+            new_rows = []
+            if misses:
+                new_rows = asyncio.run(_async_fetch_subscription_costs(
+                    *creds,
+                    subscription_ids=misses,
+                    start_date=start_date,
+                    end_date=end_date,
+                ))
+                _cache_put(new_rows)
+            fetched_costs = cached_rows + new_rows
+        else:
+            # No subs in request, no subs in hack state — fall back to auto-discover.
+            # Caller can opt-out (e.g. for "audit all subs" view) by setting
+            # discoverAllAccessible=true (used as the explicit gate).
+            sub_source = "auto_discover"
+            discovered_subs = asyncio.run(_async_list_accessible_subscriptions(*creds))
+            auto_discovered = True
+            disco_ids = [s_["subscriptionId"] for s_ in discovered_subs]
+            meta_by_id = {s_["subscriptionId"]: s_ for s_ in discovered_subs}
+            cached_rows = []
+            misses = []
+            for sid in disco_ids:
+                hit = _cache_get(sid)
+                if hit is not None:
+                    cached_rows.append(hit)
+                else:
+                    misses.append(sid)
+            cache_stats["hits"] = len(cached_rows)
+            cache_stats["fetched"] = len(misses)
+            new_rows = []
+            if misses:
+                new_rows = asyncio.run(_async_fetch_subscription_costs(
+                    *creds,
+                    subscription_ids=misses,
+                    start_date=start_date,
+                    end_date=end_date,
+                ))
+                # enrich displayName
+                for r in new_rows:
+                    meta = meta_by_id.get(r.get("subscriptionId") or "")
+                    if meta:
+                        r["displayName"] = meta.get("displayName") or r.get("subscriptionId")
+                _cache_put(new_rows)
+            fetched_costs = cached_rows + new_rows
+
+        # Persist updated cache to state.
+        state["costCache"] = cost_cache
+
+        # ── Enrich subscription displayNames. Cost API returns only the GUID;
+        # to get the human-friendly name we need ARM `/subscriptions`. We
+        # cache the result on state.subscriptionNameMap so subsequent reports
+        # don't re-call ARM unless a new sub appears.
+        try:
+            sub_name_map: dict[str, str] = dict(state.get("subscriptionNameMap") or {})
+            unnamed = [
+                r.get("subscriptionId") for r in fetched_costs
+                if r.get("subscriptionId")
+                and (not r.get("displayName") or r.get("displayName") == r.get("subscriptionId"))
+                and r.get("subscriptionId") not in sub_name_map
+            ]
+            if unnamed:
+                try:
+                    accessible = asyncio.run(_async_list_accessible_subscriptions(*creds))
+                    for s_ in accessible:
+                        sid = s_.get("subscriptionId")
+                        dn = s_.get("displayName")
+                        if sid and dn:
+                            sub_name_map[sid] = dn
+                except Exception as _e:
+                    logger.warning("report.sub_name_enrich.failed", error=str(_e))
+            # Apply to fetched_costs
+            for r in fetched_costs:
+                sid = r.get("subscriptionId")
+                if sid and sub_name_map.get(sid):
+                    if not r.get("displayName") or r.get("displayName") == sid:
+                        r["displayName"] = sub_name_map[sid]
+            if sub_name_map:
+                state["subscriptionNameMap"] = sub_name_map
+        except Exception as _e:
+            logger.warning("report.sub_name_enrich.outer_failed", error=str(_e))
+
+        # If we resolved subs via group-RBAC or user-RBAC, save them on the
+        # hack state so subsequent reports skip the discovery round-trip and
+        # go straight to the "hack_state" path.
+        if sub_source in ("group_rbac", "user_rbac") and subscription_ids:
+            state["subscriptionIds"] = subscription_ids
+            state["subscriptionsDiscoveredAt"] = datetime.now(timezone.utc).isoformat()
+            state["subscriptionsDiscoveredVia"] = sub_source
+            if group_sub_map:
+                state["subscriptionsByGroup"] = group_sub_map
+            if user_sub_map:
+                state["subscriptionsByUser"] = user_sub_map
+
+        # ── Compute / update the sub→team map. Runs every report so the
+        # explicit/hack_state paths (subsequent runs after the maps were
+        # persisted) still get team allocation correctly. Sources of truth:
+        #   1. Live group_sub_map (this run, if group_rbac fired)
+        #   2. Live user_sub_map  (this run, if user_rbac fired)
+        #   3. Persisted state.subscriptionsByGroup / subscriptionsByUser
+        #   4. Existing state.subscriptionTeamMap (cumulative cache)
+        #   5. On-demand discovery: if any fetched sub has no team yet, run
+        #      group+user RBAC lookup to fill in the gaps (one-time cost,
+        #      result is cached in state for next time).
+        try:
+            from onedrive_provisioner.hack_report import _infer_team, _TEAM_RE
+            sub_to_team: dict[str, str] = dict(state.get("subscriptionTeamMap") or {})
+            persisted_group_map = state.get("subscriptionsByGroup") or {}
+            persisted_user_map = state.get("subscriptionsByUser") or {}
+            effective_group_map = group_sub_map or persisted_group_map
+            effective_user_map = user_sub_map or persisted_user_map
+
+            # If any fetched sub still has no team mapping AND we have no
+            # persisted maps, do an on-demand RBAC discovery so the team
+            # column is populated correctly even for the explicit/hack_state
+            # paths.
+            untagged_subs = [
+                r.get("subscriptionId") for r in fetched_costs
+                if r.get("subscriptionId") and r["subscriptionId"] not in sub_to_team
+            ]
+            if untagged_subs and not effective_group_map and not effective_user_map:
+                logger.warning(
+                    "report.team_map.on_demand_discovery",
+                    prefix=prefix, untagged_count=len(untagged_subs),
+                )
+                # Resolve group IDs by prefix (cheap: 1 Graph call)
+                try:
+                    enriched_groups = asyncio.run(
+                        _async_resolve_group_ids_by_prefix(*creds, prefix=prefix)
+                    )
+                    discovered_group_ids = [g["id"] for g in enriched_groups if g.get("id")]
+                except Exception:
+                    discovered_group_ids = []
+                if discovered_group_ids:
+                    try:
+                        _, effective_group_map = asyncio.run(
+                            _async_resolve_subs_from_groups(*creds, group_ids=discovered_group_ids)
+                        )
+                    except Exception:
+                        effective_group_map = {}
+                # Always also try user-RBAC for subs not covered by groups
+                user_ids_for_disco = [
+                    (u.get("userId") or u.get("id"))
+                    for u in (state.get("users") or []) if isinstance(u, dict)
+                ]
+                user_ids_for_disco = [str(u).strip() for u in user_ids_for_disco if u]
+                if user_ids_for_disco:
+                    try:
+                        _, effective_user_map = asyncio.run(
+                            _async_resolve_subs_from_users(*creds, user_ids=user_ids_for_disco)
+                        )
+                    except Exception:
+                        effective_user_map = {}
+                # Persist for future runs
+                if effective_group_map:
+                    state["subscriptionsByGroup"] = effective_group_map
+                if effective_user_map:
+                    state["subscriptionsByUser"] = effective_user_map
+
+            # Group-derived team mapping (need group display names)
+            if effective_group_map:
+                gid_to_name: dict[str, str] = {}
+                for g in (state.get("groups") or []):
+                    if isinstance(g, dict) and g.get("id") and g.get("displayName"):
+                        gid_to_name[g["id"]] = g["displayName"]
+                missing = [gid for gid in effective_group_map if gid not in gid_to_name]
+                if missing:
+                    try:
+                        enriched = asyncio.run(
+                            _async_resolve_group_ids_by_prefix(*creds, prefix=prefix)
+                        )
+                        for ge in enriched:
+                            gid_to_name.setdefault(ge["id"], ge.get("displayName") or "")
+                    except Exception:
+                        pass
+                for gid, sids in effective_group_map.items():
+                    name = gid_to_name.get(gid, "")
+                    m = _TEAM_RE.search(name) if name else None
+                    if not m:
+                        continue
+                    team = m.group(1).lower()
+                    for sid in sids:
+                        sub_to_team.setdefault(sid, team)
+
+            # User-derived team mapping (fallback for subs not covered above)
+            if effective_user_map:
+                uid_to_user = {
+                    (u.get("userId") or u.get("id")): u
+                    for u in (state.get("users") or []) if isinstance(u, dict)
+                }
+                for uid, sids in effective_user_map.items():
+                    u = uid_to_user.get(uid)
+                    if not u:
+                        continue
+                    team = _infer_team(u, prefix)
+                    if not team:
+                        continue
+                    for sid in sids:
+                        sub_to_team.setdefault(sid, team)
+
+            if sub_to_team:
+                # Persist for next time so we don't recompute names on every run
+                state["subscriptionTeamMap"] = sub_to_team
+                for r in fetched_costs:
+                    sid = r.get("subscriptionId") or ""
+                    if sid in sub_to_team and not r.get("team"):
+                        r["team"] = sub_to_team[sid]
+                logger.warning(
+                    "report.sub_team_mapping",
+                    prefix=prefix,
+                    sub_source=sub_source,
+                    map_size=len(sub_to_team),
+                    teams_assigned=sum(1 for r in fetched_costs if r.get("team")),
+                    total_subs=len(fetched_costs),
+                )
+        except Exception as exc:
+            logger.warning("report.sub_team_mapping.failed",
+                           prefix=prefix, error=str(exc))
+
         subscription_costs = _merge_subscription_cost_inputs(subscription_costs, fetched_costs)
 
     # Auto-fill missing license costs from NCE price list.
@@ -577,6 +1082,12 @@ def build_hack_report_api(prefix):
     end_date = data.get("endDate") or default_end_date
 
     config = state.get("config") or {}
+    budget = data.get("budget")
+    try:
+        budget = float(budget) if budget not in (None, "", 0) else None
+    except (TypeError, ValueError):
+        budget = None
+
     report = build_hack_report(
         state,
         subscription_costs=subscription_costs,
@@ -586,9 +1097,68 @@ def build_hack_report_api(prefix):
         end_date=end_date,
         github_enabled=data.get("githubEnabled", config.get("enableGithub", False)),
         github_copilot=data.get("githubCopilot", config.get("enableGithubCopilot", False)),
+        budget=budget,
     )
     if fetched_costs:
-        report["costFetch"] = {"subscriptionsQueried": len(fetched_costs)}
+        report["costFetch"] = {
+            "subscriptionsQueried": len(fetched_costs),
+            "autoDiscovered": auto_discovered,
+            "subSource": sub_source,
+            "accessibleSubscriptions": discovered_subs,
+            "groupSubMap": group_sub_map if sub_source == "group_rbac" else {},
+            "userSubMap": user_sub_map if sub_source == "user_rbac" else {},
+            "cacheHits": cache_stats["hits"],
+            "cacheFetched": cache_stats["fetched"],
+            "cacheTtlSeconds": cache_stats["ttlSeconds"],
+        }
+    elif auto_discovered:
+        report["costFetch"] = {
+            "subscriptionsQueried": 0,
+            "autoDiscovered": True,
+            "subSource": sub_source,
+            "accessibleSubscriptions": [],
+            "cacheHits": cache_stats["hits"],
+            "cacheFetched": cache_stats["fetched"],
+            "cacheTtlSeconds": cache_stats["ttlSeconds"],
+        }
+        report.setdefault("notes", []).append(
+            "Auto-discovery found no subscriptions accessible to this SPN. "
+            "Grant Reader (or Cost Management Reader) on the target subscriptions, "
+            "or paste subscription IDs manually under Advanced cost inputs."
+        )
+
+    # Persist cost inputs to state so they survive across report generations
+    if data.get("persistInputs", True):
+        try:
+            state["reportInputs"] = {
+                "currency": data.get("currency") or "USD",
+                "startDate": start_date,
+                "endDate": end_date,
+                "subscriptionCosts": data.get("subscriptionCosts") or [],
+                "licenseUnitCosts": user_costs,
+                "budget": budget,
+                "fetchSubscriptionCosts": bool(data.get("fetchSubscriptionCosts")),
+                "savedAt": datetime.now(timezone.utc).isoformat(),
+            }
+            # Save a lightweight cost summary for the dashboard
+            rc = report.get("costs") or {}
+            rb = report.get("budget") or {}
+            state["lastReportCosts"] = {
+                "totalEstimated": rc.get("totalEstimated", 0),
+                "costPerUser": rc.get("costPerUser", 0),
+                "costPerDay": rc.get("costPerDay", 0),
+                "currency": rc.get("currency") or data.get("currency") or "USD",
+                "subscriptionPeriod": rc.get("subscriptionPeriod", 0),
+                "licensePeriod": rc.get("licensePeriod", 0),
+                "githubPeriod": rc.get("githubPeriod", 0),
+                "budgetUsedPercent": rb.get("usedPercent"),
+                "budgetStatus": rb.get("status"),
+                "generatedAt": report.get("generatedAt", ""),
+            }
+            mgr.save_state(prefix, state, version=False)
+        except Exception as exc:
+            report.setdefault("notes", []).append(f"Could not persist cost inputs: {exc}")
+
     return jsonify(report)
 
 
@@ -884,3 +1454,703 @@ def delete_sharepoint_site(prefix):
         return jsonify(result)
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
+
+
+# ────────────────────── Template Library (Blob Storage) ──────────────────────
+
+_TEMPLATE_BLOB = "_templates/library.json"
+
+
+def _load_templates(mgr) -> list:
+    data = mgr._blob.read_json(_TEMPLATE_BLOB)
+    return data if isinstance(data, list) else []
+
+
+def _save_templates(mgr, templates: list):
+    mgr._blob.write_json(_TEMPLATE_BLOB, templates)
+
+
+@bp.route("/api/templates", methods=["GET"])
+def list_templates():
+    mgr = get_state_manager()
+    if not mgr:
+        return jsonify([])
+    return jsonify(_load_templates(mgr))
+
+
+@bp.route("/api/templates", methods=["POST"])
+def save_template():
+    mgr = get_state_manager()
+    if not mgr:
+        return jsonify({"error": "Storage not configured"}), 503
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()
+    config = data.get("config")
+    if not name or not config:
+        return jsonify({"error": "name and config are required"}), 400
+
+    import uuid
+    templates = _load_templates(mgr)
+    template = {
+        "id": str(uuid.uuid4()),
+        "name": name,
+        "config": config,
+        "created": datetime.now(timezone.utc).isoformat(),
+        "createdBy": data.get("createdBy", ""),
+    }
+    templates.append(template)
+    _save_templates(mgr, templates)
+    return jsonify(template), 201
+
+
+@bp.route("/api/templates/<template_id>", methods=["DELETE"])
+def delete_template(template_id):
+    mgr = get_state_manager()
+    if not mgr:
+        return jsonify({"error": "Storage not configured"}), 503
+    templates = _load_templates(mgr)
+    before = len(templates)
+    templates = [t for t in templates if t.get("id") != template_id]
+    if len(templates) == before:
+        return jsonify({"error": "Template not found"}), 404
+    _save_templates(mgr, templates)
+    return jsonify({"ok": True})
+
+
+# ══════════════════════════════════════════════════════════════════
+# Aggregate cost endpoint — callable from Power Automate / external
+# ══════════════════════════════════════════════════════════════════
+
+def _discover_hack_subscriptions(creds, state, prefix):
+    """Discover subscription IDs for a hack via RBAC lookups (always live)."""
+    # 1. Try group-RBAC discovery
+    hack_groups = state.get("groups") or []
+    group_ids = [
+        g.get("id") for g in hack_groups
+        if isinstance(g, dict) and g.get("id")
+    ]
+    if not group_ids:
+        try:
+            enriched = asyncio.run(
+                _async_resolve_group_ids_by_prefix(*creds, prefix=prefix)
+            )
+            group_ids = [g["id"] for g in enriched if g.get("id")]
+        except Exception:
+            group_ids = []
+
+    if group_ids:
+        try:
+            resolved, _ = asyncio.run(
+                _async_resolve_subs_from_groups(*creds, group_ids=group_ids)
+            )
+            if resolved:
+                return resolved
+        except Exception:
+            pass
+
+    # 2. Try user-RBAC discovery
+    hack_users = state.get("users") or []
+    user_ids = [
+        u.get("userId") or u.get("id")
+        for u in hack_users if isinstance(u, dict)
+    ]
+    user_ids = [str(u).strip() for u in user_ids if u and str(u).strip()]
+    if user_ids:
+        try:
+            resolved, _ = asyncio.run(
+                _async_resolve_subs_from_users(*creds, user_ids=user_ids)
+            )
+            if resolved:
+                return resolved
+        except Exception:
+            pass
+
+    # 3. Fallback: explicit IDs from state
+    sub_ids = (
+        state.get("subscriptionIds")
+        or (state.get("config") or {}).get("subscriptionIds")
+        or []
+    )
+    return [str(s).strip() for s in sub_ids if str(s or "").strip()]
+
+
+def _build_single_hack_card(hack):
+    """Build an Adaptive Card for a single hack's cost data."""
+    cost_str = f"${hack.get('totalCost', 0):,.2f}"
+    subs = hack.get("subscriptions") or []
+    sub_rows = []
+    for s in subs:
+        s_cost = f"${s.get('totalCost', 0):,.2f}"
+        sub_rows.append({
+            "type": "TableRow",
+            "cells": [
+                {"type": "TableCell", "items": [{"type": "TextBlock", "text": s.get("displayName") or s.get("subscriptionId", "")[:12], "size": "Small"}]},
+                {"type": "TableCell", "items": [{"type": "TextBlock", "text": s.get("subscriptionId", "")[:8] + "...", "size": "Small", "isSubtle": True}]},
+                {"type": "TableCell", "items": [{"type": "TextBlock", "text": s_cost, "horizontalAlignment": "Right", "weight": "Bolder", "size": "Small",
+                                                  "color": "Attention" if s.get("totalCost", 0) > 200 else "Good" if s.get("totalCost", 0) > 0 else "Default"}]},
+            ],
+        })
+
+    body = [
+        {
+            "type": "ColumnSet",
+            "columns": [
+                {"type": "Column", "width": "auto", "items": [{"type": "TextBlock", "text": "💰", "size": "Large"}]},
+                {"type": "Column", "width": "stretch", "items": [
+                    {"type": "TextBlock", "text": hack.get("hackName", ""), "weight": "Bolder", "size": "Medium"},
+                    {"type": "TextBlock", "text": f"Prefix: {hack.get('prefix', '')}  •  {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}", "size": "Small", "isSubtle": True, "spacing": "None"},
+                ]},
+            ],
+        },
+        {
+            "type": "ColumnSet",
+            "separator": True,
+            "spacing": "Medium",
+            "columns": [
+                {"type": "Column", "width": "stretch", "items": [
+                    {"type": "TextBlock", "text": cost_str, "weight": "Bolder", "size": "ExtraLarge", "color": "Attention" if hack.get("totalCost", 0) > 500 else "Good" if hack.get("totalCost", 0) > 0 else "Default"},
+                    {"type": "TextBlock", "text": "Total Cost", "size": "Small", "isSubtle": True, "spacing": "None"},
+                ]},
+                {"type": "Column", "width": "auto", "items": [
+                    {"type": "TextBlock", "text": str(hack.get("totalUsers", 0)), "weight": "Bolder", "size": "Large", "horizontalAlignment": "Center"},
+                    {"type": "TextBlock", "text": "Users", "size": "Small", "isSubtle": True, "spacing": "None", "horizontalAlignment": "Center"},
+                ]},
+                {"type": "Column", "width": "auto", "items": [
+                    {"type": "TextBlock", "text": str(len(subs)), "weight": "Bolder", "size": "Large", "horizontalAlignment": "Center"},
+                    {"type": "TextBlock", "text": "Subs", "size": "Small", "isSubtle": True, "spacing": "None", "horizontalAlignment": "Center"},
+                ]},
+            ],
+        },
+    ]
+
+    if sub_rows:
+        body.append({
+            "type": "Table",
+            "separator": True,
+            "spacing": "Medium",
+            "gridStyle": "accent",
+            "firstRowAsHeader": True,
+            "showGridLines": True,
+            "columns": [{"width": 2}, {"width": 1}, {"width": 1}],
+            "rows": [
+                {
+                    "type": "TableRow",
+                    "style": "accent",
+                    "cells": [
+                        {"type": "TableCell", "items": [{"type": "TextBlock", "text": "Subscription", "weight": "Bolder", "size": "Small"}]},
+                        {"type": "TableCell", "items": [{"type": "TextBlock", "text": "ID", "weight": "Bolder", "size": "Small"}]},
+                        {"type": "TableCell", "items": [{"type": "TextBlock", "text": "Cost", "weight": "Bolder", "size": "Small", "horizontalAlignment": "Right"}]},
+                    ],
+                },
+                *sub_rows,
+            ],
+        })
+
+    # Add date range footer
+    body.append({
+        "type": "TextBlock",
+        "text": f"Period: {hack.get('startDate', '?')} → {hack.get('endDate', '?')}",
+        "size": "Small",
+        "isSubtle": True,
+        "separator": True,
+        "spacing": "Medium",
+    })
+
+    # Show warning if some subs failed
+    if hack.get("costWarning"):
+        body.append({
+            "type": "TextBlock",
+            "text": f"⚠️ {hack['costWarning']}",
+            "size": "Small",
+            "color": "Warning",
+            "spacing": "Small",
+        })
+
+    return {
+        "type": "AdaptiveCard",
+        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+        "version": "1.5",
+        "body": body,
+    }
+
+
+def _build_cost_adaptive_card(results, totals):
+    """Build a Teams Adaptive Card with a table of hack costs."""
+    rows = []
+    for h in results:
+        cost_str = f"${h['totalCost']:,.2f}" if h.get("totalCost") else "$0.00"
+        rows.append({
+            "type": "TableRow",
+            "cells": [
+                {"type": "TableCell", "items": [{"type": "TextBlock", "text": h.get("hackName", ""), "weight": "Bolder", "size": "Small"}]},
+                {"type": "TableCell", "items": [{"type": "TextBlock", "text": h.get("prefix", ""), "size": "Small", "color": "Accent"}]},
+                {"type": "TableCell", "items": [{"type": "TextBlock", "text": str(h.get("totalUsers", 0)), "horizontalAlignment": "Right", "size": "Small"}]},
+                {"type": "TableCell", "items": [{"type": "TextBlock", "text": str(len(h.get("subscriptions", []))), "horizontalAlignment": "Right", "size": "Small"}]},
+                {"type": "TableCell", "items": [{"type": "TextBlock", "text": cost_str, "horizontalAlignment": "Right", "weight": "Bolder", "size": "Small",
+                                                  "color": "Attention" if h.get("totalCost", 0) > 500 else "Good" if h.get("totalCost", 0) > 0 else "Default"}]},
+            ],
+        })
+
+    card = {
+        "type": "AdaptiveCard",
+        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+        "version": "1.5",
+        "body": [
+            {
+                "type": "ColumnSet",
+                "columns": [
+                    {"type": "Column", "width": "auto", "items": [{"type": "TextBlock", "text": "💰", "size": "Large"}]},
+                    {"type": "Column", "width": "stretch", "items": [
+                        {"type": "TextBlock", "text": "HackOps Daily Cost Report", "weight": "Bolder", "size": "Medium"},
+                        {"type": "TextBlock", "text": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"), "size": "Small", "isSubtle": True, "spacing": "None"},
+                    ]},
+                ],
+            },
+            {
+                "type": "ColumnSet",
+                "separator": True,
+                "spacing": "Medium",
+                "columns": [
+                    {"type": "Column", "width": "stretch", "items": [
+                        {"type": "TextBlock", "text": f"${totals['totalCost']:,.2f}", "weight": "Bolder", "size": "ExtraLarge", "color": "Attention"},
+                        {"type": "TextBlock", "text": "Grand Total", "size": "Small", "isSubtle": True, "spacing": "None"},
+                    ]},
+                    {"type": "Column", "width": "auto", "items": [
+                        {"type": "TextBlock", "text": str(totals.get("hackCount", 0)), "weight": "Bolder", "size": "Large", "horizontalAlignment": "Center"},
+                        {"type": "TextBlock", "text": "Hacks", "size": "Small", "isSubtle": True, "spacing": "None", "horizontalAlignment": "Center"},
+                    ]},
+                    {"type": "Column", "width": "auto", "items": [
+                        {"type": "TextBlock", "text": str(totals.get("subscriptionCount", 0)), "weight": "Bolder", "size": "Large", "horizontalAlignment": "Center"},
+                        {"type": "TextBlock", "text": "Subscriptions", "size": "Small", "isSubtle": True, "spacing": "None", "horizontalAlignment": "Center"},
+                    ]},
+                ],
+            },
+            {
+                "type": "Table",
+                "separator": True,
+                "spacing": "Medium",
+                "gridStyle": "accent",
+                "firstRowAsHeader": True,
+                "showGridLines": True,
+                "columns": [
+                    {"width": 2}, {"width": 1}, {"width": 1}, {"width": 1}, {"width": 1},
+                ],
+                "rows": [
+                    {
+                        "type": "TableRow",
+                        "style": "accent",
+                        "cells": [
+                            {"type": "TableCell", "items": [{"type": "TextBlock", "text": "Hack Name", "weight": "Bolder", "size": "Small"}]},
+                            {"type": "TableCell", "items": [{"type": "TextBlock", "text": "Prefix", "weight": "Bolder", "size": "Small"}]},
+                            {"type": "TableCell", "items": [{"type": "TextBlock", "text": "Users", "weight": "Bolder", "size": "Small", "horizontalAlignment": "Right"}]},
+                            {"type": "TableCell", "items": [{"type": "TextBlock", "text": "Subs", "weight": "Bolder", "size": "Small", "horizontalAlignment": "Right"}]},
+                            {"type": "TableCell", "items": [{"type": "TextBlock", "text": "Cost", "weight": "Bolder", "size": "Small", "horizontalAlignment": "Right"}]},
+                        ],
+                    },
+                    *rows,
+                ],
+            },
+        ],
+    }
+    return card
+
+
+@bp.route("/api/costs/all-hacks", methods=["POST"])
+def all_hacks_cost_report():
+    """Return live cost data for all active hacks + Adaptive Card for Teams.
+
+    Always fetches fresh costs from Azure Cost Management API (never cached).
+    Auto-discovers subscriptions via group-RBAC → user-RBAC → state fallback.
+
+    Body JSON:
+        tenant_id, client_id, client_secret   — required
+        startDate, endDate                     — optional date range override
+        includeArchived                        — optional bool (default false)
+
+    Returns:
+        { hacks: [...], totals: {...}, teamsCard: {Adaptive Card JSON} }
+    """
+    data = request.get_json(silent=True) or {}
+    creds = extract_creds(data)
+    if not creds:
+        return jsonify({"error": "SPN credentials required (tenant_id, client_id, client_secret)"}), 400
+
+    mgr = get_state_manager()
+    if not mgr:
+        return jsonify({"error": "Storage not configured"}), 503
+
+    # Collect all hacks
+    hacks = mgr.list_hacks()
+    if data.get("includeArchived"):
+        hacks += mgr.list_archived_hacks()
+
+    if not hacks:
+        return jsonify({"hacks": [], "totals": {"totalCost": 0, "hackCount": 0, "subscriptionCount": 0}, "teamsCard": {}})
+
+    # ── Phase 1: One-shot SPN-wide subscription discovery ──
+    # Instead of per-hack RBAC lookups (slow: 2-3 API calls each),
+    # list all SPN-accessible subs once and use for all hacks.
+    try:
+        spn_subs = asyncio.run(_async_list_accessible_subscriptions(*creds))
+    except Exception:
+        spn_subs = []
+    name_map = {s_["subscriptionId"]: s_.get("displayName", "") for s_ in spn_subs}
+    spn_sub_ids = [s_["subscriptionId"] for s_ in spn_subs]
+
+    hack_infos_raw = []  # list of (prefix, state, start_date, end_date, group_ids, state_sub_ids)
+    all_group_ids: set = set()
+
+    global_start = None
+    global_end = None
+
+    for hack_summary in hacks:
+        prefix = hack_summary.get("prefix", "")
+        if not prefix:
+            continue
+        state = mgr.get_state(prefix)
+        if not state:
+            continue
+
+        start_date, end_date = _state_report_date_range(state)
+        if data.get("startDate"):
+            start_date = data["startDate"]
+        if data.get("endDate"):
+            end_date = data["endDate"]
+
+        if global_start is None or start_date < global_start:
+            global_start = start_date
+        if global_end is None or end_date > global_end:
+            global_end = end_date
+
+        # Check state-stored sub IDs first
+        state_sub_ids = (
+            state.get("subscriptionIds")
+            or (state.get("config") or {}).get("subscriptionIds")
+            or []
+        )
+        state_sub_ids = [str(s).strip() for s in state_sub_ids if str(s or "").strip()]
+
+        # Collect group IDs for batched RBAC discovery (only if no stored subs)
+        hack_group_ids = []
+        if not state_sub_ids:
+            for g in (state.get("groups") or []):
+                gid = g.get("id") if isinstance(g, dict) else None
+                if gid:
+                    hack_group_ids.append(gid)
+                    all_group_ids.add(gid)
+
+        hack_infos_raw.append((prefix, state, start_date, end_date, hack_group_ids, state_sub_ids))
+
+    # ── Phase 1b: Single batched group-RBAC discovery for all hacks ──
+    # One API call per unique group (parallel), instead of per-hack discovery.
+    group_to_subs: dict = {}
+    if all_group_ids:
+        try:
+            _, group_to_subs = asyncio.run(
+                _async_resolve_subs_from_groups(*creds, group_ids=list(all_group_ids))
+            )
+        except Exception as exc:
+            logger.warning("all-hacks-cost.group-rbac-failed", error=str(exc)[:200])
+
+    # ── Phase 1c: Assign subs to each hack ──
+    hack_infos = []
+    all_unique_subs: set = set()
+
+    for prefix, state, start_date, end_date, hack_group_ids, state_sub_ids in hack_infos_raw:
+        if state_sub_ids:
+            sub_ids = state_sub_ids
+        elif hack_group_ids:
+            # Union subs from this hack's groups
+            sub_ids = list({
+                sid for gid in hack_group_ids
+                for sid in (group_to_subs.get(gid) or [])
+            })
+        else:
+            sub_ids = []
+
+        all_unique_subs.update(sub_ids)
+        hack_infos.append((prefix, state, sub_ids, start_date, end_date))
+
+    # ── Phase 2: Single batched cost query for ALL unique subscriptions ──
+    cost_by_sub: dict = {}  # subscriptionId → {totalCost, currency, displayName}
+    import time as _time
+    _t0 = _time.monotonic()
+    _phase1_ms = round((_t0 - _t0) * 1000)  # placeholder, real timing below
+
+    if all_unique_subs and global_start and global_end:
+        logger.info("all-hacks-cost.fetching", subs=len(all_unique_subs),
+                    start=global_start, end=global_end)
+        _t1 = _time.monotonic()
+        try:
+            cost_rows = asyncio.run(_async_fetch_subscription_costs(
+                *creds,
+                subscription_ids=list(all_unique_subs),
+                start_date=global_start,
+                end_date=global_end,
+            ))
+            for row in cost_rows:
+                sid = row.get("subscriptionId", "")
+                # cost_service returns "cost" not "totalCost"
+                cost_by_sub[sid] = {
+                    "totalCost": row.get("cost") or row.get("totalCost") or 0,
+                    "currency": row.get("currency", "USD"),
+                    "displayName": row.get("displayName") or name_map.get(sid, sid),
+                    "error": row.get("error", ""),
+                }
+        except Exception as exc:
+            logger.warning("all-hacks-cost.batch-fetch-failed", error=str(exc)[:200])
+        _cost_fetch_ms = round((_time.monotonic() - _t1) * 1000)
+    else:
+        _cost_fetch_ms = 0
+
+    # ── Phase 3: Distribute costs to each hack ──
+    results = []
+    grand_total = 0.0
+    all_sub_ids: set = set()
+
+    for prefix, state, sub_ids, start_date, end_date in hack_infos:
+        hack_result = {
+            "prefix": prefix,
+            "hackName": state.get("hackName") or prefix,
+            "totalUsers": state.get("totalUsers", 0),
+            "startDate": start_date,
+            "endDate": end_date,
+            "subscriptions": [],
+            "totalCost": 0,
+            "currency": "USD",
+        }
+
+        hack_cost = 0.0
+        for sid in sub_ids:
+            cost_info = cost_by_sub.get(sid, {})
+            cost = cost_info.get("totalCost", 0)
+            hack_cost += cost
+            all_sub_ids.add(sid)
+            hack_result["subscriptions"].append({
+                "subscriptionId": sid,
+                "displayName": cost_info.get("displayName") or name_map.get(sid, sid),
+                "totalCost": round(cost, 2),
+                "currency": cost_info.get("currency", "USD"),
+            })
+        hack_result["totalCost"] = round(hack_cost, 2)
+        grand_total += hack_cost
+        results.append(hack_result)
+
+    totals = {
+        "totalCost": round(grand_total, 2),
+        "hackCount": len(results),
+        "subscriptionCount": len(all_sub_ids),
+        "currency": "USD",
+    }
+
+    _total_ms = round((_time.monotonic() - _t0) * 1000)
+    logger.info("all-hacks-cost.done", total_ms=_total_ms, cost_fetch_ms=_cost_fetch_ms,
+                hacks=len(results), subs=len(all_sub_ids), grand_total=round(grand_total, 2))
+
+    return jsonify({
+        "hacks": results,
+        "totals": totals,
+        "teamsCard": _build_cost_adaptive_card(results, totals),
+        "_debug": {
+            "totalMs": _total_ms,
+            "costFetchMs": _cost_fetch_ms,
+            "uniqueSubsQueried": len(all_unique_subs),
+            "globalDateRange": [global_start, global_end],
+        },
+    })
+
+
+@bp.route("/api/costs/all-hacks/teams-card", methods=["POST"])
+def all_hacks_cost_teams_card():
+    """Return ONLY the Adaptive Card JSON — for Power Automate direct use.
+
+    Same inputs as /api/costs/all-hacks.  Response body IS the card.
+    In Power Automate, just use the Body dynamic content token directly.
+    """
+    resp = all_hacks_cost_report()
+    data = resp.get_json() if hasattr(resp, "get_json") else resp[0].get_json()
+    if "error" in data:
+        return jsonify(data), resp.status_code if hasattr(resp, "status_code") else 400
+    return jsonify(data.get("teamsCard", {}))
+
+
+# ── Chunked cost endpoints (for Power Automate loop pattern) ─────────────
+
+@bp.route("/api/costs/hack-list", methods=["POST"])
+def cost_hack_list():
+    """Return lightweight list of all hacks — no cost queries.
+
+    Body JSON: tenant_id, client_id, client_secret
+    Returns: { hacks: [ { prefix, hackName, totalUsers, startDate, endDate } ] }
+    """
+    data = request.get_json(silent=True) or {}
+    creds = extract_creds(data)
+    if not creds:
+        return jsonify({"error": "SPN credentials required"}), 400
+
+    mgr = get_state_manager()
+    if not mgr:
+        return jsonify({"error": "Storage not configured"}), 503
+
+    # Only active hacks — exclude archived
+    hacks = mgr.list_hacks()
+    result = []
+    for h in hacks:
+        prefix = h.get("prefix", "")
+        if not prefix:
+            continue
+        state = mgr.get_state(prefix)
+        if not state:
+            continue
+        # Skip archived / deleted hacks
+        status = (state.get("status") or "").lower()
+        if status in ("archived", "deleted"):
+            continue
+        start_date, end_date = _state_report_date_range(state)
+        result.append({
+            "prefix": prefix,
+            "hackName": state.get("hackName") or prefix,
+            "totalUsers": state.get("totalUsers", 0),
+            "startDate": start_date,
+            "endDate": end_date,
+        })
+    return jsonify({"hacks": result})
+
+
+@bp.route("/api/costs/hack/<prefix>", methods=["POST"])
+def cost_single_hack(prefix):
+    """Fetch live cost for ONE hack — auto-discovers subs via group RBAC.
+
+    Body JSON: tenant_id, client_id, client_secret, startDate?, endDate?
+    Returns: { prefix, hackName, totalUsers, totalCost, currency, subscriptions: [...] }
+    """
+    data = request.get_json(silent=True) or {}
+    creds = extract_creds(data)
+    if not creds:
+        return jsonify({"error": "SPN credentials required"}), 400
+
+    mgr = get_state_manager()
+    if not mgr:
+        return jsonify({"error": "Storage not configured"}), 503
+
+    state = mgr.get_state(prefix)
+    if not state:
+        return jsonify({"error": f"No state for prefix '{prefix}'"}), 404
+
+    start_date, end_date = _state_report_date_range(state)
+    if data.get("startDate"):
+        start_date = data["startDate"]
+    if data.get("endDate"):
+        end_date = data["endDate"]
+
+    # Discover subscriptions: state → group-RBAC → empty
+    sub_ids = (
+        state.get("subscriptionIds")
+        or (state.get("config") or {}).get("subscriptionIds")
+        or []
+    )
+    sub_ids = [str(s).strip() for s in sub_ids if str(s or "").strip()]
+
+    if not sub_ids:
+        group_ids = [
+            g.get("id") for g in (state.get("groups") or [])
+            if isinstance(g, dict) and g.get("id")
+        ]
+        if group_ids:
+            try:
+                resolved, _ = asyncio.run(
+                    _async_resolve_subs_from_groups(*creds, group_ids=group_ids)
+                )
+                sub_ids = resolved
+            except Exception:
+                pass
+
+    hack_result = {
+        "prefix": prefix,
+        "hackName": state.get("hackName") or prefix,
+        "totalUsers": state.get("totalUsers", 0),
+        "startDate": start_date,
+        "endDate": end_date,
+        "subscriptions": [],
+        "totalCost": 0,
+        "currency": "USD",
+    }
+
+    if sub_ids:
+        try:
+            # Get display names
+            try:
+                spn_subs = asyncio.run(_async_list_accessible_subscriptions(*creds))
+                name_map = {s_["subscriptionId"]: s_.get("displayName", "") for s_ in spn_subs}
+            except Exception:
+                name_map = {}
+
+            cost_rows = asyncio.run(_async_fetch_subscription_costs(
+                *creds,
+                subscription_ids=sub_ids,
+                start_date=start_date,
+                end_date=end_date,
+            ))
+            hack_cost = 0.0
+            errors = 0
+            for row in cost_rows:
+                sid = row.get("subscriptionId", "")
+                cost = row.get("cost") or row.get("totalCost") or 0
+                if row.get("error"):
+                    errors += 1
+                hack_cost += cost
+                hack_result["subscriptions"].append({
+                    "subscriptionId": sid,
+                    "displayName": row.get("displayName") or name_map.get(sid, sid),
+                    "totalCost": round(cost, 2),
+                    "currency": row.get("currency", "USD"),
+                    "error": row.get("error", ""),
+                })
+            hack_result["totalCost"] = round(hack_cost, 2)
+            if errors:
+                hack_result["costErrors"] = errors
+                hack_result["costWarning"] = f"{errors}/{len(cost_rows)} subs failed — cost may be incomplete"
+        except Exception as exc:
+            hack_result["error"] = str(exc)[:300]
+
+    # Build a per-hack Adaptive Card so PA can post one card per hack
+    hack_result["teamsCard"] = _build_single_hack_card(hack_result)
+    return jsonify(hack_result)
+
+
+@bp.route("/api/costs/hack/<prefix>/card", methods=["POST"])
+def cost_single_hack_card(prefix):
+    """Return ONLY the Adaptive Card for one hack — body IS the card.
+
+    In Power Automate, just use the Body dynamic content token directly.
+    """
+    resp = cost_single_hack(prefix)
+    data = resp.get_json() if hasattr(resp, "get_json") else {}
+    if "error" in data and "teamsCard" not in data:
+        return jsonify(data), 400
+    return jsonify(data.get("teamsCard", {}))
+
+
+@bp.route("/api/costs/build-card", methods=["POST"])
+def cost_build_card():
+    """Build an Adaptive Card from collected hack cost results.
+
+    Body JSON: { hacks: [ { prefix, hackName, totalUsers, totalCost, subscriptions } ] }
+    Returns: The Adaptive Card JSON (body IS the card).
+    """
+    data = request.get_json(silent=True) or {}
+    hacks = data.get("hacks") or []
+
+    grand_total = sum(h.get("totalCost", 0) for h in hacks)
+    all_subs = set()
+    for h in hacks:
+        for s in (h.get("subscriptions") or []):
+            all_subs.add(s.get("subscriptionId", ""))
+
+    totals = {
+        "totalCost": round(grand_total, 2),
+        "hackCount": len(hacks),
+        "subscriptionCount": len(all_subs),
+        "currency": "USD",
+    }
+    return jsonify(_build_cost_adaptive_card(hacks, totals))

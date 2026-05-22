@@ -1,0 +1,25 @@
+{
+  "name": "hackathon-platform",
+  "image": "mcr.microsoft.com/devcontainers/python:3.11",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "ghcr.io/devcontainers/features/azure-cli:1": {},
+    "ghcr.io/devcontainers/features/node:1": { "version": "lts" }
+  },
+  "postCreateCommand": "pip install -e '.[dev]'",
+  "forwardPorts": [4280, 8000, 5432],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-azuretools.vscode-docker",
+        "ms-vscode.azure-account"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "python.testing.pytestEnabled": true
+      }
+    }
+  }
+}
